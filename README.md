@@ -43,12 +43,14 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 | Windows  | ✅  | ✅   | ✅ |
 | Linux (Debian-based) | ❌  | ✅   | ✅ |
 | Mac OS   | ❌ | ❌  | ❌ |
+| Docker   | ❌ | ❌  | ❌ |
 * ❌ not tested 
 ### Platform notes
 
 - **Windows**: Tested on **Windows 11** but should work on Windows 10 and other versions
 - **Linux**: Only **Debian-based** distributions are supported (Ubuntu, Debian, Linux Mint, KDE Neon, Pop!_OS, etc.). Other distributions (Arch, Fedora, etc.) have not been tested and may require additional setup
 - **Mac**: Mac OS has not been tested with this GUI patch. 
+- **Docker**: Not tested
 
 ### Python version
 
