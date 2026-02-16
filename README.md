@@ -47,6 +47,14 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 
 - **Windows**: Tested on **Windows 11** but should work on Windows 10 and other versions
 - **Linux**: Only **Debian-based** distributions are supported (Ubuntu, Debian, Linux Mint, KDE Neon, Pop!_OS, etc.). Other distributions (Arch, Fedora, etc.) have not been tested and may require additional setup
+- **Mac**: Mac OS has not been tested with this GUI patch. 
+
+### Python version
+
+- **Supported**: Python **3.11.x** and **3.12.x**
+- **Recommended**: Python **3.11.6** ([download here](https://www.python.org/downloads/release/python-3116/))
+- Python versions below 3.11 or 3.13+ are **not supported** and may cause issues with OF-Scraper or this patch
+- The patch script will warn you if an unsupported Python version is detected
 
 ## How it detects your installation
 
