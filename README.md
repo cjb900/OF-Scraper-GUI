@@ -115,4 +115,4 @@ ofscraper --gui
 - A backup of all modified files is saved to your system temp directory before patching
 - The `--restore` flag can undo the patch using any previous backup
 - PyQt6 is installed automatically via the same package manager used for OF-Scraper (pip/pipx inject/uv)
-- This was created with the help of AI and has been tested to the best of my ability
+- This was created with the help of AI and has been tested to the best of my ability. I take no responcibility for any damage or loss of data. Baskups are recommended. 
