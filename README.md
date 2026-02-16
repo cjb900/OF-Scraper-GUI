@@ -5,17 +5,17 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 ## Screenshots
 
 
-| Main Window | Authentication |
+| Main Window | Select Content Areas & Filters |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/0ebd1a62-d865-4032-a70b-fb17bad868f1" width="450" alt="GUI Main Window"> | <img src="https://github.com/user-attachments/assets/a0f4a3a6-cdfd-4eec-b89d-b6a6446b920a" width="450" alt="Authentication Page"> |
+| <img src="https://github.com/user-attachments/assets/0ebd1a62-d865-4032-a70b-fb17bad868f1" width="450" alt="GUI Main Window"> | <img src="https://github.com/user-attachments/assets/124624c8-cf8a-4465-a1e4-19b081420577" width="450" alt="Select Content Areas & Filters"> |
 
-| Configuration | Select Content Areas & Filters |
+| Authentication | Configuration |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/358dfa99-2989-40a5-99cc-5cf180f1844c" width="450" alt="Configuration Page"> | <img src="https://github.com/user-attachments/assets/124624c8-cf8a-4465-a1e4-19b081420577" width="450" alt="Select Content Areas & Filters"> |
+| <img src="https://github.com/user-attachments/assets/a0f4a3a6-cdfd-4eec-b89d-b6a6446b920a" width="450" alt="Authentication Page"> | <img src="https://github.com/user-attachments/assets/358dfa99-2989-40a5-99cc-5cf180f1844c" width="450" alt="Configuration Page"> |
 
 | Select Models | Scraper Running |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/093fcaf0-50c6-4218-a30e-369db65578a6" width="450" alt="Select Models"> | <img src="https://github.com/user-attachments/assets/c6cc216f-dc45-4556-89e4-6bd484ad4dbc" width="450" alt="Scraper Running"> |
+| <img src="https://github.com/user-attachments/assets/093fcaf0-50c6-4218-a30e-369db65578a6" width="450" alt="Select Models"> | <img src="https://github.com/user-attachments/assets/f4245ffe-b5d6-42bf-ba6d-93c3ce428763" width="450" alt="Scraper Running"> |
 
 | Profile | Help/README |
 | --- | --- |
