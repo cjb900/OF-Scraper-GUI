@@ -445,6 +445,37 @@ def main() -> int:
         print("Aborted.")
         return 0
 
+    # Check Python version
+    ver = sys.version_info
+    print(f"Python version:  {ver.major}.{ver.minor}.{ver.micro}")
+    if ver < (3, 11) or ver >= (3, 13):
+        print()
+        print("WARNING: Python {}.{}.{} detected.".format(ver.major, ver.minor, ver.micro))
+        print("         OF-Scraper and this GUI patch may not work correctly.")
+        print("         Recommended Python version: 3.11.x or 3.12.x (tested with 3.11.6)")
+        print()
+        while True:
+            answer = input("Open browser to download Python 3.11.6? (yes/no): ").strip().lower()
+            if answer in ("yes", "y"):
+                import webbrowser
+                webbrowser.open("https://www.python.org/downloads/release/python-3116/")
+                print("Browser opened. Install Python 3.11.6, then re-run this script.")
+                return 0
+            if answer in ("no", "n"):
+                break
+            print("Please enter 'yes' or 'no'.")
+
+        while True:
+            answer = input("Continue anyway with Python {}.{}.{}? (yes/no): ".format(
+                ver.major, ver.minor, ver.micro)).strip().lower()
+            if answer in ("yes", "y"):
+                break
+            if answer in ("no", "n"):
+                print("Aborted.")
+                return 0
+            print("Please enter 'yes' or 'no'.")
+        print()
+
     # Detect platform and install method
     plat = platform.system()
     method = _detect_install_method()
