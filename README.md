@@ -122,4 +122,9 @@ ofscraper --gui
 - A backup of all modified files is saved to your system temp directory before patching
 - The `--restore` flag can undo the patch using any previous backup
 - PyQt6 is installed automatically via the same package manager used for OF-Scraper (pip/pipx inject/uv)
-- This was created with the help of AI and has been tested to the best of my ability. I take no responcibility for any damage or loss of data. Baskups are recommended. 
+- This was created with the help of AI and has been tested to the best of my ability. I take no responcibility for any damage or loss of data. Baskups are recommended.
+
+## Disclaimer
+
+1. This tool is not affiliated, associated, or partnered with OnlyFans in any way. We are not authorized, endorsed, or sponsored by OnlyFans. All OnlyFans trademarks remain the property of Fenix International Limited.
+2. This is a theoretical program only and is for educational purposes. If you choose to use it then it may or may not work. You solely accept full responsibility and indemnify the creator, hosts, contributors and all other involved persons from any and all responsibility.
