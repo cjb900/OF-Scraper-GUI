@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(cd:*)",
+      "Bash(cmd.exe /c \"dir /s /b \"\"c:\\\\Users\\\\cjb900\\\\Documents\\\\Coding Stuff\\\\OF-Scraper-3.12.9\\\\.venv\"\" 2>nul | head -5\")",
+      "Bash(cmd.exe:*)",
+      "Bash(python3:*)",
+      "Bash(python -c:*)",
+      "Bash(find:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(pip show:*)",
+      "Bash(poetry show:*)"
+    ]
+  }
+}
