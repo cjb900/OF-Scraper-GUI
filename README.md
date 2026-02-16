@@ -15,7 +15,7 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 
 | Select Models | Scraper Running |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/093fcaf0-50c6-4218-a30e-369db65578a6" width="450" alt="Select Models"> | <img src="https://github.com/user-attachments/assets/f4245ffe-b5d6-42bf-ba6d-93c3ce428763" width="450" alt="Scraper Running"> |
+| <img src="https://github.com/user-attachments/assets/2a272a16-1925-4a9f-8a8d-3aa0a04b4dcd" width="450" alt="Select Models"> | <img src="https://github.com/user-attachments/assets/81ac96d0-f94b-47c0-ada5-0b3f5fb40d4a" width="450" alt="Scraper Running"> |
 
 | Profile | Help/README |
 | --- | --- |
