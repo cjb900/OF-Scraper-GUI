@@ -1,4 +1,4 @@
-# OF-Scraper 3.12.9 GUI Patch
+# Work in progress OF-Scraper 3.12.9 GUI Patch. There may be bugs/issues
 
 A self-contained Python script that patches an installed copy of [OF-Scraper](https://github.com/datawhores/OF-Scraper) v3.12.9 to add a full **PyQt6 GUI** accessible via the `--gui` flag.
 
