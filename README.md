@@ -42,7 +42,8 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 |----------|:---:|:----:|:--:|
 | Windows  | ✅  | ✅   | ✅ |
 | Linux (Debian-based) | ❌  | ✅   | ✅ |
-
+| Mac OS   | ❌ | ❌  | ❌ |
+* ❌ not tested 
 ### Platform notes
 
 - **Windows**: Tested on **Windows 11** but should work on Windows 10 and other versions
