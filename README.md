@@ -4,7 +4,6 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 
 ## Screenshots
 
-> Tip: If these look too large, reduce the `width` values below.
 
 | Main Window | Authentication |
 | --- | --- |
