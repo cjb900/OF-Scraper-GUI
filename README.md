@@ -4,31 +4,24 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 
 ## Screenshots
 
-<!-- Replace these with actual screenshot paths/URLs -->
+> Tip: If these look too large, reduce the `width` values below.
+
 | Main Window | Authentication |
-|:-----------:|:--------------:|
-| ![GUI Main Window](<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/0ebd1a62-d865-4032-a70b-fb17bad868f1" />
-) 
-| ![Authentication Page](<img width="2560" height="1528" alt="image" src="https://github.com/user-attachments/assets/a0f4a3a6-cdfd-4eec-b89d-b6a6446b920a" />
-) |
+| --- | --- |
+| <img src="https://github.com/user-attachments/assets/0ebd1a62-d865-4032-a70b-fb17bad868f1" width="450" alt="GUI Main Window"> | <img src="https://github.com/user-attachments/assets/a0f4a3a6-cdfd-4eec-b89d-b6a6446b920a" width="450" alt="Authentication Page"> |
 
 | Configuration | Select Content Areas & Filters |
-|:-------------:|:-----------:|
-| ![Configuration Page](<img width="1402" height="882" alt="image" src="https://github.com/user-attachments/assets/358dfa99-2989-40a5-99cc-5cf180f1844c" />
-) | ![Select Content Areas & Filters](<img width="2560" height="1528" alt="image" src="https://github.com/user-attachments/assets/124624c8-cf8a-4465-a1e4-19b081420577" />
-) |
+| --- | --- |
+| <img src="https://github.com/user-attachments/assets/358dfa99-2989-40a5-99cc-5cf180f1844c" width="450" alt="Configuration Page"> | <img src="https://github.com/user-attachments/assets/124624c8-cf8a-4465-a1e4-19b081420577" width="450" alt="Select Content Areas & Filters"> |
 
 | Select Models | Scraper Running |
-|:---------------:|:--------:|
-| ![Scraper Running](<img width="2560" height="1528" alt="image" src="https://github.com/user-attachments/assets/093fcaf0-50c6-4218-a30e-369db65578a6" />
-) | ![Scraper Running](<img width="2560" height="1528" alt="image" src="https://github.com/user-attachments/assets/c6cc216f-dc45-4556-89e4-6bd484ad4dbc" />
-) |
+| --- | --- |
+| <img src="https://github.com/user-attachments/assets/093fcaf0-50c6-4218-a30e-369db65578a6" width="450" alt="Select Models"> | <img src="https://github.com/user-attachments/assets/c6cc216f-dc45-4556-89e4-6bd484ad4dbc" width="450" alt="Scraper Running"> |
 
 | Profile | Help/README |
-|:---------------:|:--------:|
-| ![Scraper Running](<img width="2560" height="1528" alt="image" src="https://github.com/user-attachments/assets/03ee5001-6a3f-4bee-8fb8-dd81dd3392b6" />
- ) | ![Help/README] (<img width="2560" height="1528" alt="image" src="https://github.com/user-attachments/assets/54a1ccda-997f-409e-a6f9-1d7799210da3" />
-)
+| --- | --- |
+| <img src="https://github.com/user-attachments/assets/03ee5001-6a3f-4bee-8fb8-dd81dd3392b6" width="450" alt="Profile"> | <img src="https://github.com/user-attachments/assets/54a1ccda-997f-409e-a6f9-1d7799210da3" width="450" alt="Help / README"> |
+
 
 
 ## What it does
@@ -49,7 +42,7 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 | Platform | pip | pipx | uv |
 |----------|:---:|:----:|:--:|
 | Windows  | ✅  | ✅   | ✅ |
-| Linux (Debian-based) | ✅  | ✅   | ✅ |
+| Linux (Debian-based) | ❌  | ✅   | ✅ |
 
 ### Platform notes
 
