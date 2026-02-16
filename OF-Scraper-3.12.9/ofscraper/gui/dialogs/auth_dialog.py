@@ -4,7 +4,7 @@ import platform
 import traceback
 
 from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QFont, QDesktopServices
+from PyQt6.QtGui import QAction, QColor, QFont, QDesktopServices, QIcon, QPainter, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -214,18 +214,24 @@ class AuthPage(QWidget):
             line_edit.setPlaceholderText(f"Enter {label_text}...")
             line_edit.setClearButtonEnabled(True)
             if field_key == "sess":
-                line_edit.setEchoMode(QLineEdit.EchoMode.Password)
+                # Add eye toggle action for showing/hiding the session cookie
+                self._sess_toggle = QAction(self)
+                self._sess_toggle.setIcon(self._make_eye_icon(visible=True))
+                self._sess_toggle.setToolTip("Show/hide session cookie")
+                self._sess_toggle.triggered.connect(self._toggle_sess_visibility)
+                line_edit.addAction(self._sess_toggle, QLineEdit.ActionPosition.TrailingPosition)
             form_layout.addRow(label_text + ":", line_edit)
             self._inputs[field_key] = line_edit
 
         layout.addWidget(form_group)
 
         # Browser import
-        import_group = QGroupBox("Import from Browser")
+        import_group = QGroupBox("Import from Browser *")
         import_inner = QVBoxLayout(import_group)
 
         # Info label
         info_label = QLabel(
+            "* This feature is a work in progress and may not work on all systems.\n"
             "Imports cookies (sess, auth_id) and detects User Agent automatically.\n"
             "X-BC Header must still be entered manually from browser DevTools (F12 > Network tab).\n"
             "Only works with the browser's default profile. The browser must be closed before importing."
@@ -300,6 +306,49 @@ class AuthPage(QWidget):
 
         layout.addLayout(btn_layout)
 
+    @staticmethod
+    def _make_eye_icon(visible: bool = True) -> QIcon:
+        """Create a simple eye icon. visible=True means 'click to show', False means 'click to hide'."""
+        size = 16
+        pm = QPixmap(size, size)
+        pm.fill(QColor(0, 0, 0, 0))  # transparent
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = QColor("#a6adc8") if visible else QColor("#cdd6f4")
+        p.setPen(color)
+        p.setBrush(QColor(0, 0, 0, 0))
+        # Draw eye outline
+        from PyQt6.QtCore import QPointF
+        from PyQt6.QtGui import QPainterPath
+        path = QPainterPath()
+        path.moveTo(1, 8)
+        path.cubicTo(4, 3, 12, 3, 15, 8)
+        path.cubicTo(12, 13, 4, 13, 1, 8)
+        p.drawPath(path)
+        # Draw pupil
+        p.setBrush(color)
+        p.drawEllipse(QPointF(8, 8), 2.5, 2.5)
+        # Draw strike-through line when hidden
+        if visible:
+            p.setPen(QColor("#f38ba8"))
+            p.drawLine(3, 13, 13, 3)
+        p.end()
+        return QIcon(pm)
+
+    def _toggle_sess_visibility(self):
+        """Toggle session cookie field between visible text and dots."""
+        sess = self._inputs.get("sess")
+        if not sess:
+            return
+        if sess.echoMode() == QLineEdit.EchoMode.Password:
+            sess.setEchoMode(QLineEdit.EchoMode.Normal)
+            self._sess_toggle.setIcon(self._make_eye_icon(visible=False))
+            self._sess_toggle.setToolTip("Hide session cookie")
+        else:
+            sess.setEchoMode(QLineEdit.EchoMode.Password)
+            self._sess_toggle.setIcon(self._make_eye_icon(visible=True))
+            self._sess_toggle.setToolTip("Show session cookie")
+
     def _load_auth(self):
         """Load current auth.json values into the form."""
         try:
@@ -312,6 +361,11 @@ class AuthPage(QWidget):
             for field_key, _ in AUTH_FIELDS:
                 value = auth.get(field_key, "")
                 self._inputs[field_key].setText(str(value) if value else "")
+
+            # Mask session cookie after loading
+            sess = self._inputs.get("sess")
+            if sess and sess.text():
+                sess.setEchoMode(QLineEdit.EchoMode.Password)
 
             app_signals.status_message.emit("Auth credentials loaded")
         except Exception as e:
@@ -347,6 +401,11 @@ class AuthPage(QWidget):
             log.info(f"Saving auth to: {auth_path}")
             write_auth(json.dumps(auth))
             log.info(f"Auth saved successfully. Keys with values: {[k for k in required if auth.get(k)]}")
+
+            # Mask session cookie after saving
+            sess = self._inputs.get("sess")
+            if sess and sess.text():
+                sess.setEchoMode(QLineEdit.EchoMode.Password)
 
             app_signals.status_message.emit("Auth credentials saved")
             QMessageBox.information(self, "Saved", "Authentication credentials saved successfully.")
