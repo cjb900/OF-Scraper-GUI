@@ -51,9 +51,15 @@ class AppSignals(QObject):
     daemon_stopped = pyqtSignal()  # emitted when daemon loop is cancelled
     stop_daemon_requested = pyqtSignal()  # UI requests daemon stop
 
+    # Notifications
+    show_notification = pyqtSignal(str, str)  # title, message (system tray toast)
+
     # Status
     status_message = pyqtSignal(str)  # status bar text
     error_occurred = pyqtSignal(str, str)  # title, message
+
+    # Theme
+    theme_changed = pyqtSignal(bool)  # True = dark, False = light
 
 
 # Global signal instance

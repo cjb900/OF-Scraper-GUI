@@ -26,6 +26,14 @@ ACTION_CHOICES = [
     ("Download + Unlike", {"unlike", "download"}),
 ]
 
+_ACTION_TIPS = {
+    "Download content from a user": "Scrape media from selected content areas and build the download table.\nYou can then select items to download from the table.",
+    "Like a selection of a user's posts": "Automatically like posts in the selected content areas for chosen models.",
+    "Unlike a selection of a user's posts": "Automatically unlike previously liked posts in the selected content areas.",
+    "Download + Like": "Scrape and download content, then also like the posts.",
+    "Download + Unlike": "Scrape and download content, then also unlike previously liked posts.",
+}
+
 
 class ActionPage(QWidget):
     """Action selection page — replaces the InquirerPy action prompt."""
@@ -62,6 +70,7 @@ class ActionPage(QWidget):
             radio.setFont(QFont("Segoe UI", 13))
             radio.setStyleSheet("QRadioButton { padding: 8px 4px; }")
             radio.setProperty("actions", actions)
+            radio.setToolTip(_ACTION_TIPS.get(label, ""))
             self._button_group.addButton(radio, i)
             layout.addWidget(radio)
 
@@ -85,6 +94,13 @@ class ActionPage(QWidget):
         btn_layout.addWidget(self.next_btn)
 
         layout.addLayout(btn_layout)
+
+    def reset_to_defaults(self):
+        """Reset action selection to the first option (default)."""
+        first = self._button_group.button(0)
+        if first:
+            first.setChecked(True)
+            self._selected_actions = ACTION_CHOICES[0][1]
 
     def _on_action_changed(self, btn_id):
         if 0 <= btn_id < len(ACTION_CHOICES):

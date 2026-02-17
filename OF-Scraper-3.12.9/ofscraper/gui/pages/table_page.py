@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.console_log import ConsoleLogWidget
 from ofscraper.gui.widgets.data_table import MediaDataTable
 from ofscraper.gui.widgets.progress_panel import ProgressSummaryBar
@@ -22,6 +23,13 @@ from ofscraper.gui.widgets.styled_button import StyledButton
 
 log = logging.getLogger("shared")
 
+def _help_btn_qss():
+    return (
+        f"QToolButton {{ border: 1px solid {c('surface1')}; border-radius: 9px;"
+        f" background-color: {c('surface0')}; color: {c('text')}; font-weight: bold; }}"
+        f" QToolButton:hover {{ border-color: {c('blue')}; background-color: {c('surface1')}; }}"
+    )
+
 def _make_help_btn(anchor: str) -> QToolButton:
     b = QToolButton()
     b.setText("?")
@@ -29,21 +37,7 @@ def _make_help_btn(anchor: str) -> QToolButton:
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.setAutoRaise(True)
     b.setFixedSize(18, 18)
-    b.setStyleSheet(
-        """
-        QToolButton {
-            border: 1px solid #45475a;
-            border-radius: 9px;
-            background-color: #313244;
-            color: #cdd6f4;
-            font-weight: bold;
-        }
-        QToolButton:hover {
-            border-color: #89b4fa;
-            background-color: #45475a;
-        }
-        """
-    )
+    b.setStyleSheet(_help_btn_qss())
     b.clicked.connect(lambda: app_signals.help_anchor_requested.emit(anchor))
     return b
 
@@ -57,6 +51,7 @@ class TablePage(QWidget):
         self.manager = manager
         self._scrape_active = False
         self._pending_new_scrape_nav = False
+        self._pending_reset = False
         self._setup_ui()
         self._connect_signals()
 
@@ -91,9 +86,9 @@ class TablePage(QWidget):
         layout.setSpacing(0)
 
         # -- Top toolbar --
-        toolbar = QWidget()
+        self._toolbar = toolbar = QWidget()
         toolbar.setFixedHeight(48)
-        toolbar.setStyleSheet("background-color: #181825;")
+        toolbar.setStyleSheet(f"background-color: {c('mantle')};")
         toolbar_layout = QHBoxLayout(toolbar)
         toolbar_layout.setContentsMargins(12, 4, 12, 4)
 
@@ -110,12 +105,6 @@ class TablePage(QWidget):
         toolbar_layout.addWidget(self.reset_btn)
 
         self.filter_btn = StyledButton("Apply Filters", primary=True)
-        self.filter_btn.setStyleSheet(
-            "QPushButton { background-color: #89b4fa; color: #1e1e2e;"
-            " font-weight: bold; border: none; border-radius: 6px;"
-            " padding: 6px 16px; }"
-            " QPushButton:hover { background-color: #74c7ec; }"
-        )
         self.filter_btn.clicked.connect(self._on_filter)
         toolbar_layout.addWidget(self.filter_btn)
 
@@ -124,37 +113,17 @@ class TablePage(QWidget):
         self.start_scraping_btn = StyledButton("Start Scraping >>", primary=True)
         self.start_scraping_btn.setFixedHeight(36)
         self.start_scraping_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
-        self.start_scraping_btn.setStyleSheet(
-            "QPushButton { background-color: #a6e3a1; color: #1e1e2e;"
-            " font-weight: bold; border: none; border-radius: 6px;"
-            " padding: 6px 20px; }"
-            " QPushButton:hover { background-color: #94e2d5; }"
-            " QPushButton:disabled { background-color: #45475a; color: #6c7086; }"
-        )
         self.start_scraping_btn.clicked.connect(self._on_start_scraping)
         toolbar_layout.addWidget(self.start_scraping_btn)
 
         self.new_scrape_btn = StyledButton("New Scrape")
         self.new_scrape_btn.setFixedHeight(36)
-        self.new_scrape_btn.setStyleSheet(
-            "QPushButton { background-color: #cba6f7; color: #1e1e2e;"
-            " font-weight: bold; border: none; border-radius: 6px;"
-            " padding: 6px 16px; }"
-            " QPushButton:hover { background-color: #b4befe; }"
-        )
         self.new_scrape_btn.clicked.connect(self._on_new_scrape)
-        # Always visible; clicking during an active scrape will prompt to cancel.
         toolbar_layout.addWidget(self.new_scrape_btn)
 
         # Stop Daemon button (hidden until daemon is running)
         self.stop_daemon_btn = StyledButton("Stop Daemon")
         self.stop_daemon_btn.setFixedHeight(36)
-        self.stop_daemon_btn.setStyleSheet(
-            "QPushButton { background-color: #f38ba8; color: #1e1e2e;"
-            " font-weight: bold; border: none; border-radius: 6px;"
-            " padding: 6px 16px; }"
-            " QPushButton:hover { background-color: #eba0ac; }"
-        )
         self.stop_daemon_btn.clicked.connect(self._on_stop_daemon)
         self.stop_daemon_btn.hide()
         toolbar_layout.addWidget(self.stop_daemon_btn)
@@ -164,7 +133,6 @@ class TablePage(QWidget):
         # Daemon countdown label (hidden until daemon is waiting)
         self.daemon_status_label = QLabel("")
         self.daemon_status_label.setFont(QFont("Segoe UI", 10))
-        self.daemon_status_label.setStyleSheet("color: #f9e2af;")
         self.daemon_status_label.hide()
         toolbar_layout.addWidget(self.daemon_status_label)
 
@@ -187,12 +155,6 @@ class TablePage(QWidget):
         toolbar_layout.addSpacing(12)
 
         self.send_btn = StyledButton(">> Send Downloads", primary=True)
-        self.send_btn.setStyleSheet(
-            "QPushButton { background-color: #fab387; color: #1e1e2e;"
-            " font-weight: bold; border: none; border-radius: 6px;"
-            " padding: 6px 16px; }"
-            " QPushButton:hover { background-color: #f9e2af; }"
-        )
         self.send_btn.clicked.connect(self._on_send_downloads)
         toolbar_layout.addWidget(self.send_btn)
 
@@ -233,9 +195,9 @@ class TablePage(QWidget):
         layout.addWidget(content_splitter)
 
         # -- Status info at bottom --
-        status_bar = QWidget()
+        self._status_bar_widget = status_bar = QWidget()
         status_bar.setFixedHeight(34)
-        status_bar.setStyleSheet("background-color: #181825;")
+        status_bar.setStyleSheet(f"background-color: {c('mantle')};")
         status_layout = QHBoxLayout(status_bar)
         status_layout.setContentsMargins(12, 2, 12, 2)
         status_layout.setSpacing(10)
@@ -259,6 +221,46 @@ class TablePage(QWidget):
 
         layout.addWidget(status_bar)
 
+        # Apply themed styles (must be after all widgets are created)
+        self._apply_toolbar_theme()
+
+    def _apply_toolbar_theme(self):
+        """Apply themed colors to toolbar buttons and bars."""
+        base = c('base')
+        self._toolbar.setStyleSheet(f"background-color: {c('mantle')};")
+        self._status_bar_widget.setStyleSheet(f"background-color: {c('mantle')};")
+        self.filter_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('blue')}; color: {base};"
+            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
+            f" QPushButton:hover {{ background-color: {c('sky')}; }}"
+        )
+        self.start_scraping_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('green')}; color: {base};"
+            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 20px; }}"
+            f" QPushButton:hover {{ background-color: {c('teal')}; }}"
+            f" QPushButton:disabled {{ background-color: {c('surface1')}; color: {c('muted')}; }}"
+        )
+        self.new_scrape_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('mauve')}; color: {base};"
+            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
+            f" QPushButton:hover {{ background-color: {c('lavender')}; }}"
+        )
+        self.stop_daemon_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('red')}; color: {base};"
+            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
+            f" QPushButton:hover {{ background-color: {c('peach')}; }}"
+        )
+        self.daemon_status_label.setStyleSheet(f"color: {c('yellow')};")
+        self.send_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('peach')}; color: {base};"
+            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
+            f" QPushButton:hover {{ background-color: {c('yellow')}; }}"
+        )
+        # Update help buttons
+        for btn in self.findChildren(QToolButton):
+            if btn.text() == "?":
+                btn.setStyleSheet(_help_btn_qss())
+
     def _connect_signals(self):
         self.data_table.cart_count_changed.connect(self._on_cart_count_changed)
         self.data_table.cell_filter_requested.connect(
@@ -268,6 +270,7 @@ class TablePage(QWidget):
         app_signals.daemon_next_run.connect(self._on_daemon_countdown)
         app_signals.daemon_run_starting.connect(self._on_daemon_run_starting)
         app_signals.daemon_stopped.connect(self._on_daemon_stopped)
+        app_signals.theme_changed.connect(lambda _: self._apply_toolbar_theme())
 
     def _toggle_sidebar(self, checked):
         self.sidebar.setVisible(checked)
@@ -420,6 +423,9 @@ class TablePage(QWidget):
         # scraper actually finishes/cancels, then reset UI and navigate.
         if self._pending_new_scrape_nav:
             self._pending_new_scrape_nav = False
+            if self._pending_reset:
+                self._pending_reset = False
+                self._reset_all_pages()
             self._reset_scrape_controls()
             self._navigate_to_action_page()
             return
@@ -472,6 +478,31 @@ class TablePage(QWidget):
         self.stop_daemon_btn.setText("Stopping...")
         self.daemon_status_label.setText("Stopping daemon...")
 
+    def _ask_reset_options(self):
+        """Ask whether to reset all scrape options/models to defaults.
+        Returns True if the user chose to reset, False otherwise."""
+        reply = QMessageBox.question(
+            self,
+            "Reset options?",
+            "Do you want to reset all scrape options and selected models\n"
+            "back to their defaults?\n\n"
+            "Yes = start fresh (like opening the GUI for the first time)\n"
+            "No = keep your current selections",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _reset_all_pages(self):
+        """Reset action, area, and model pages to their defaults."""
+        main_window = self.window()
+        for attr in ("action_page", "area_page", "model_page"):
+            page = getattr(main_window, attr, None)
+            if page and hasattr(page, "reset_to_defaults"):
+                try:
+                    page.reset_to_defaults()
+                except Exception:
+                    pass
+
     def _on_new_scrape(self):
         """Navigate back to the action page to start a new scrape."""
         # If a scrape is in progress, confirm cancellation.
@@ -485,6 +516,8 @@ class TablePage(QWidget):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
+            # Ask about resetting now, before cancellation begins
+            self._pending_reset = self._ask_reset_options()
             try:
                 app_signals.cancel_scrape_requested.emit()
             except Exception:
@@ -510,6 +543,11 @@ class TablePage(QWidget):
                 app_signals.stop_daemon_requested.emit()
         except Exception:
             pass
+
+        # Ask about resetting options
+        if self._ask_reset_options():
+            self._reset_all_pages()
+
         self._reset_scrape_controls()
         self._navigate_to_action_page()
 

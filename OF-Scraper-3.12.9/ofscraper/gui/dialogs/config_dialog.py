@@ -25,10 +25,19 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 import ofscraper.utils.paths.common as common_paths
 
 log = logging.getLogger("shared")
+
+def _help_btn_qss():
+    return (
+        f"QToolButton {{ border: 1px solid {c('surface1')}; border-radius: 9px;"
+        f" background-color: {c('surface0')}; color: {c('text')}; font-weight: bold;"
+        f" margin-right: 4px; }}"
+        f" QToolButton:hover {{ border-color: {c('blue')}; background-color: {c('surface1')}; }}"
+    )
 
 def _make_help_btn(anchor: str) -> QToolButton:
     b = QToolButton()
@@ -37,22 +46,7 @@ def _make_help_btn(anchor: str) -> QToolButton:
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.setAutoRaise(True)
     b.setFixedSize(18, 18)
-    b.setStyleSheet(
-        """
-        QToolButton {
-            border: 1px solid #45475a;
-            border-radius: 9px;
-            background-color: #313244;
-            color: #cdd6f4;
-            font-weight: bold;
-            margin-right: 4px;
-        }
-        QToolButton:hover {
-            border-color: #89b4fa;
-            background-color: #45475a;
-        }
-        """
-    )
+    b.setStyleSheet(_help_btn_qss())
     b.clicked.connect(lambda: app_signals.help_anchor_requested.emit(anchor))
     return b
 
@@ -70,6 +64,12 @@ class ConfigPage(QWidget):
         self._tab_scroll = {}
         self._setup_ui()
         self._load_config()
+        app_signals.theme_changed.connect(self._apply_theme)
+
+    def _apply_theme(self, _is_dark=True):
+        for btn in self.findChildren(QToolButton):
+            if btn.text() == "?":
+                btn.setStyleSheet(_help_btn_qss())
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -259,55 +259,76 @@ class ConfigPage(QWidget):
 
     def _create_general_tab(self):
         scroll, form = self._create_scrollable_form()
-        self._add_line(form, "main_profile", "Main Profile", "main_profile")
-        self._add_line(form, "metadata", "Metadata Path", "{configpath}/{profile}/.data/{model_id}")
-        self._add_line(form, "discord", "Discord Webhook URL", "https://discord.com/api/webhooks/...")
+        self._add_line(form, "main_profile", "Main Profile", "main_profile",
+                       tooltip="The active profile name. Each profile has its own auth.json and data directory.")
+        self._add_line(form, "metadata", "Metadata Path", "{configpath}/{profile}/.data/{model_id}",
+                       tooltip="Path template for metadata/database storage.\nSupports placeholders: {configpath}, {profile}, {model_id}.")
+        self._add_line(form, "discord", "Discord Webhook URL", "https://discord.com/api/webhooks/...",
+                       tooltip="Discord webhook URL for sending scrape notifications.\nLeave empty to disable Discord updates.")
         return scroll
 
     def _create_file_tab(self):
         scroll, form = self._create_scrollable_form()
-        self._add_path(form, "save_location", "Save Location", is_dir=True)
+        self._add_path(form, "save_location", "Save Location", is_dir=True,
+                       tooltip="Root directory where downloaded files are saved.")
         self._add_line(form, "dir_format", "Directory Format",
-                       "{model_username}/{responsetype}/{mediatype}/")
-        self._add_line(form, "file_format", "File Format", "{filename}.{ext}")
-        self._add_spin(form, "textlength", "Text Length", 0, 999, 0)
-        self._add_line(form, "space_replacer", "Space Replacer", " ")
-        self._add_line(form, "date", "Date Format", "YYYY-MM-DD")
+                       "{model_username}/{responsetype}/{mediatype}/",
+                       tooltip="Directory structure template under save location.\nPlaceholders: {model_username}, {responsetype}, {mediatype}, {model_id}, {first_letter}, etc.")
+        self._add_line(form, "file_format", "File Format", "{filename}.{ext}",
+                       tooltip="Filename template for downloaded files.\nPlaceholders: {filename}, {ext}, {date}, {id}, {text}, {number}, etc.")
+        self._add_spin(form, "textlength", "Text Length", 0, 999, 0,
+                       tooltip="Max number of characters/words from post text to include in filenames.\n0 = do not include post text in filenames.")
+        self._add_line(form, "space_replacer", "Space Replacer", " ",
+                       tooltip="Character(s) to replace spaces in filenames.\nLeave empty to keep spaces as-is.")
+        self._add_line(form, "date", "Date Format", "YYYY-MM-DD",
+                       tooltip="Date format string for {date} placeholder in filenames.\nExamples: YYYY-MM-DD, MM-DD-YYYY, DD.MM.YYYY")
         self._add_combo(form, "text_type_default", "Text Type",
-                        ["letter", "word"])
-        self._add_check(form, "truncation_default", "Enable Truncation", True)
+                        ["letter", "word"],
+                        tooltip="How 'Text Length' is counted:\n- letter: count individual characters\n- word: count whole words")
+        self._add_check(form, "truncation_default", "Enable Truncation", True,
+                        tooltip="Truncate long filenames to fit OS path length limits.\nRecommended to keep enabled to avoid errors on Windows.")
         return scroll
 
     def _create_download_tab(self):
         scroll, form = self._create_scrollable_form()
         self._add_spin(form, "system_free_min", "Min Free Space (MB)", 0, 999999, 0,
                        "Minimum free disk space required before downloads")
-        self._add_check(form, "auto_resume", "Auto Resume", True)
+        self._add_check(form, "auto_resume", "Auto Resume", True,
+                        tooltip="Automatically resume partially downloaded files instead of re-downloading them.")
         self._add_spin(form, "max_post_count", "Max Post Count", 0, 999999, 0,
-                       "0 = unlimited")
+                       tooltip="Maximum number of posts to process per model.\n0 = unlimited (process all posts).")
         # Binary options
-        self._add_path(form, "ffmpeg", "FFmpeg Path", is_dir=False)
+        self._add_path(form, "ffmpeg", "FFmpeg Path", is_dir=False,
+                       tooltip="Path to ffmpeg binary for combining audio/video streams (DRM content).\nLeave empty if ffmpeg is in your system PATH.")
         # Script options
-        self._add_line(form, "post_download_script", "Post-Download Script", "")
-        self._add_line(form, "post_script", "Post Script", "")
+        self._add_line(form, "post_download_script", "Post-Download Script", "",
+                       tooltip="Shell command/script to run after each individual file is downloaded.\nLeave empty to disable.")
+        self._add_line(form, "post_script", "Post Script", "",
+                       tooltip="Shell command/script to run after all downloads for a model are complete.\nLeave empty to disable.")
         return scroll
 
     def _create_performance_tab(self):
         scroll, form = self._create_scrollable_form()
-        self._add_spin(form, "thread_count", "Thread Count", 1, 3, 2)
-        self._add_spin(form, "download_sems", "Download Semaphores", 1, 15, 6)
+        self._add_spin(form, "thread_count", "Thread Count", 1, 3, 2,
+                       tooltip="Number of concurrent download threads (1-3).\nHigher = faster but uses more resources.")
+        self._add_spin(form, "download_sems", "Download Semaphores", 1, 15, 6,
+                       tooltip="Number of concurrent downloads per thread (1-15).\nHigher = more parallel downloads but may hit rate limits.")
         self._add_spin(form, "download_limit", "Download Speed Limit (KB/s)", 0, 999999, 0,
                        "0 = unlimited")
         return scroll
 
     def _create_content_tab(self):
         scroll, form = self._create_scrollable_form()
-        self._add_check(form, "block_ads", "Block Ads", False)
+        self._add_check(form, "block_ads", "Block Ads", False,
+                        tooltip="Filter out known promotional/ad posts from downloads.")
         self._add_line(form, "file_size_max", "Max File Size", "0",
-                       "e.g., '500MB' or '2GB', 0 = no limit")
-        self._add_line(form, "file_size_min", "Min File Size", "0")
-        self._add_spin(form, "length_max", "Max Length (seconds)", 0, 999999, 0)
-        self._add_spin(form, "length_min", "Min Length (seconds)", 0, 999999, 0)
+                       tooltip="Maximum file size to download.\ne.g., '500MB' or '2GB'. 0 = no limit.")
+        self._add_line(form, "file_size_min", "Min File Size", "0",
+                       tooltip="Minimum file size to download.\ne.g., '1MB'. 0 = no minimum.")
+        self._add_spin(form, "length_max", "Max Length (seconds)", 0, 999999, 0,
+                       tooltip="Maximum media duration in seconds to download.\n0 = no limit.")
+        self._add_spin(form, "length_min", "Min Length (seconds)", 0, 999999, 0,
+                       tooltip="Minimum media duration in seconds to download.\n0 = no minimum.")
         return scroll
 
     def _create_cdm_tab(self):
@@ -329,8 +350,10 @@ class ConfigPage(QWidget):
             "",
             tooltip="KeyDB is currently not working (no ETA). This setting is currently ignored.",
         )
-        self._add_path(form, "client-id", "Client ID File", is_dir=False)
-        self._add_path(form, "private-key", "Private Key File", is_dir=False)
+        self._add_path(form, "client-id", "Client ID File", is_dir=False,
+                       tooltip="Path to Widevine CDM client_id.bin file.\nRequired for 'manual' key mode to decrypt DRM content.")
+        self._add_path(form, "private-key", "Private Key File", is_dir=False,
+                       tooltip="Path to Widevine CDM private_key.pem file.\nRequired for 'manual' key mode to decrypt DRM content.")
         return scroll
 
     def _create_advanced_tab(self):
@@ -494,7 +517,8 @@ class ConfigPage(QWidget):
             "stories", "highlights", "profile", "pinned", "streams"
         ]
         for rt in resp_types:
-            self._add_line(form, f"resp_{rt}", rt.capitalize(), rt)
+            self._add_line(form, f"resp_{rt}", rt.capitalize(), rt,
+                           tooltip=f"Custom label for '{rt}' content in the {{responsetype}} filename placeholder.\nChange this to rename the folder/label used for {rt} content.")
         return scroll
 
     def _create_overwrites_tab(self):

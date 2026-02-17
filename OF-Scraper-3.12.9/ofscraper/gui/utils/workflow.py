@@ -1179,21 +1179,12 @@ class GUIWorkflow:
         )
 
     def _send_notification(self, title, message):
-        """Send a system tray notification (best-effort)."""
+        """Send a system tray notification via signal (thread-safe).
+        The actual QSystemTrayIcon work happens on the main GUI thread."""
         try:
-            from PyQt6.QtWidgets import QSystemTrayIcon, QApplication
-            from PyQt6.QtGui import QIcon
-            app = QApplication.instance()
-            if app and QSystemTrayIcon.isSystemTrayAvailable():
-                tray = QSystemTrayIcon(app)
-                tray.setIcon(QIcon())
-                tray.show()
-                tray.showMessage(
-                    title, message,
-                    QSystemTrayIcon.MessageIcon.Information, 5000,
-                )
+            app_signals.show_notification.emit(title, message)
         except Exception as e:
-            log.debug(f"Notification failed: {e}")
+            log.debug(f"Notification signal failed: {e}")
 
     def _play_sound(self):
         """Play a short alert sound (best-effort, Windows)."""

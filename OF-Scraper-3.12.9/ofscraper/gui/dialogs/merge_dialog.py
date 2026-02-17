@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.styles import c
 from ofscraper.gui.utils.thread_worker import AsyncWorker
 from ofscraper.gui.widgets.styled_button import StyledButton
 
@@ -56,6 +57,10 @@ class MergePage(QWidget):
         self.source_input = QLineEdit()
         self.source_input.setPlaceholderText("Folder to search for .db files...")
         self.source_input.setClearButtonEnabled(True)
+        self.source_input.setToolTip(
+            "Root folder to recursively search for user_data.db files.\n"
+            "All matching databases found under this path will be merged."
+        )
         src_layout.addWidget(self.source_input)
         src_browse = StyledButton("Browse")
         src_browse.clicked.connect(self._browse_source)
@@ -68,6 +73,10 @@ class MergePage(QWidget):
         self.dest_input = QLineEdit()
         self.dest_input.setPlaceholderText("Folder for merged database...")
         self.dest_input.setClearButtonEnabled(True)
+        self.dest_input.setToolTip(
+            "Destination folder where the merged database will be written.\n"
+            "A new user_data.db file will be created here."
+        )
         dst_layout.addWidget(self.dest_input)
         dst_browse = StyledButton("Browse")
         dst_browse.clicked.connect(self._browse_dest)
@@ -77,11 +86,13 @@ class MergePage(QWidget):
         layout.addSpacing(8)
 
         # Warning
-        warning = QLabel(
+        self._warning_label = QLabel(
             "WARNING: Make sure you have backed up your databases before merging!"
         )
-        warning.setStyleSheet("color: #f9e2af; font-weight: bold;")
-        layout.addWidget(warning)
+        self._warning_label.setStyleSheet(f"color: {c('warning')}; font-weight: bold;")
+        layout.addWidget(self._warning_label)
+
+        app_signals.theme_changed.connect(self._apply_theme)
 
         # Merge button
         btn_layout = QHBoxLayout()
@@ -98,6 +109,9 @@ class MergePage(QWidget):
         self.output_text.setMaximumBlockCount(500)
         self.output_text.setPlaceholderText("Merge output will appear here...")
         layout.addWidget(self.output_text)
+
+    def _apply_theme(self, _is_dark=True):
+        self._warning_label.setStyleSheet(f"color: {c('warning')}; font-weight: bold;")
 
     def _browse_source(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Source Folder")

@@ -1,8 +1,9 @@
 import logging
 import sys
 
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 from PyQt6.QtCore import QObject, QEvent
+from PyQt6.QtGui import QIcon
 
 from ofscraper.gui.styles import get_dark_theme_qss
 from ofscraper.gui.utils.progress_bridge import GUILogHandler
@@ -128,6 +129,37 @@ def launch_gui(manager=None):
 
     window = MainWindow(manager=manager)
     window.show()
+
+    # Set up a persistent system tray icon for notifications.
+    # Must be created on the main thread and kept alive for the app lifetime.
+    try:
+        if QSystemTrayIcon.isSystemTrayAvailable():
+            tray = QSystemTrayIcon(app)
+            icon = app.windowIcon()
+            if icon.isNull():
+                icon = app.style().standardIcon(
+                    app.style().StandardPixmap.SP_MessageBoxInformation
+                )
+            tray.setIcon(icon)
+            tray.setToolTip("OF-Scraper")
+            tray.show()
+            # Keep a reference so it isn't garbage-collected
+            app._tray_icon = tray  # type: ignore[attr-defined]
+
+            from ofscraper.gui.signals import app_signals
+
+            def _on_show_notification(title, message):
+                try:
+                    tray.showMessage(
+                        title, message,
+                        QSystemTrayIcon.MessageIcon.Information, 5000,
+                    )
+                except Exception:
+                    pass
+
+            app_signals.show_notification.connect(_on_show_notification)
+    except Exception as e:
+        log.debug(f"Could not set up tray icon: {e}")
 
     log.info("OF-Scraper GUI started")
     app.exec()

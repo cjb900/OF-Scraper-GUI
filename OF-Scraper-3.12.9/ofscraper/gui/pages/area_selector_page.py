@@ -19,12 +19,20 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.styles import c
 from ofscraper.gui.utils.thread_worker import Worker
 from ofscraper.gui.widgets.sidebar import FilterSidebar
 from ofscraper.gui.widgets.styled_button import StyledButton
 import ofscraper.utils.config.data as config_data
 
 log = logging.getLogger("shared")
+
+def _help_btn_qss():
+    return (
+        f"QToolButton {{ border: 1px solid {c('surface1')}; border-radius: 9px;"
+        f" background-color: {c('surface0')}; color: {c('text')}; font-weight: bold; }}"
+        f" QToolButton:hover {{ border-color: {c('blue')}; background-color: {c('surface1')}; }}"
+    )
 
 def _make_help_btn(anchor: str) -> QToolButton:
     b = QToolButton()
@@ -33,21 +41,7 @@ def _make_help_btn(anchor: str) -> QToolButton:
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.setAutoRaise(True)
     b.setFixedSize(18, 18)
-    b.setStyleSheet(
-        """
-        QToolButton {
-            border: 1px solid #45475a;
-            border-radius: 9px;
-            background-color: #313244;
-            color: #cdd6f4;
-            font-weight: bold;
-        }
-        QToolButton:hover {
-            border-color: #89b4fa;
-            background-color: #45475a;
-        }
-        """
-    )
+    b.setStyleSheet(_help_btn_qss())
     b.clicked.connect(lambda: app_signals.help_anchor_requested.emit(anchor))
     return b
 
@@ -87,6 +81,7 @@ class AreaSelectorPage(QWidget):
         self._models_loaded = False
         self._models_error = None
         self._loaded_model_count = 0
+        self._separators = []
         self._setup_ui()
         self._connect_signals()
         self._refresh_discord_option_state()
@@ -126,10 +121,23 @@ class AreaSelectorPage(QWidget):
         self.areas_grid = QGridLayout(self.areas_group)
         self.areas_grid.setSpacing(8)
 
+        _area_tips = {
+            "Profile": "Scrape the model's profile header media (avatar, banner).",
+            "Timeline": "Scrape posts from the model's main timeline feed.",
+            "Pinned": "Scrape pinned posts on the model's profile.",
+            "Archived": "Scrape archived/expired posts.",
+            "Highlights": "Scrape story highlights (saved stories).",
+            "Stories": "Scrape current (active/recent) stories.",
+            "Messages": "Scrape direct messages and PPV message media.",
+            "Purchased": "Scrape purchased/unlocked PPV content.",
+            "Streams": "Scrape livestream recordings.",
+            "Labels": "Scrape content organized under the model's labels/categories.",
+        }
         for i, area in enumerate(DOWNLOAD_AREAS):
             cb = QCheckBox(area)
             cb.setFont(QFont("Segoe UI", 11))
             cb.setChecked(True)
+            cb.setToolTip(_area_tips.get(area, ""))
             row = i // 3
             col = i % 3
             self.areas_grid.addWidget(cb, row, col)
@@ -153,7 +161,8 @@ class AreaSelectorPage(QWidget):
         # Extra options
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #313244;")
+        sep.setStyleSheet(f"color: {c('sep')};")
+        self._separators.append(sep)
         layout.addWidget(sep)
 
         extras_group = QGroupBox("Additional Options")
@@ -167,6 +176,10 @@ class AreaSelectorPage(QWidget):
             "Scrape entire paid page (slower but more comprehensive)"
         )
         self.scrape_paid_check.setFont(QFont("Segoe UI", 11))
+        self.scrape_paid_check.setToolTip(
+            "Tries harder to enumerate all paid/purchased items.\n"
+            "May be significantly slower but catches items missed by normal scraping."
+        )
         row = QHBoxLayout()
         row.addWidget(self.scrape_paid_check)
         row.addStretch()
@@ -175,6 +188,9 @@ class AreaSelectorPage(QWidget):
 
         self.scrape_labels_check = QCheckBox("Scrape labels")
         self.scrape_labels_check.setFont(QFont("Segoe UI", 11))
+        self.scrape_labels_check.setToolTip(
+            "Pull content organized by the model's custom labels/categories when available."
+        )
         row = QHBoxLayout()
         row.addWidget(self.scrape_labels_check)
         row.addStretch()
@@ -210,6 +226,10 @@ class AreaSelectorPage(QWidget):
             "Allow duplicates (do NOT skip duplicates; treat reposts as new items)"
         )
         self.allow_dupes_check.setFont(QFont("Segoe UI", 11))
+        self.allow_dupes_check.setToolTip(
+            "Disables duplicate-skipping logic.\n"
+            "When enabled, reposted media will appear as separate entries in the table."
+        )
         row = QHBoxLayout()
         row.addWidget(self.allow_dupes_check)
         row.addStretch()
@@ -220,6 +240,10 @@ class AreaSelectorPage(QWidget):
             "Rescrape everything (ignore cache / scan from the beginning)"
         )
         self.rescrape_all_check.setFont(QFont("Segoe UI", 11))
+        self.rescrape_all_check.setToolTip(
+            "Forces a full history scan, ignoring any cached 'after' timestamps.\n"
+            "Useful if you suspect missed content or want a complete re-scan."
+        )
         self.rescrape_all_check.toggled.connect(self._on_rescrape_toggled)
         row = QHBoxLayout()
         row.addWidget(self.rescrape_all_check)
@@ -232,6 +256,11 @@ class AreaSelectorPage(QWidget):
         )
         self.delete_db_check.setFont(QFont("Segoe UI", 11))
         self.delete_db_check.setEnabled(False)
+        self.delete_db_check.setToolTip(
+            "Deletes the model's SQLite database before scraping starts.\n"
+            "This resets all downloaded/unlocked tracking, so everything appears as new.\n"
+            "Requires 'Rescrape everything' to be enabled."
+        )
         row = QHBoxLayout()
         row.addWidget(self.delete_db_check)
         row.addStretch()
@@ -243,6 +272,11 @@ class AreaSelectorPage(QWidget):
         )
         self.delete_downloads_check.setFont(QFont("Segoe UI", 11))
         self.delete_downloads_check.setEnabled(False)
+        self.delete_downloads_check.setToolTip(
+            "Removes previously downloaded files for the selected models.\n"
+            "WARNING: This permanently deletes files from your save location.\n"
+            "Requires 'Delete model DB' to be enabled."
+        )
         self.delete_downloads_check.toggled.connect(self._on_delete_downloads_toggled)
         row = QHBoxLayout()
         row.addWidget(self.delete_downloads_check)
@@ -262,7 +296,8 @@ class AreaSelectorPage(QWidget):
         # Daemon mode
         sep_daemon = QFrame()
         sep_daemon.setFrameShape(QFrame.Shape.HLine)
-        sep_daemon.setStyleSheet("color: #313244;")
+        sep_daemon.setStyleSheet(f"color: {c('sep')};")
+        self._separators.append(sep_daemon)
         layout.addWidget(sep_daemon)
 
         daemon_group = QGroupBox("Daemon Mode (Auto-Repeat Scraping)")
@@ -276,6 +311,10 @@ class AreaSelectorPage(QWidget):
             "Enable daemon mode (automatically re-scrape on a schedule)"
         )
         self.daemon_check.setFont(QFont("Segoe UI", 11))
+        self.daemon_check.setToolTip(
+            "Automatically repeats the scrape at a fixed interval.\n"
+            "The GUI will show a countdown timer between runs."
+        )
         self.daemon_check.toggled.connect(self._on_daemon_toggled)
         row = QHBoxLayout()
         row.addWidget(self.daemon_check)
@@ -296,6 +335,10 @@ class AreaSelectorPage(QWidget):
         self.daemon_interval.setSingleStep(5.0)
         self.daemon_interval.setFont(QFont("Segoe UI", 11))
         self.daemon_interval.setEnabled(False)
+        self.daemon_interval.setToolTip(
+            "Minutes between each automatic scrape run (1-1440).\n"
+            "1440 minutes = 24 hours."
+        )
         interval_layout.addWidget(self.daemon_interval)
         interval_layout.addWidget(_make_help_btn("sca-daemon-interval"))
         interval_layout.addStretch()
@@ -303,6 +346,9 @@ class AreaSelectorPage(QWidget):
 
         self.notify_check = QCheckBox("System notification when scraping starts")
         self.notify_check.setFont(QFont("Segoe UI", 11))
+        self.notify_check.setToolTip(
+            "Show a system tray notification when each daemon scrape run begins."
+        )
         row = QHBoxLayout()
         row.addWidget(self.notify_check)
         row.addStretch()
@@ -311,6 +357,9 @@ class AreaSelectorPage(QWidget):
 
         self.sound_check = QCheckBox("Sound alert when scraping starts")
         self.sound_check.setFont(QFont("Segoe UI", 11))
+        self.sound_check.setToolTip(
+            "Play a beep sound when each daemon scrape run begins (Windows only)."
+        )
         row = QHBoxLayout()
         row.addWidget(self.sound_check)
         row.addStretch()
@@ -322,7 +371,8 @@ class AreaSelectorPage(QWidget):
         # Separator before filters
         sep2 = QFrame()
         sep2.setFrameShape(QFrame.Shape.HLine)
-        sep2.setStyleSheet("color: #313244;")
+        sep2.setStyleSheet(f"color: {c('sep')};")
+        self._separators.append(sep2)
         layout.addWidget(sep2)
 
         # Filter widgets embedded inline (no separate scroll)
@@ -335,9 +385,9 @@ class AreaSelectorPage(QWidget):
         outer.addWidget(scroll)
 
         # Bottom navigation bar
-        nav_bar = QWidget()
+        self._nav_bar = nav_bar = QWidget()
         nav_bar.setFixedHeight(56)
-        nav_bar.setStyleSheet("background-color: #181825;")
+        nav_bar.setStyleSheet(f"background-color: {c('mantle')};")
         nav_layout = QHBoxLayout(nav_bar)
         nav_layout.setContentsMargins(24, 8, 24, 8)
 
@@ -352,11 +402,11 @@ class AreaSelectorPage(QWidget):
         self.next_btn.setFixedHeight(38)
         self.next_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         self.next_btn.setStyleSheet(
-            "QPushButton { background-color: #89b4fa; color: #1e1e2e;"
-            " font-weight: bold; border: none; border-radius: 6px;"
-            " padding: 6px 16px; }"
-            " QPushButton:hover { background-color: #74c7ec; }"
-            " QPushButton:disabled { background-color: #45475a; color: #6c7086; }"
+            f"QPushButton {{ background-color: {c('blue')}; color: {c('base')};"
+            f" font-weight: bold; border: none; border-radius: 6px;"
+            f" padding: 6px 16px; }}"
+            f" QPushButton:hover {{ background-color: {c('sky')}; }}"
+            f" QPushButton:disabled {{ background-color: {c('surface1')}; color: {c('muted')}; }}"
         )
         self.next_btn.clicked.connect(self._on_next)
 
@@ -392,6 +442,24 @@ class AreaSelectorPage(QWidget):
 
     def _connect_signals(self):
         app_signals.action_selected.connect(self._on_action_selected)
+        app_signals.theme_changed.connect(self._apply_theme)
+
+    def _apply_theme(self, _is_dark=True):
+        """Update hardcoded styles when theme changes."""
+        self._nav_bar.setStyleSheet(f"background-color: {c('mantle')};")
+        self.next_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('blue')}; color: {c('base')};"
+            f" font-weight: bold; border: none; border-radius: 6px;"
+            f" padding: 6px 16px; }}"
+            f" QPushButton:hover {{ background-color: {c('sky')}; }}"
+            f" QPushButton:disabled {{ background-color: {c('surface1')}; color: {c('muted')}; }}"
+        )
+        for sep in self._separators:
+            sep.setStyleSheet(f"color: {c('sep')};")
+        # Update all help buttons
+        for btn in self.findChildren(QToolButton):
+            if btn.text() == "?":
+                btn.setStyleSheet(_help_btn_qss())
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -418,6 +486,33 @@ class AreaSelectorPage(QWidget):
                 )
         except Exception:
             pass
+
+    def reset_to_defaults(self):
+        """Reset all area selections and options to their initial defaults."""
+        # Reset area checkboxes to all checked
+        for cb in self._area_checks.values():
+            cb.setChecked(True)
+        # Reset extra options
+        self.scrape_paid_check.setChecked(False)
+        self.scrape_labels_check.setChecked(False)
+        self.discord_updates_check.setChecked(False)
+        # Reset advanced options
+        self.allow_dupes_check.setChecked(False)
+        self.rescrape_all_check.setChecked(False)
+        self.delete_db_check.setChecked(False)
+        self.delete_downloads_check.setChecked(False)
+        # Reset daemon options
+        self.daemon_check.setChecked(False)
+        self.daemon_interval.setValue(30.0)
+        self.daemon_interval.setEnabled(False)
+        self.notify_check.setChecked(False)
+        self.sound_check.setChecked(False)
+        # Reset filter sidebar
+        self.filter_sidebar.reset_all()
+        # Reset model loading state so models reload on next visit
+        self._models_loaded = False
+        self._models_loading = False
+        self._refresh_discord_option_state()
 
     def _on_action_selected(self, actions):
         """Update available areas based on selected actions."""

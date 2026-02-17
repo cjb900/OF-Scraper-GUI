@@ -9,6 +9,15 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.styles import c
+
+
+def _progress_bar_qss(radius=4):
+    return (
+        f"QProgressBar {{ border: 1px solid {c('surface1')}; border-radius: {radius}px;"
+        f" background-color: {c('surface0')}; color: #f8fafc; text-align: center; padding: 0px; }}"
+        f" QProgressBar::chunk {{ background-color: #1d4ed8; border-radius: {radius}px; }}"
+    )
 
 
 class ProgressSummaryBar(QWidget):
@@ -35,22 +44,7 @@ class ProgressSummaryBar(QWidget):
         self.overall_progress.setFixedHeight(18)
         # Keep % text legible even when the bar fills.
         # The key is a darker chunk color + bright text.
-        self.overall_progress.setStyleSheet(
-            """
-            QProgressBar {
-                border: 1px solid #45475a;
-                border-radius: 4px;
-                background-color: #313244;
-                color: #f8fafc;
-                text-align: center;
-                padding: 0px;
-            }
-            QProgressBar::chunk {
-                background-color: #1d4ed8;
-                border-radius: 4px;
-            }
-            """
-        )
+        self.overall_progress.setStyleSheet(_progress_bar_qss(4))
         layout.addWidget(self.overall_progress, stretch=1)
 
         self.bytes_label = QLabel("Total: 0 B")
@@ -112,22 +106,7 @@ class ProgressPanel(QWidget):
         self.overall_progress.setValue(0)
         self.overall_progress.setTextVisible(True)
         self.overall_progress.setFixedHeight(24)
-        self.overall_progress.setStyleSheet(
-            """
-            QProgressBar {
-                border: 1px solid #45475a;
-                border-radius: 6px;
-                background-color: #313244;
-                color: #f8fafc;
-                text-align: center;
-                padding: 0px;
-            }
-            QProgressBar::chunk {
-                background-color: #1d4ed8;
-                border-radius: 6px;
-            }
-            """
-        )
+        self.overall_progress.setStyleSheet(_progress_bar_qss(6))
         main_layout.addWidget(self.overall_progress)
 
         # Scroll area for per-file progress bars
@@ -169,22 +148,7 @@ class ProgressPanel(QWidget):
         bar.setValue(0)
         bar.setFixedHeight(16)
         bar.setTextVisible(True)
-        bar.setStyleSheet(
-            """
-            QProgressBar {
-                border: 1px solid #45475a;
-                border-radius: 4px;
-                background-color: #313244;
-                color: #f8fafc;
-                text-align: center;
-                padding: 0px;
-            }
-            QProgressBar::chunk {
-                background-color: #1d4ed8;
-                border-radius: 4px;
-            }
-            """
-        )
+        bar.setStyleSheet(_progress_bar_qss(4))
         row_layout.addWidget(bar)
 
         self.tasks_layout.addWidget(row)

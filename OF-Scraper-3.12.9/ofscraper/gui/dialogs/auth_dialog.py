@@ -209,10 +209,18 @@ class AuthPage(QWidget):
         form_layout = QFormLayout(form_group)
         form_layout.setSpacing(12)
 
+        _auth_tips = {
+            "sess": "Your 'sess' session cookie from OnlyFans.\nFound in browser DevTools > Application > Cookies.",
+            "auth_id": "Your 'auth_id' cookie from OnlyFans.\nFound in browser DevTools > Application > Cookies.",
+            "auth_uid": "Your 'auth_uid_XXXX' cookie (only needed for 2FA accounts).\nLeave empty if you don't use two-factor authentication.",
+            "user_agent": "Your browser's User-Agent string.\nFound in browser DevTools > Console: navigator.userAgent",
+            "x-bc": "The 'x-bc' header from OnlyFans API requests.\nFound in browser DevTools > Network tab > any OF API request > Request Headers.",
+        }
         for field_key, label_text in AUTH_FIELDS:
             line_edit = QLineEdit()
             line_edit.setPlaceholderText(f"Enter {label_text}...")
             line_edit.setClearButtonEnabled(True)
+            line_edit.setToolTip(_auth_tips.get(field_key, ""))
             if field_key == "sess":
                 # Add eye toggle action for showing/hiding the session cookie
                 self._sess_toggle = QAction(self)
@@ -238,12 +246,15 @@ class AuthPage(QWidget):
         )
         info_label.setWordWrap(True)
         info_label.setProperty("muted", True)
-        info_label.setStyleSheet("color: #a6adc8; font-size: 10px; padding: 4px 0;")
         import_inner.addWidget(info_label)
 
         import_row = QHBoxLayout()
         self.browser_combo = QComboBox()
         self.browser_combo.addItems(BROWSERS)
+        self.browser_combo.setToolTip(
+            "Select which browser to import cookies from.\n"
+            "The browser must be closed before importing."
+        )
         import_row.addWidget(QLabel("Browser:"))
         import_row.addWidget(self.browser_combo)
 
@@ -269,7 +280,7 @@ class AuthPage(QWidget):
             "5. Check the OF-Scraper docs: "
         )
         help_label.setWordWrap(True)
-        help_label.setStyleSheet("color: #a6adc8; font-size: 10px;")
+        help_label.setProperty("muted", True)
         help_layout.addWidget(help_label)
 
         docs_btn = StyledButton("Open Auth Help Docs")

@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.styles import c
 
 log = logging.getLogger("shared")
 
@@ -37,18 +38,21 @@ COLUMNS = [
 
 CART_STATES = ["[]", "[added]", "[downloading]", "[downloaded]", "[failed]"]
 
-CART_COLORS = {
-    "[]": "#6c7086",
-    "[added]": "#a6e3a1",
-    "[downloading]": "#f9e2af",
-    "[downloaded]": "#89b4fa",
-    "[failed]": "#f38ba8",
-    "Locked": "#585b70",
-    "Preview": "#74c7ec",
-    # "Included" = visible media inside a priced PPV message without purchasing.
-    # This is NOT the same as "Unlocked=True" (purchased).
-    "Included": "#94e2d5",
-}
+
+def _cart_color(key):
+    """Get cart/status color for the current theme."""
+    _MAP = {
+        "[]": "muted",
+        "[added]": "green",
+        "[downloading]": "yellow",
+        "[downloaded]": "blue",
+        "[failed]": "red",
+        "Locked": "surface2",
+        "Preview": "sky",
+        "Included": "teal",
+    }
+    name = _MAP.get(key)
+    return c(name) if name else c("text")
 
 
 class MediaDataTable(QTableWidget):
@@ -108,6 +112,7 @@ class MediaDataTable(QTableWidget):
         self.cellClicked.connect(self._on_cell_clicked)
         self.customContextMenuRequested.connect(self._on_context_menu)
         app_signals.cell_update.connect(self._on_external_cell_update)
+        app_signals.theme_changed.connect(lambda _: self._rebuild_table())
 
     def load_data(self, table_data):
         """Load raw table data (list of dicts) into the table, replacing existing data."""
@@ -206,32 +211,31 @@ class MediaDataTable(QTableWidget):
 
                 # Style the download cart column
                 if col_lower == "download_cart":
-                    color = CART_COLORS.get(display, "#cdd6f4")
-                    item.setForeground(QColor(color))
+                    item.setForeground(QColor(_cart_color(display)))
                     item.setFont(QFont("Consolas", 11, QFont.Weight.Bold))
 
                 # Style downloaded/unlocked/price columns
                 if col_lower == "downloaded":
                     if display == "True":
-                        item.setForeground(QColor("#a6e3a1"))  # green
+                        item.setForeground(QColor(c("green")))
                     elif display == "N/A":
-                        item.setForeground(QColor("#585b70"))  # dim for locked
+                        item.setForeground(QColor(c("surface2")))
                     else:
-                        item.setForeground(QColor("#f38ba8"))  # red for False
+                        item.setForeground(QColor(c("red")))
                 elif col_lower == "unlocked":
                     if display == "Locked":
-                        item.setForeground(QColor("#585b70"))  # dim for locked
+                        item.setForeground(QColor(c("surface2")))
                     elif display == "Preview":
-                        item.setForeground(QColor("#74c7ec"))  # preview (PPV teaser)
+                        item.setForeground(QColor(c("sky")))
                     elif display == "Included":
-                        item.setForeground(QColor("#94e2d5"))  # included in PPV message without purchase
+                        item.setForeground(QColor(c("teal")))
                     elif display == "True":
-                        item.setForeground(QColor("#a6e3a1"))  # green
+                        item.setForeground(QColor(c("green")))
                     else:
-                        item.setForeground(QColor("#f38ba8"))  # red
+                        item.setForeground(QColor(c("red")))
                 elif col_lower == "price":
                     if display != "Free" and display != "0":
-                        item.setForeground(QColor("#fab387"))  # orange for paid
+                        item.setForeground(QColor(c("peach")))
 
                 # Truncate long text
                 if col_lower == "text" and len(display) > 80:
@@ -312,7 +316,7 @@ class MediaDataTable(QTableWidget):
             return
 
         item.setText(new_val)
-        item.setForeground(QColor(CART_COLORS.get(new_val, "#cdd6f4")))
+        item.setForeground(QColor(_cart_color(new_val)))
 
         # Update raw data
         if row < len(self._display_data):
@@ -366,28 +370,26 @@ class MediaDataTable(QTableWidget):
                     item.setText(new_value)
                     # Style download_cart and downloaded columns
                     if col_lower == "download_cart":
-                        item.setForeground(
-                            QColor(CART_COLORS.get(new_value, "#cdd6f4"))
-                        )
+                        item.setForeground(QColor(_cart_color(new_value)))
                     elif col_lower == "downloaded":
                         if new_value == "True":
-                            color = "#a6e3a1"  # green
+                            color = c("green")
                         elif new_value == "N/A":
-                            color = "#585b70"  # dim for locked
+                            color = c("surface2")
                         else:
-                            color = "#f38ba8"  # red for False
+                            color = c("red")
                         item.setForeground(QColor(color))
                     elif col_lower == "unlocked":
                         if new_value == "Locked":
-                            color = "#585b70"  # dim for locked
+                            color = c("surface2")
                         elif new_value == "Preview":
-                            color = "#74c7ec"
+                            color = c("sky")
                         elif new_value == "Included":
-                            color = "#94e2d5"
+                            color = c("teal")
                         elif new_value == "True":
-                            color = "#a6e3a1"  # green
+                            color = c("green")
                         else:
-                            color = "#f38ba8"  # red
+                            color = c("red")
                         item.setForeground(QColor(color))
                 # Also update the backing data
                 row_data[col_lower] = new_value
@@ -421,7 +423,7 @@ class MediaDataTable(QTableWidget):
                     # Mark as downloading
                     item.setText("[downloading]")
                     item.setForeground(
-                        QColor(CART_COLORS.get("[downloading]", "#cdd6f4"))
+                        QColor(_cart_color("[downloading]"))
                     )
         self._update_cart_count()
         return result
@@ -433,7 +435,7 @@ class MediaDataTable(QTableWidget):
             item = self.item(row_idx, cart_col)
             if item and item.text() == "[]":
                 item.setText("[added]")
-                item.setForeground(QColor(CART_COLORS["[added]"]))
+                item.setForeground(QColor(_cart_color("[added]")))
                 if row_idx < len(self._display_data):
                     self._display_data[row_idx]["download_cart"] = "[added]"
         self._update_cart_count()
@@ -445,7 +447,7 @@ class MediaDataTable(QTableWidget):
             item = self.item(row_idx, cart_col)
             if item and item.text() == "[added]":
                 item.setText("[]")
-                item.setForeground(QColor(CART_COLORS["[]"]))
+                item.setForeground(QColor(_cart_color("[]")))
                 if row_idx < len(self._display_data):
                     self._display_data[row_idx]["download_cart"] = "[]"
         self._update_cart_count()

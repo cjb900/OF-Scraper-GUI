@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 
 log = logging.getLogger("shared")
@@ -51,7 +52,10 @@ class ProfilePage(QWidget):
         # Current profile indicator
         self.current_label = QLabel("Current profile: loading...")
         self.current_label.setFont(QFont("Segoe UI", 13))
-        self.current_label.setStyleSheet("color: #89b4fa;")
+        self.current_label.setStyleSheet(f"color: {c('blue')};")
+        app_signals.theme_changed.connect(
+            lambda _: self.current_label.setStyleSheet(f"color: {c('blue')};")
+        )
         layout.addWidget(self.current_label)
 
         layout.addSpacing(8)

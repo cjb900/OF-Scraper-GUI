@@ -26,10 +26,18 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QThreadPool
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.styles import c
 from ofscraper.gui.utils.thread_worker import Worker
 from ofscraper.gui.widgets.styled_button import StyledButton
 
 log = logging.getLogger("shared")
+
+def _help_btn_qss():
+    return (
+        f"QToolButton {{ border: 1px solid {c('surface1')}; border-radius: 9px;"
+        f" background-color: {c('surface0')}; color: {c('text')}; font-weight: bold; }}"
+        f" QToolButton:hover {{ border-color: {c('blue')}; background-color: {c('surface1')}; }}"
+    )
 
 def _make_help_btn(anchor: str) -> QToolButton:
     b = QToolButton()
@@ -38,21 +46,7 @@ def _make_help_btn(anchor: str) -> QToolButton:
     b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.setAutoRaise(True)
     b.setFixedSize(18, 18)
-    b.setStyleSheet(
-        """
-        QToolButton {
-            border: 1px solid #45475a;
-            border-radius: 9px;
-            background-color: #313244;
-            color: #cdd6f4;
-            font-weight: bold;
-        }
-        QToolButton:hover {
-            border-color: #89b4fa;
-            background-color: #45475a;
-        }
-        """
-    )
+    b.setStyleSheet(_help_btn_qss())
     b.clicked.connect(lambda: app_signals.help_anchor_requested.emit(anchor))
     return b
 
@@ -148,9 +142,9 @@ class ModelSelectorPage(QWidget):
         # Retry button (shown when model loading fails)
         self.retry_btn = QPushButton("Retry Loading Models")
         self.retry_btn.setStyleSheet(
-            "QPushButton { background-color: #89b4fa; color: #1e1e2e; "
-            "padding: 8px 16px; border-radius: 4px; font-weight: bold; }"
-            "QPushButton:hover { background-color: #b4d0fb; }"
+            f"QPushButton {{ background-color: {c('blue')}; color: {c('base')}; "
+            f"padding: 8px 16px; border-radius: 4px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: {c('lavender')}; }}"
         )
         self.retry_btn.clicked.connect(self._load_models)
         self.retry_btn.hide()
@@ -305,7 +299,17 @@ class ModelSelectorPage(QWidget):
         # Models are loaded from the API on the Areas page so we can
         # show progress next to the "Next: Select Models" button.
         # Keep this page passive and only populate from the manager.
-        pass
+        app_signals.theme_changed.connect(self._apply_theme)
+
+    def _apply_theme(self, _is_dark=True):
+        self.retry_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('blue')}; color: {c('base')}; "
+            f"padding: 8px 16px; border-radius: 4px; font-weight: bold; }}"
+            f"QPushButton:hover {{ background-color: {c('lavender')}; }}"
+        )
+        for btn in self.findChildren(QToolButton):
+            if btn.text() == "?":
+                btn.setStyleSheet(_help_btn_qss())
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -540,6 +544,19 @@ class ModelSelectorPage(QWidget):
             for i in range(self.model_list.count())
             if self.model_list.item(i).checkState() == Qt.CheckState.Checked
         ]
+
+    def reset_to_defaults(self):
+        """Reset model selections and filters to defaults."""
+        # Deselect all models
+        self.model_list.blockSignals(True)
+        for i in range(self.model_list.count()):
+            self.model_list.item(i).setCheckState(Qt.CheckState.Unchecked)
+        self.model_list.blockSignals(False)
+        self._update_count()
+        # Clear search
+        self.search_input.clear()
+        # Reset filters
+        self._reset_filters()
 
     def _apply_filters(self):
         """Apply filters and re-sort the model list."""

@@ -3,11 +3,13 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer
 from PyQt6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QPushButton,
     QSizePolicy,
     QStackedWidget,
     QStatusBar,
@@ -16,6 +18,18 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.styles import (
+    get_dark_theme_qss,
+    get_light_theme_qss,
+    set_theme,
+    c,
+    DARK_SIDEBAR_BG,
+    LIGHT_SIDEBAR_BG,
+    DARK_SEP_COLOR,
+    LIGHT_SEP_COLOR,
+    DARK_LOGO_COLOR,
+    LIGHT_LOGO_COLOR,
+)
 from ofscraper.gui.utils.workflow import GUIWorkflow
 from ofscraper.gui.widgets.styled_button import NavButton
 
@@ -34,6 +48,7 @@ class MainWindow(QMainWindow):
 
         self._pages = {}
         self._nav_buttons = {}
+        self._is_dark = True  # dark mode by default
 
         # Initialize the workflow runner that bridges GUI → scraper backend
         self.workflow = GUIWorkflow(manager)
@@ -290,6 +305,17 @@ class MainWindow(QMainWindow):
 
         nav_layout.addStretch()
 
+        # Theme toggle button
+        self._theme_btn = QPushButton("Light Mode")
+        self._theme_btn.setFixedHeight(28)
+        self._theme_btn.setStyleSheet(
+            "QPushButton { font-size: 11px; padding: 2px 8px; }"
+        )
+        self._theme_btn.clicked.connect(self._toggle_theme)
+        nav_layout.addWidget(self._theme_btn)
+
+        nav_layout.addSpacing(4)
+
         # Version label at bottom of nav
         try:
             from ofscraper.__version__ import __version__
@@ -300,12 +326,19 @@ class MainWindow(QMainWindow):
         ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         nav_layout.addWidget(ver_label)
 
+        # Store references for theme switching
+        self._nav_frame = nav_frame
+        self._title_label = title_label
+        self._nav_sep = sep
+        self._ver_label = ver_label
+
         main_layout.addWidget(nav_frame)
 
         # Vertical separator
         vsep = QFrame()
         vsep.setFrameShape(QFrame.Shape.VLine)
-        vsep.setStyleSheet("color: #313244;")
+        vsep.setStyleSheet(f"color: {DARK_SEP_COLOR};")
+        self._vsep = vsep
         main_layout.addWidget(vsep)
 
         # -- Right content area (stacked pages) --
@@ -322,6 +355,56 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
+
+    def _toggle_theme(self):
+        """Switch between dark and light themes."""
+        import html as _html
+
+        self._is_dark = not self._is_dark
+        set_theme(self._is_dark)  # update module-level state
+
+        app = QApplication.instance()
+        if self._is_dark:
+            app.setStyleSheet(get_dark_theme_qss())
+            self._theme_btn.setText("Light Mode")
+            sidebar_bg = DARK_SIDEBAR_BG
+            sep_color = DARK_SEP_COLOR
+            logo_color = DARK_LOGO_COLOR
+        else:
+            app.setStyleSheet(get_light_theme_qss())
+            self._theme_btn.setText("Dark Mode")
+            sidebar_bg = LIGHT_SIDEBAR_BG
+            sep_color = LIGHT_SEP_COLOR
+            logo_color = LIGHT_LOGO_COLOR
+
+        # Update hardcoded sidebar and separator colors
+        self._nav_frame.setStyleSheet(f"QFrame {{ background-color: {sidebar_bg}; }}")
+        self._nav_sep.setStyleSheet(f"color: {sep_color};")
+        self._vsep.setStyleSheet(f"color: {sep_color};")
+
+        # Update logo color
+        _logo_lines = [
+            r"        __                                    ",
+            r"  ___  / _|___  ___ _ __ __ _ _ __   ___ _ __ ",
+            r" / _ \| |_/ __|/ __| '__/ _` | '_ \ / _ \ '__|",
+            r"| (_) |  _\__ \ (__| | | (_| | |_) |  __/ |   ",
+            r" \___/|_|_|___/\___|_|  \__,_| .__/ \___|_|   ",
+            r"       / /     \ \      / /  |_|\ \           ",
+            r"      | |       | |    | |       | |          ",
+            r"      | |   _   | |    | |   _   | |          ",
+            r"      | |  (_)  | |    | |  (_)  | |          ",
+            r"       \_\     /_/      \_\     /_/           ",
+        ]
+        _logo_html = (
+            f"<pre style='color:{logo_color}; font-family:Consolas,monospace; "
+            f"font-size:5pt; margin:0;'>"
+            + "\n".join(_html.escape(l) for l in _logo_lines)
+            + "</pre>"
+        )
+        self._title_label.setText(_logo_html)
+
+        # Notify all pages with hardcoded styles
+        app_signals.theme_changed.emit(self._is_dark)
 
     def _create_pages(self):
         from ofscraper.gui.pages.action_page import ActionPage

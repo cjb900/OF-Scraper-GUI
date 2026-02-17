@@ -3,14 +3,7 @@ from PyQt6.QtGui import QColor, QTextCharFormat, QFont
 from PyQt6.QtWidgets import QPlainTextEdit, QVBoxLayout, QWidget
 
 from ofscraper.gui.signals import app_signals
-
-LEVEL_COLORS = {
-    "DEBUG": "#6c7086",
-    "INFO": "#a6e3a1",
-    "WARNING": "#f9e2af",
-    "ERROR": "#f38ba8",
-    "CRITICAL": "#f38ba8",
-}
+from ofscraper.gui.styles import c
 
 
 class ConsoleLogWidget(QWidget):
@@ -37,7 +30,14 @@ class ConsoleLogWidget(QWidget):
 
     @pyqtSlot(str, str)
     def _append_log(self, level, message):
-        color = LEVEL_COLORS.get(level.upper(), "#cdd6f4")
+        level_map = {
+            "DEBUG": c('muted'),
+            "INFO": c('green'),
+            "WARNING": c('yellow'),
+            "ERROR": c('red'),
+            "CRITICAL": c('red'),
+        }
+        color = level_map.get(level.upper(), c('text'))
         cursor = self.text_edit.textCursor()
         fmt = QTextCharFormat()
         fmt.setForeground(QColor(color))

@@ -17,6 +17,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QUrl
 
+from ofscraper.gui.signals import app_signals
+from ofscraper.gui.styles import c
+
 log = logging.getLogger("shared")
 
 DISCORD_HELP_URL = "https://discord.gg/wN7uxEVHRK"
@@ -126,18 +129,17 @@ def _help_md_to_html(md: str) -> str:
     close_paragraph()
     close_lists(0)
 
-    # Basic styling to keep it readable in the dark theme.
     body = "\n".join(out)
     return f"""
     <html>
       <head>
         <style>
-          body {{ font-family: Segoe UI, Consolas, monospace; font-size: 13px; color: #cdd6f4; }}
-          a {{ color: #89b4fa; text-decoration: none; }}
+          body {{ font-family: Segoe UI, Consolas, monospace; font-size: 13px; color: {c('text')}; }}
+          a {{ color: {c('blue')}; text-decoration: none; }}
           a:hover {{ text-decoration: underline; }}
-          h2,h3,h4 {{ color: #a6e3a1; margin: 14px 0 6px 0; }}
-          hr {{ border: 0; border-top: 1px solid #313244; margin: 14px 0; }}
-          code {{ background: #181825; padding: 1px 4px; border-radius: 4px; }}
+          h2,h3,h4 {{ color: {c('green')}; margin: 14px 0 6px 0; }}
+          hr {{ border: 0; border-top: 1px solid {c('sep')}; margin: 14px 0; }}
+          code {{ background: {c('mantle')}; color: {c('text')}; padding: 1px 4px; border-radius: 4px; }}
           ul {{ margin-top: 6px; margin-bottom: 6px; }}
         </style>
       </head>
@@ -286,6 +288,7 @@ class HelpPage(QWidget):
         self._pending_anchor = None
         self._setup_ui()
         self._load_help_text()
+        app_signals.theme_changed.connect(lambda _: self._load_help_text())
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
