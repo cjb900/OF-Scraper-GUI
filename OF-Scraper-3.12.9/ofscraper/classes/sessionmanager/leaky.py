@@ -1,7 +1,6 @@
 import asyncio
 from aiolimiter import AsyncLimiter
 import ofscraper.utils.settings as settings
-from aiolimiter.compat import wait_for
 
 
 class LeakyBucket(AsyncLimiter):
@@ -15,7 +14,7 @@ class LeakyBucket(AsyncLimiter):
         if not isinstance(amount, int):
             amount = len(amount)
         loop = asyncio.get_running_loop()
-        task = asyncio.current_task(loop)
+        task = asyncio.current_task()
         assert task is not None
         while not self.has_capacity(amount):
             # wait for the next drip to have left the bucket
@@ -24,8 +23,8 @@ class LeakyBucket(AsyncLimiter):
             fut = loop.create_future()
             self._waiters[task] = fut
             try:
-                await wait_for(
-                    asyncio.shield(fut), 1 / self._rate_per_sec * amount, loop=loop
+                await asyncio.wait_for(
+                    asyncio.shield(fut), 1 / self._rate_per_sec * amount
                 )
             except asyncio.TimeoutError:
                 pass
