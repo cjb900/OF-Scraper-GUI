@@ -213,9 +213,15 @@ class _GUILogHandler(logging.Handler):
             if not msg.strip():
                 return
             level = record.levelname
-            # Map custom TRACEBACK_ level to ERROR for display
-            if record.levelno == logging.DEBUG + 1:  # TRACEBACK_ level
+            # Map custom TRACEBACK_ level (DEBUG+1 = 11) to ERROR for display.
+            # These are real exception tracebacks caught by ofscraper's log.traceback_().
+            if record.levelno == logging.DEBUG + 1:
                 level = "ERROR"
+            # Upstream ofscraper uses log.error() for high-visibility informational
+            # output (version notices, download summaries, etc.) — not actual errors.
+            # Downgrade those to WARNING so they don't appear in red.
+            elif record.levelno == logging.ERROR:
+                level = "WARNING"
             app_signals.log_message.emit(level, msg)
         except Exception:
             pass
@@ -1276,6 +1282,11 @@ class GUIWorkflow:
                 )
 
                 try:
+                    # Reset the like tracker for this run so results from
+                    # previous daemon runs don't bleed into the new one.
+                    import ofscraper.actions.actions.like.like as _like_mod
+                    _like_mod._GUI_LIKE_TRACKER = {}
+
                     GUIScraperManager = _make_gui_scraper_manager()
                     scraping_manager = GUIScraperManager()
                     app_signals.log_message.emit(
@@ -1310,6 +1321,16 @@ class GUIWorkflow:
                     "INFO", "Loading content from database..."
                 )
                 _load_models_from_db(self._selected_models)
+
+                # Emit like/unlike status AFTER table rows are loaded from DB
+                # so the signal handler can find the matching rows to update.
+                try:
+                    _liked = dict(_like_mod._GUI_LIKE_TRACKER or {})
+                    _like_mod._GUI_LIKE_TRACKER = None
+                    if _liked:
+                        app_signals.posts_liked_updated.emit(_liked)
+                except Exception:
+                    pass
 
                 app_signals.scraping_finished.emit()
 

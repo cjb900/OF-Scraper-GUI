@@ -11,6 +11,7 @@ ROW_NAMES = (
     "Post_Media_Count",
     "Responsetype",
     "Price",
+    "Liked",
     "Post_ID",
     "Media_ID",
     "Text",

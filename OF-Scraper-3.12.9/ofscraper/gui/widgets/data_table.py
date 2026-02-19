@@ -31,6 +31,7 @@ COLUMNS = [
     "Post_Media_Count",
     "Responsetype",
     "Price",
+    "Liked",
     "Post_ID",
     "Media_ID",
     "Text",
@@ -112,6 +113,7 @@ class MediaDataTable(QTableWidget):
         self.cellClicked.connect(self._on_cell_clicked)
         self.customContextMenuRequested.connect(self._on_context_menu)
         app_signals.cell_update.connect(self._on_external_cell_update)
+        app_signals.posts_liked_updated.connect(self._on_posts_liked_updated)
         app_signals.theme_changed.connect(lambda _: self._rebuild_table())
 
     def load_data(self, table_data):
@@ -236,6 +238,13 @@ class MediaDataTable(QTableWidget):
                 elif col_lower == "price":
                     if display != "Free" and display != "0":
                         item.setForeground(QColor(c("peach")))
+                elif col_lower == "liked":
+                    if display == "Liked":
+                        item.setForeground(QColor(c("green")))
+                    elif display == "Unliked":
+                        item.setForeground(QColor(c("peach")))
+                    elif display == "Failed":
+                        item.setForeground(QColor(c("red")))
 
                 # Truncate long text
                 if col_lower == "text" and len(display) > 80:
@@ -397,6 +406,40 @@ class MediaDataTable(QTableWidget):
                 # If keyed by media_id, update all rows that share that media_id.
                 if str(row_data.get("index", "")) == row_key:
                     break
+
+    def _on_posts_liked_updated(self, results: dict):
+        """Handle posts_liked_updated signal from a like/unlike action.
+        results is {post_id (int): status_str} where status_str is one of
+        'Liked', 'Unliked', or 'Failed'.  Updates the Liked column for every
+        media row that shares a matching post_id."""
+        if not results:
+            return
+        liked_col = COLUMNS.index("Liked")
+        color_map = {
+            "Liked": c("green"),
+            "Unliked": c("peach"),
+            "Failed": c("red"),
+        }
+        str_results = {str(k): v for k, v in results.items()}
+
+        # Update _raw_data backing store
+        for row in self._raw_data:
+            pid = str(row.get("post_id", ""))
+            if pid in str_results:
+                row["liked"] = str_results[pid]
+
+        # Update _display_data and the visible table cells
+        for row_idx, row_data in enumerate(self._display_data):
+            pid = str(row_data.get("post_id", ""))
+            if pid in str_results:
+                status = str_results[pid]
+                row_data["liked"] = status
+                item = self.item(row_idx, liked_col)
+                if item:
+                    item.setText(status)
+                    color = color_map.get(status)
+                    if color:
+                        item.setForeground(QColor(color))
 
     def _update_cart_count(self):
         """Count and emit the number of [added] items."""

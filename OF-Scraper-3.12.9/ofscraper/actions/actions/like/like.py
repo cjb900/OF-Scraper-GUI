@@ -28,6 +28,11 @@ from ofscraper.classes.sessionmanager.sessionmanager import SessionSleep
 
 log = logging.getLogger("shared")
 warning_str = "\n[red]Current Like rate can eat through the ~1000 like limit in ~1 hour\nIncreasing the rate could lead to getting logged out[/red]"
+
+# Set to a dict by the GUI before a like/unlike run to capture per-post results.
+# Keys are post IDs (int), values are "Liked", "Unliked", or "Failed".
+# Set to None when not running in GUI mode.
+_GUI_LIKE_TRACKER = None
 like_str = "Performing Like Action on {name}" + warning_str
 unlike_str = "Performing Unlike Action on {name}" + warning_str
 
@@ -209,6 +214,8 @@ def _toggle_like_requests(c, id, model_id):
         _like_request(c, id, model_id, sleeper)
         out = 2
     cache.set(f"liked_status_{id}", True)
+    if _GUI_LIKE_TRACKER is not None:
+        _GUI_LIKE_TRACKER[id] = "Failed" if out == 3 else "Liked"
     return out
 
 
@@ -236,6 +243,8 @@ def _toggle_unlike_requests(c, id, model_id):
         _like_request(c, id, model_id, sleeper)
         out = 2
     cache.set(f"liked_status_{id}", False)
+    if _GUI_LIKE_TRACKER is not None:
+        _GUI_LIKE_TRACKER[id] = "Failed" if out == 3 else "Unliked"
     return out
 
 

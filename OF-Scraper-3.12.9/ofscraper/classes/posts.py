@@ -63,7 +63,7 @@ class Post(base.base):
 
     @property
     def favorited(self):
-        (
+        return (
             self.post.get("canToggleFavorite") is False
             if self.post.get("canToggleFavorite") is not None
             else self.post.get("isFavorite")

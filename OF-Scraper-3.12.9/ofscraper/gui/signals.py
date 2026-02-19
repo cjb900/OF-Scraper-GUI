@@ -54,6 +54,10 @@ class AppSignals(QObject):
     # Notifications
     show_notification = pyqtSignal(str, str)  # title, message (system tray toast)
 
+    # Like/Unlike results: dict of {post_id (int): status_str} where
+    # status_str is "Liked", "Unliked", or "Failed"
+    posts_liked_updated = pyqtSignal(object)
+
     # Status
     status_message = pyqtSignal(str)  # status bar text
     error_occurred = pyqtSignal(str, str)  # title, message
