@@ -9,44 +9,44 @@ assignees: ''
 
 ---
 name: Bug report
-about: Report an issue with running OF-Scraper
+about: Report an issue with the OF-Scraper 3.12.9 GUI patch
 title: "[BUG] Clear description of the issue"
 labels: "bug"
 assignees: ""
 ---
 
 <!--
-Issues will be closed if this template is not filled out completely.
+This issue tracker is for bugs in the OF-Scraper 3.12.9 GUI patch only.
 
-For private reports or quick questions, you may use Discord instead.
+For bugs in the base ofscraper CLI/TUI, please report upstream:
+  https://github.com/datawhores/OF-Scraper/issues
+
+For quick questions, you may use Discord instead.
 
 BEFORE opening an issue:
-  - Check that you are on the latest version of OF-Scraper
-  - If using the GUI patch, make sure the patch was applied successfully (run with --dry-run first)
+  - Confirm you are running ofscraper 3.12.9 (run `ofscraper --version`)
+  - Confirm the GUI patch was applied successfully (re-run `python patch_ofscraper_3.12.9_gui.py --dry-run` to check)
   - Search existing issues to see if this has already been reported
+  - Issues will be closed if this template is not filled out completely
 -->
 
 ## Describe the bug
 
-A clear and concise description of what the bug is. Include any error messages shown on screen or in the log.
+A clear and concise description of what the bug is. Include any error messages shown on screen or in the GUI console.
 
-## Mode
+## GUI Mode
 
-Which mode were you running in?
+Which GUI mode were you using when the bug occurred?
 
-- [ ] GUI (`ofscraper --gui`)
-- [ ] CLI / Interactive (terminal prompts)
-- [ ] CLI / Action mode (command-line flags, e.g. `ofscraper post -u username`)
-- [ ] Daemon mode
+- [ ] GUI scraper (`ofscraper --gui`, scraping content)
+- [ ] GUI daemon mode (scheduled/repeated scrapes)
+- [ ] GUI settings / config editor
+- [ ] GUI auth editor
+- [ ] Other (describe below)
 
 ## To Reproduce
 
-Steps to reproduce the behavior. Include the exact command and arguments you ran.
-
-**Command used:**
-```
-ofscraper <paste command here>
-```
+Steps to reproduce the behavior.
 
 **Steps:**
 1.
@@ -59,14 +59,14 @@ What did you expect to happen?
 
 ## Actual behavior
 
-What actually happened? Paste the relevant portion of the log or error here.
+What actually happened?
 
 ## Screenshots / Logs
 
-Logs are **required** for all bug reports (except pure setup/install issues).
+Logs are **required** for all bug reports.
 
-- Logs must be at **least debug level** (`--log-level debug` on CLI, or set `log_level: "debug"` in config)
-- GUI users: copy from the **Console** tab inside the GUI, or from the log file
+- Set log level to debug: open **Settings** in the GUI and set Log Level to `debug`, then reproduce the issue
+- Copy the log from the **Console** tab in the GUI, or from the log file on disk
 - Use a paste site to keep the issue readable: [PrivateBin](https://privatebin.io/) or [Pastebin](https://pastebin.com/)
 
 <details>
@@ -80,9 +80,8 @@ paste log here
 
 ## Config
 
-Paste your `config.json` below. **Anonymize** any personal information before posting:
+Paste your `config.json` below. **Anonymize** before posting:
 - Replace your home directory path with `~` or `<home>`
-- Remove or mask your `key_db_path`, API keys, or auth tokens
 
 <details>
 <summary>config.json (click to expand)</summary>
@@ -95,24 +94,21 @@ paste config here
 
 ## Installation Info
 
-- **Install method:**
-  - [ ] pip (`pip install ofscraper`)
-  - [ ] pip + GUI patch (`patch_ofscraper_3.12.9_gui.py`)
-  - [ ] pipx
+- **ofscraper Install method:**
+  - [ ] pip + GUI patch
   - [ ] pipx + GUI patch
-  - [ ] Binary / standalone executable
-  - [ ] Source / git clone
+  - [ ] uv + GUI patch
 
-- **OF-Scraper version:** <!-- run `ofscraper --version` -->
-- **GUI patch applied:** yes / no / N/A
+- **ofscraper version:** 3.12.9 <!-- confirm with `ofscraper --version` — issues for other versions will be closed -->
+- **Patch script version:** <!-- first line of `patch_ofscraper_3.12.9_gui.py`, e.g. `# Patch ID: abc1234` -->
+- **PyQt6 version:** <!-- run `python -c "import PyQt6; print(PyQt6.QtCore.PYQT_VERSION_STR)"` -->
 
 ## System Info
 
-- **OS:** <!-- e.g. Windows 11, macOS 14.3, Ubuntu 22.04 -->
+- **OS:** <!-- e.g. Windows 11 23H2, Ubuntu 22.04, Linux Mint 22.3 etc.  -->
 - **Python version:** <!-- run `python --version` -->
-- **PyQt6 version (GUI users):** <!-- run `python -c "import PyQt6; print(PyQt6.QtCore.PYQT_VERSION_STR)"` -->
 - **Architecture:** <!-- e.g. x86_64, arm64 -->
 
 ## Additional context
 
-Any other context that might help: accounts being scraped (content type, subscription status), specific models or post types, network setup (VPN, proxy), etc.
+Any other context that might help: specific models, content types, network setup (VPN/proxy), etc.
