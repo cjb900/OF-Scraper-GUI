@@ -168,7 +168,7 @@ QPushButton:pressed {{
 
 QPushButton:disabled {{
     background-color: #1e1e2e;
-    color: #585b70;
+    color: #7f849c;
     border-color: #313244;
 }}
 
@@ -233,11 +233,7 @@ QComboBox:focus, QDateEdit:focus, QTimeEdit:focus {{
 
 QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
     background-color: #1e1e2e;
-    color: #585b70;
-}}
-
-QLineEdit[placeholderText] {{
-    color: #6c7086;
+    color: #7f849c;
 }}
 
 QComboBox::drop-down {{
@@ -310,7 +306,7 @@ QTableView::item:hover, QListWidget::item:hover {{
 
 QHeaderView::section {{
     background-color: #181825;
-    color: #a6adc8;
+    color: #cdd6f4;
     border: none;
     border-right: 1px solid #313244;
     border-bottom: 1px solid #313244;
@@ -372,7 +368,7 @@ QTabWidget::pane {{
 
 QTabBar::tab {{
     background-color: #181825;
-    color: #6c7086;
+    color: #9399b2;
     border: 1px solid #313244;
     border-bottom: none;
     padding: 8px 16px;
@@ -405,7 +401,7 @@ QGroupBox::title {{
     subcontrol-origin: margin;
     subcontrol-position: top left;
     padding: 0 6px;
-    color: #a6adc8;
+    color: #cdd6f4;
 }}
 
 /* ==================== Progress Bar ==================== */
@@ -446,11 +442,11 @@ QLabel[heading="true"] {{
 
 QLabel[subheading="true"] {{
     font-size: 14px;
-    color: #a6adc8;
+    color: #bac2de;
 }}
 
 QLabel[muted="true"] {{
-    color: #6c7086;
+    color: #9399b2;
     font-size: 11px;
 }}
 
@@ -458,7 +454,7 @@ QLabel[muted="true"] {{
 QStatusBar {{
     background-color: #181825;
     border-top: 1px solid #313244;
-    color: #6c7086;
+    color: #9399b2;
 }}
 
 /* ==================== Dialog ==================== */
@@ -631,11 +627,7 @@ QComboBox:focus, QDateEdit:focus, QTimeEdit:focus {{
 
 QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
     background-color: #eff1f5;
-    color: #acb0be;
-}}
-
-QLineEdit[placeholderText] {{
-    color: #9ca0b0;
+    color: #6c6f85;
 }}
 
 QComboBox::drop-down {{
@@ -866,8 +858,8 @@ QDialog {{
 
 /* ==================== Text Edit / Plain Text ==================== */
 QPlainTextEdit, QTextEdit {{
-    background-color: #e6e9ef;
-    color: #40a02b;
+    background-color: #ffffff;
+    color: #11111b;
     border: 1px solid #ccd0da;
     border-radius: 4px;
     font-family: "Consolas", "Courier New", monospace;

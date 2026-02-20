@@ -1,14 +1,94 @@
 import logging
+import os
+import subprocess
 import sys
 
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon
 from PyQt6.QtCore import QObject, QEvent
 from PyQt6.QtGui import QIcon
 
-from ofscraper.gui.styles import get_dark_theme_qss
+from ofscraper.gui.styles import get_dark_theme_qss, get_light_theme_qss
 from ofscraper.gui.utils.progress_bridge import GUILogHandler
 
 log = logging.getLogger("shared")
+
+
+def _show_windows_toast(title: str, message: str) -> bool:
+    """Show a native Windows 10/11 toast notification via PowerShell.
+
+    Uses the Windows Runtime ToastNotificationManager API which appears in
+    the Windows Notification Center.  The app AUMID is registered in the
+    current-user registry on first call so Windows will accept the notification.
+
+    Runs PowerShell in a hidden window; stderr is captured in a daemon thread
+    for debug logging without blocking the GUI thread.
+
+    Returns True if the subprocess launched without error.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        # Title and message are passed via environment variables to avoid
+        # any PowerShell quoting/injection issues.
+        ps_script = r"""
+# Register app AUMID so Windows 10/11 will accept and display the notification.
+$RegPath = "HKCU:\SOFTWARE\Classes\AppUserModelId\OF-Scraper"
+if (-not (Test-Path $RegPath)) {
+    New-Item -Path $RegPath -Force | Out-Null
+    New-ItemProperty -Path $RegPath -Name "DisplayName" -Value "OF-Scraper" -PropertyType String -Force | Out-Null
+}
+
+$t = [System.Security.SecurityElement]::Escape($env:TOAST_TITLE)
+$m = [System.Security.SecurityElement]::Escape($env:TOAST_MSG)
+
+[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
+[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
+
+$xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+$xml.LoadXml("<toast><visual><binding template=`"ToastText02`"><text id=`"1`">$t</text><text id=`"2`">$m</text></binding></visual></toast>")
+
+$toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("OF-Scraper").Show($toast)
+"""
+        env = os.environ.copy()
+        env["TOAST_TITLE"] = str(title)
+        env["TOAST_MSG"] = str(message)
+        proc = subprocess.Popen(
+            [
+                "powershell",
+                "-WindowStyle", "Hidden",
+                "-NonInteractive",
+                "-Command", ps_script,
+            ],
+            env=env,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+
+        # Collect stderr in a daemon thread so we can log errors without
+        # blocking the GUI thread.
+        import threading
+
+        def _log_stderr():
+            try:
+                _, stderr_data = proc.communicate(timeout=10)
+                if proc.returncode != 0 and stderr_data:
+                    log.debug(
+                        f"[Toast] PowerShell error (rc={proc.returncode}): "
+                        f"{stderr_data.decode(errors='replace').strip()}"
+                    )
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            except Exception as exc:
+                log.debug(f"[Toast] stderr reader error: {exc}")
+
+        threading.Thread(target=_log_stderr, daemon=True).start()
+        return True
+    except Exception as e:
+        log.debug(f"[Toast] Failed to launch PowerShell: {e}")
+        return False
+
 
 class _CloseLegacyModelLoadingPopup(QObject):
     """Event filter that closes any stray legacy 'Loading models from API...' popup.
@@ -89,7 +169,16 @@ def launch_gui(manager=None):
     app = QApplication(sys.argv)
     app.setApplicationName("OF-Scraper")
     app.setStyle("Fusion")
-    app.setStyleSheet(get_dark_theme_qss())
+    # Apply saved theme preference (falls back to dark if not set)
+    try:
+        from ofscraper.gui.utils.gui_settings import load_gui_settings
+        _saved_theme = load_gui_settings().get("theme", "dark")
+    except Exception:
+        _saved_theme = "dark"
+    if _saved_theme == "light":
+        app.setStyleSheet(get_light_theme_qss())
+    else:
+        app.setStyleSheet(get_dark_theme_qss())
 
     # Close any stray legacy "Loading models..." popup globally.
     try:
@@ -149,13 +238,16 @@ def launch_gui(manager=None):
             from ofscraper.gui.signals import app_signals
 
             def _on_show_notification(title, message):
-                try:
-                    tray.showMessage(
-                        title, message,
-                        QSystemTrayIcon.MessageIcon.Information, 5000,
-                    )
-                except Exception:
-                    pass
+                # Try native Windows 10/11 toast first (appears in Notification
+                # Center). Falls back to legacy tray balloon on failure.
+                if not _show_windows_toast(title, message):
+                    try:
+                        tray.showMessage(
+                            title, message,
+                            QSystemTrayIcon.MessageIcon.Information, 5000,
+                        )
+                    except Exception:
+                        pass
 
             app_signals.show_notification.connect(_on_show_notification)
     except Exception as e:

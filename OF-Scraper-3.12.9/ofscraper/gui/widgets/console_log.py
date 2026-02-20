@@ -31,7 +31,7 @@ class ConsoleLogWidget(QWidget):
     @pyqtSlot(str, str)
     def _append_log(self, level, message):
         level_map = {
-            "DEBUG": c('muted'),
+            "DEBUG": c('subtext'),
             "INFO": c('green'),
             "WARNING": c('yellow'),
             "ERROR": c('red'),

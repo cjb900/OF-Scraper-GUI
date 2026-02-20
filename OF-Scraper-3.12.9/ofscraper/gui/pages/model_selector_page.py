@@ -479,6 +479,10 @@ class ModelSelectorPage(QWidget):
             self.model_list.addItem(item)
         self.model_list.blockSignals(False)
         self._update_count()
+        # Re-apply any active search text (e.g. pre-set by username filter from area page)
+        current_text = self.search_input.text()
+        if current_text:
+            self._filter_list(current_text)
 
     def _filter_list(self, text):
         """Filter visible items based on search text.

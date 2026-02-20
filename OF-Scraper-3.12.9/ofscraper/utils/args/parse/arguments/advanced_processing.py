@@ -21,7 +21,6 @@ individual_search_option = click.option(
 )
 
 search_entire_list_option = click.option(
-    "-fl",
     "--list",
     help="Search entire enabled lists before filtering for usernames when --username is provided",
     default=False,

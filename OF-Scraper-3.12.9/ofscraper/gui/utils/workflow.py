@@ -228,8 +228,16 @@ class _GUILogHandler(logging.Handler):
 
 
 def _install_gui_log_handler():
-    """Attach a handler to the 'shared' and 'shared_other' loggers so their
-    output appears in the GUI console widget."""
+    """Attach a handler to the 'shared_other' logger so its output appears in
+    the GUI console widget.
+
+    We attach ONLY to 'shared_other' (not 'shared') to avoid duplicate console
+    entries. ofscraper logs every message to both loggers simultaneously:
+    - 'shared'       → Rich-markup version (used by RichHandler for terminal)
+    - 'shared_other' → plain-text version (Rich markup already stripped)
+    Attaching to both would fire our handler twice per message.  'shared_other'
+    already delivers clean text, so no additional markup stripping is needed.
+    """
     global _gui_log_handler
     _gui_log_handler = _GUILogHandler()
     # Level 11 = TRACEBACK_ (DEBUG+1) — catches exceptions logged via
@@ -238,19 +246,17 @@ def _install_gui_log_handler():
     _gui_log_handler.setFormatter(
         logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
     )
-    for name in ("shared", "shared_other"):
-        logger = logging.getLogger(name)
-        logger.addHandler(_gui_log_handler)
+    logger = logging.getLogger("shared_other")
+    logger.addHandler(_gui_log_handler)
 
 
 def _uninstall_gui_log_handler():
-    """Remove the GUI log handler from the loggers."""
+    """Remove the GUI log handler from the logger."""
     global _gui_log_handler
     if _gui_log_handler is None:
         return
-    for name in ("shared", "shared_other"):
-        logger = logging.getLogger(name)
-        logger.removeHandler(_gui_log_handler)
+    logger = logging.getLogger("shared_other")
+    logger.removeHandler(_gui_log_handler)
     _gui_log_handler = None
 
 
@@ -774,7 +780,9 @@ def _load_models_from_db(selected_models):
             if data:
                 rows = _build_db_rows(data, username, post_info)
                 if rows:
-                    app_signals.data_loading_finished.emit(rows)
+                    # Use data_replace so the DB result replaces any rows
+                    # emitted by the live scraper pipeline, preventing duplicates.
+                    app_signals.data_replace.emit(rows)
                     log.info(
                         f"Loaded {len(rows)} items from DB for {username}"
                     )
@@ -1411,8 +1419,10 @@ class GUIWorkflow:
         except Exception:
             pass
 
+        import gc
         import pathlib
         import sqlite3
+        import time
         import os
         import shutil
 
@@ -1510,6 +1520,11 @@ class GUIWorkflow:
                     rows = cur.fetchall()
                     cur.close()
                     con.close()
+                    # Force CPython to release the file handle immediately.
+                    # On Windows, sqlite3 handles can remain open until GC runs,
+                    # which prevents unlink() from succeeding.
+                    del cur, con
+                    gc.collect()
                 except Exception as e:
                     app_signals.log_message.emit(
                         "ERROR",
@@ -1584,7 +1599,18 @@ class GUIWorkflow:
 
             # Delete DB
             if delete_db and db_path.exists():
-                if _safe_unlink(db_path):
+                # On Windows, sqlite3 file handles can linger after close().
+                # Retry up to 3 times with a short delay to let the OS release them.
+                db_deleted = False
+                for attempt in range(3):
+                    if _safe_unlink(db_path):
+                        db_deleted = True
+                        break
+                    if attempt < 2:
+                        time.sleep(0.3)
+                        gc.collect()
+
+                if db_deleted:
                     app_signals.log_message.emit(
                         "INFO", f"Deleted DB for {username}"
                     )
@@ -1597,6 +1623,12 @@ class GUIWorkflow:
                             )
                     except Exception:
                         pass
+                else:
+                    app_signals.log_message.emit(
+                        "ERROR",
+                        f"Failed to delete DB for {username}: {db_path} "
+                        "(file may be locked — close any other programs accessing it and try again)",
+                    )
 
                 # Also remove WAL/SHM companions if present
                 _safe_unlink(db_path.with_suffix(db_path.suffix + "-wal"))

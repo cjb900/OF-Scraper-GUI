@@ -22,7 +22,6 @@ sort_by_option = click.option(
 )
 
 sort_descending_option = click.option(
-    "-ds",
     "--desc",
     help="Sort the model list in descending order",
     is_flag=True,

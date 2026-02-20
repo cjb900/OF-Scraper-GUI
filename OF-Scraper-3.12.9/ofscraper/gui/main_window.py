@@ -48,12 +48,22 @@ class MainWindow(QMainWindow):
 
         self._pages = {}
         self._nav_buttons = {}
-        self._is_dark = True  # dark mode by default
+
+        # Load saved theme preference (dark by default)
+        try:
+            from ofscraper.gui.utils.gui_settings import load_gui_settings
+            self._is_dark = load_gui_settings().get("theme", "dark") == "dark"
+        except Exception:
+            self._is_dark = True
+        set_theme(self._is_dark)
 
         # Initialize the workflow runner that bridges GUI → scraper backend
         self.workflow = GUIWorkflow(manager)
 
         self._setup_ui()
+        # _setup_ui hardcodes dark visuals; fix up if light mode is preferred
+        if not self._is_dark:
+            self._apply_theme_visuals(emit_signal=False)
         self._connect_signals()
         self._navigate("scraper")
         # After the window is created and painted, show missing dependency notices once.
@@ -357,11 +367,19 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Ready")
 
     def _toggle_theme(self):
-        """Switch between dark and light themes."""
-        import html as _html
-
+        """Switch between dark and light themes, then offer to save as default."""
         self._is_dark = not self._is_dark
-        set_theme(self._is_dark)  # update module-level state
+        set_theme(self._is_dark)
+        self._apply_theme_visuals()
+        self._prompt_save_theme()
+
+    def _apply_theme_visuals(self, emit_signal=True):
+        """Apply all visual elements for the current theme (self._is_dark).
+
+        Called both at startup (emit_signal=False, to avoid premature signal
+        before pages are connected) and after every toggle (emit_signal=True).
+        """
+        import html as _html
 
         app = QApplication.instance()
         if self._is_dark:
@@ -403,8 +421,37 @@ class MainWindow(QMainWindow):
         )
         self._title_label.setText(_logo_html)
 
-        # Notify all pages with hardcoded styles
-        app_signals.theme_changed.emit(self._is_dark)
+        if emit_signal:
+            app_signals.theme_changed.emit(self._is_dark)
+
+    def _prompt_save_theme(self):
+        """Ask the user if they want to save the current theme as the default."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        theme_name = "Dark" if self._is_dark else "Light"
+        reply = QMessageBox.question(
+            self,
+            "Save Theme Preference",
+            f"Set {theme_name} Mode as your default theme?\n\n"
+            f"The preference will be saved to gui_settings.json in your "
+            f"ofscraper config directory.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                from ofscraper.gui.utils.gui_settings import (
+                    load_gui_settings,
+                    save_gui_settings,
+                )
+                settings = load_gui_settings()
+                settings["theme"] = "dark" if self._is_dark else "light"
+                if save_gui_settings(settings):
+                    log.info(
+                        f"[GUI] Default theme saved: {'dark' if self._is_dark else 'light'}"
+                    )
+            except Exception as e:
+                log.warning(f"[GUI] Could not save theme preference: {e}")
 
     def _create_pages(self):
         from ofscraper.gui.pages.action_page import ActionPage
@@ -452,6 +499,7 @@ class MainWindow(QMainWindow):
         app_signals.models_selected.connect(self._on_models_selected)
         app_signals.areas_selected.connect(self._on_areas_selected)
         app_signals.data_loading_finished.connect(self._on_data_loaded)
+        app_signals.data_replace.connect(self._on_data_replace)
 
     def _navigate(self, page_id):
         if page_id in self._pages:
@@ -511,6 +559,10 @@ class MainWindow(QMainWindow):
     def _on_data_loaded(self, table_data):
         """Data loaded for a user — append to table."""
         self.table_page.append_data(table_data)
+
+    def _on_data_replace(self, table_data):
+        """DB fallback loaded — replace table with authoritative DB rows."""
+        self.table_page.load_data(table_data)
 
     def go_to_scraper_step(self, step_index):
         """Navigate to a specific step in the scraper workflow."""

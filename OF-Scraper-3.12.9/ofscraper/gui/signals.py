@@ -19,7 +19,8 @@ class AppSignals(QObject):
 
     # Data loading
     data_loading_started = pyqtSignal()
-    data_loading_finished = pyqtSignal(list)  # table data rows
+    data_loading_finished = pyqtSignal(list)  # table data rows (appended)
+    data_replace = pyqtSignal(list)           # table data rows (replaces all existing rows)
     data_loading_error = pyqtSignal(str)  # error message
 
     # Table / Downloads
