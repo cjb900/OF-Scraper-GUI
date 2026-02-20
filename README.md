@@ -7,19 +7,19 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 
 | Main Window | Select Content Areas & Filters |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/0ebd1a62-d865-4032-a70b-fb17bad868f1" width="450" alt="GUI Main Window"> | <img src="https://github.com/user-attachments/assets/124624c8-cf8a-4465-a1e4-19b081420577" width="450" alt="Select Content Areas & Filters"> |
+| <img src="https://github.com/user-attachments/assets/5bf55728-fe98-4306-9624-218fd9934ce1" width="450" alt="Main Window"> | <img src="https://github.com/user-attachments/assets/16cc4477-6686-4c0f-8ab8-908490e7fd1b" width="450" alt="Select Content Areas & Filters"> |
 
 | Authentication | Configuration |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/a0f4a3a6-cdfd-4eec-b89d-b6a6446b920a" width="450" alt="Authentication Page"> | <img src="https://github.com/user-attachments/assets/358dfa99-2989-40a5-99cc-5cf180f1844c" width="450" alt="Configuration Page"> |
+| <img src="https://github.com/user-attachments/assets/6c296bef-b3e2-47b4-bff4-3aa6b729b3f4" width="450" alt="Authentication"> | <img src="https://github.com/user-attachments/assets/c18de136-ed00-439e-b431-330b908bcf8d" width="450" alt="Configuration"> |
 
 | Select Models | Scraper Running |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/2a272a16-1925-4a9f-8a8d-3aa0a04b4dcd" width="450" alt="Select Models"> | <img src="https://github.com/user-attachments/assets/81ac96d0-f94b-47c0-ada5-0b3f5fb40d4a" width="450" alt="Scraper Running"> |
+| <img src="https://github.com/user-attachments/assets/a24b3be9-6431-4ae7-8c91-edde5e9cb49d" width="450" alt="Select Models"> | <img src="https://github.com/user-attachments/assets/fb5b1ffc-b02b-4f2a-9f8c-1d0bda2b0379" width="450" alt="Scraper Running"> |
 
 | Profile | Help/README |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/03ee5001-6a3f-4bee-8fb8-dd81dd3392b6" width="450" alt="Profile"> | <img src="https://github.com/user-attachments/assets/54a1ccda-997f-409e-a6f9-1d7799210da3" width="450" alt="Help / README"> |
+| <img src="https://github.com/user-attachments/assets/18665429-03ae-4677-af40-bb9c788ff2fd" width="450" alt="Profile"> | <img src="https://github.com/user-attachments/assets/1c06d05a-545f-4b1e-9e76-fde331abcbbe" width="450" alt="Help / README"> |
 
 
 
