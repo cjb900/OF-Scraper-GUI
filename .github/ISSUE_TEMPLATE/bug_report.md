@@ -2,65 +2,117 @@
 name: Bug report
 about: Report an issue with running the script
 title: "# Clear Description of issue"
-labels: ""
+labels: ''
+assignees: ''
+
+---
+
+---
+name: Bug report
+about: Report an issue with running OF-Scraper
+title: "[BUG] Clear description of the issue"
+labels: "bug"
 assignees: ""
 ---
 
-<!---
-Issues pertaining to the script not working
-Must have a log file and config, otherwhise they will be closed
+<!--
+Issues will be closed if this template is not filled out completely.
 
-You may submit tickets privately on discord
-In other cases a log and config may be helpful
+For private reports or quick questions, you may use Discord instead.
+
+BEFORE opening an issue:
+  - Check that you are on the latest version of OF-Scraper
+  - If using the GUI patch, make sure the patch was applied successfully (run with --dry-run first)
+  - Search existing issues to see if this has already been reported
 -->
 
 ## Describe the bug
 
-A clear and concise description of what the bug is.
+A clear and concise description of what the bug is. Include any error messages shown on screen or in the log.
+
+## Mode
+
+Which mode were you running in?
+
+- [ ] GUI (`ofscraper --gui`)
+- [ ] CLI / Interactive (terminal prompts)
+- [ ] CLI / Action mode (command-line flags, e.g. `ofscraper post -u username`)
+- [ ] Daemon mode
 
 ## To Reproduce
 
-Steps to reproduce the behavior:
-Hint: enter the command and args would be a good idea
+Steps to reproduce the behavior. Include the exact command and arguments you ran.
 
-Example
+**Command used:**
+```
+ofscraper <paste command here>
+```
 
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+**Steps:**
+1.
+2.
+3.
 
 ## Expected behavior
 
-A clear and concise description of what you expected to happen.
+What did you expect to happen?
 
-## Screenshots/Logs
+## Actual behavior
 
-Logs are required for any reports of any issue, unless the issue is related to setup of script
-Logs must be at least debug level
+What actually happened? Paste the relevant portion of the log or error here.
 
-Hint: Please make sure that the log formatting is readable, use a paste site
-like
-[Private Bin](https://privatebin.io/)
+## Screenshots / Logs
+
+Logs are **required** for all bug reports (except pure setup/install issues).
+
+- Logs must be at **least debug level** (`--log-level debug` on CLI, or set `log_level: "debug"` in config)
+- GUI users: copy from the **Console** tab inside the GUI, or from the log file
+- Use a paste site to keep the issue readable: [PrivateBin](https://privatebin.io/) or [Pastebin](https://pastebin.com/)
+
+<details>
+<summary>Log output (click to expand)</summary>
+
+```
+paste log here
+```
+
+</details>
 
 ## Config
 
-Please provide details about your correct config
-This is required for all reports
+Paste your `config.json` below. **Anonymize** any personal information before posting:
+- Replace your home directory path with `~` or `<home>`
+- Remove or mask your `key_db_path`, API keys, or auth tokens
 
-Feel free to anonymize information
+<details>
+<summary>config.json (click to expand)</summary>
 
-- for example home directory
-- keydb api key
+```json
+paste config here
+```
+
+</details>
+
+## Installation Info
+
+- **Install method:**
+  - [ ] pip (`pip install ofscraper`)
+  - [ ] pip + GUI patch (`patch_ofscraper_3.12.9_gui.py`)
+  - [ ] pipx
+  - [ ] pipx + GUI patch
+  - [ ] Binary / standalone executable
+  - [ ] Source / git clone
+
+- **OF-Scraper version:** <!-- run `ofscraper --version` -->
+- **GUI patch applied:** yes / no / N/A
 
 ## System Info
 
-- OS: [e.g. iOS]
-- Browser [e.g. chrome, safari]
-- Version [e.g. 22]
-- binary or python
-- python version if installed via pip or pypi
+- **OS:** <!-- e.g. Windows 11, macOS 14.3, Ubuntu 22.04 -->
+- **Python version:** <!-- run `python --version` -->
+- **PyQt6 version (GUI users):** <!-- run `python -c "import PyQt6; print(PyQt6.QtCore.PYQT_VERSION_STR)"` -->
+- **Architecture:** <!-- e.g. x86_64, arm64 -->
 
 ## Additional context
 
-Add any other context about the problem here.
+Any other context that might help: accounts being scraped (content type, subscription status), specific models or post types, network setup (VPN, proxy), etc.
