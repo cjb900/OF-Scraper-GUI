@@ -7,14 +7,6 @@ assignees: ''
 
 ---
 
----
-name: Bug report
-about: Report an issue with the OF-Scraper 3.12.9 GUI patch
-title: "[BUG] Clear description of the issue"
-labels: "bug"
-assignees: ""
----
-
 <!--
 This issue tracker is for bugs in the OF-Scraper 3.12.9 GUI patch only.
 
