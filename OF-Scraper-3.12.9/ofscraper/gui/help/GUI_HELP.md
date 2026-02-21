@@ -26,6 +26,7 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 - [Table columns](#table-columns)
 - [Merge DBs](#merge-dbs)
 - [Troubleshooting notes](#troubleshooting)
+- [Auth Issues](#auth-issues)
 
 ---
 
@@ -588,9 +589,23 @@ Text/description associated with the post/message (may be truncated).
 
 ---
 
-<a id="troubleshooting"></a>
+<a id=”troubleshooting”></a>
 ## Troubleshooting notes
 
 - If you purge files/DB and immediately start a download scrape, folders/databases may be recreated right away.
 - For some message/PPV entries, “viewable/unlocked” may not map 1:1 to “purchased”.
+
+---
+
+<a id=”auth-issues”></a>
+## Auth Issues
+
+If you are having auth issues please try the below to see if it helps:
+
+- Double check that you are entering the correct auth information.
+- Try changing the **Dynamic Mode** under **Configuration → Advanced**.
+- If you are using a VPN, try disabling it or switching to a different endpoint.
+- If you are using a VPS, make sure you obtained your auth credentials from the same IP address as your VPS.
+- Try using a browser you have not previously accessed OnlyFans from (e.g. if you normally use Chrome, try Firefox).
+- For further auth help see the [official OF-Scraper auth guide](https://of-scraper.gitbook.io/of-scraper/getting-started/auth).
 

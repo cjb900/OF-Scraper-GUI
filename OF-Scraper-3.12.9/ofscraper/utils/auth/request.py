@@ -34,6 +34,15 @@ curr_auth = None
 last_check = None
 
 
+def invalidate_auth_cache():
+    """Reset the in-memory auth cache so the next call to get_request_auth()
+    re-fetches rules using the current dynamic-mode-default from config.
+    Call this whenever dynamic-mode-default is changed at runtime."""
+    global curr_auth, last_check
+    curr_auth = None
+    last_check = None
+
+
 def read_request_auth():
     request_auth = {
         "static_param": "",

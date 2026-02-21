@@ -668,11 +668,18 @@ class AreaSelectorPage(QWidget):
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Icon.Warning)
         msg.setWindowTitle("Unable to Load Models")
-        msg.setText("Unable to get list of models.\nPlease check your auth information.")
+        msg.setText(
+            "Unable to get list of models.\n"
+            "Please check your auth information.\n\n"
+            "If your auth is correct and the issue persists,\n"
+            "try changing the Dynamic Mode in Configuration \u2192 Advanced."
+        )
         if detail:
             msg.setDetailedText(str(detail))
         retry_btn = msg.addButton("Retry", QMessageBox.ButtonRole.AcceptRole)
         auth_btn = msg.addButton("Go to Authentication", QMessageBox.ButtonRole.ActionRole)
+        dynamic_btn = msg.addButton("Dynamic Mode (Config)", QMessageBox.ButtonRole.ActionRole)
+        help_btn = msg.addButton("Help / README", QMessageBox.ButtonRole.ActionRole)
         msg.addButton("Close", QMessageBox.ButtonRole.RejectRole)
         msg.exec()
 
@@ -680,6 +687,53 @@ class AreaSelectorPage(QWidget):
             self._retry_model_load()
         elif msg.clickedButton() == auth_btn:
             app_signals.navigate_to_page.emit("auth")
+        elif msg.clickedButton() == dynamic_btn:
+            self._go_to_dynamic_mode_config()
+        elif msg.clickedButton() == help_btn:
+            self._go_to_auth_help()
+
+    def _go_to_dynamic_mode_config(self):
+        """Navigate to Configuration → Advanced tab with Dynamic Mode focused."""
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QApplication
+
+        app_signals.navigate_to_page.emit("config")
+
+        def _focus_field():
+            try:
+                for w in QApplication.topLevelWidgets():
+                    pages = getattr(w, "_pages", None)
+                    if pages and "config" in pages:
+                        cfg_page = pages["config"]
+                        if hasattr(cfg_page, "go_to_config_field"):
+                            cfg_page.go_to_config_field("Advanced", "dynamic-mode-default")
+                        break
+            except Exception:
+                pass
+
+        # Defer by one event-loop tick so the page switch renders first.
+        QTimer.singleShot(100, _focus_field)
+
+    def _go_to_auth_help(self):
+        """Navigate to Help / README and scroll to the Auth Issues section."""
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QApplication
+
+        app_signals.navigate_to_page.emit("help")
+
+        def _scroll_to_anchor():
+            try:
+                for w in QApplication.topLevelWidgets():
+                    pages = getattr(w, "_pages", None)
+                    if pages and "help" in pages:
+                        help_page = pages["help"]
+                        if hasattr(help_page, "scroll_to_anchor"):
+                            help_page.scroll_to_anchor("auth-issues")
+                        break
+            except Exception:
+                pass
+
+        QTimer.singleShot(200, _scroll_to_anchor)
 
     def _update_available_areas(self):
         has_download = "download" in self._current_actions

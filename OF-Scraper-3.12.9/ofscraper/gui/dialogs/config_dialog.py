@@ -818,6 +818,14 @@ class ConfigPage(QWidget):
             from ofscraper.utils.config.file import write_config
             write_config(config)
 
+            # Invalidate the in-memory auth cache so a changed dynamic-mode-default
+            # takes effect immediately without requiring a GUI restart.
+            try:
+                from ofscraper.utils.auth.request import invalidate_auth_cache
+                invalidate_auth_cache()
+            except Exception:
+                pass
+
             app_signals.status_message.emit("Configuration saved")
             QMessageBox.information(self, "Saved", "Configuration saved successfully.")
         except Exception as e:

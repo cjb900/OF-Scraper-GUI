@@ -66,24 +66,38 @@ def _help_md_to_html(md: str) -> str:
             out.append("</ul>")
             ul_stack.pop()
 
+    pending_anchor_id: str | None = None  # buffered from <a id="..."> line
+
     for raw in lines:
         line = raw.rstrip("\n")
 
-        # Preserve explicit anchor tags from the file.
+        # Buffer <a id="..."></a> anchor lines rather than emitting them
+        # immediately.  Qt's scrollToAnchor() can only find anchors that wrap
+        # actual text content, so we defer and attach the id to the next
+        # heading.  If something other than a heading follows we fall back to
+        # emitting a named span so the anchor is at least present in the DOM.
         if line.strip().startswith("<a ") and line.strip().endswith("</a>"):
             close_paragraph()
             close_lists(0)
-            out.append(line.strip())
+            id_match = re.search(r'id=[\"\'\u201c\u201d]([^\"\'\u201c\u201d]+)[\"\'\u201c\u201d]', line.strip())
+            if id_match:
+                pending_anchor_id = id_match.group(1)
+            else:
+                out.append(line.strip())
             continue
 
         # Horizontal rules
         if line.strip() == "---":
             close_paragraph()
             close_lists(0)
+            if pending_anchor_id:
+                out.append(f'<span id="{pending_anchor_id}" style="display:block;"></span>')
+                pending_anchor_id = None
             out.append("<hr/>")
             continue
 
-        # Headings
+        # Headings — attach any buffered anchor directly to the heading text
+        # so scrollToAnchor() can locate it reliably.
         m = re.match(r"^(#{1,6})\s+(.*)$", line)
         if m:
             close_paragraph()
@@ -92,7 +106,14 @@ def _help_md_to_html(md: str) -> str:
             text = _inline_to_html(m.group(2).strip())
             # Keep headings within h2-h4 visually (h1 is huge)
             h_level = min(max(level + 1, 2), 4)
-            out.append(f"<h{h_level}>{text}</h{h_level}>")
+            if pending_anchor_id:
+                out.append(
+                    f'<h{h_level}><a name="{pending_anchor_id}" id="{pending_anchor_id}">'
+                    f"{text}</a></h{h_level}>"
+                )
+                pending_anchor_id = None
+            else:
+                out.append(f"<h{h_level}>{text}</h{h_level}>")
             continue
 
         # Blank line: end paragraphs/lists cleanly
@@ -128,6 +149,8 @@ def _help_md_to_html(md: str) -> str:
 
     close_paragraph()
     close_lists(0)
+    if pending_anchor_id:
+        out.append(f'<span id="{pending_anchor_id}" style="display:block;"></span>')
 
     body = "\n".join(out)
     return f"""
@@ -145,6 +168,7 @@ def _help_md_to_html(md: str) -> str:
       </head>
       <body>
         {body}
+        {"<br/>" * 8}
       </body>
     </html>
     """
@@ -322,6 +346,7 @@ class HelpPage(QWidget):
         self.jump_combo.addItem("Table columns", "table-columns")
         self.jump_combo.addItem("Merge DBs", "merge-dbs")
         self.jump_combo.addItem("Troubleshooting notes", "troubleshooting")
+        self.jump_combo.addItem("Auth Issues", "auth-issues")
         self.jump_combo.currentIndexChanged.connect(self._on_jump_changed)
         actions.addWidget(self.jump_combo)
         actions.addStretch()
@@ -410,15 +435,48 @@ class HelpPage(QWidget):
                 try:
                     if not self._pending_anchor:
                         return
-                    # With HTML rendering, scrollToAnchor should be reliable.
-                    self.viewer.scrollToAnchor(self._pending_anchor)
+                    a = self._pending_anchor
+                    self._pending_anchor = None
+                    # Qt6's scrollToAnchor() silently fails for dynamically set
+                    # HTML.  Walk the document blocks manually instead.
+                    if not self._scroll_to_anchor_manual(a):
+                        # Fall back to the built-in as a last resort
+                        self.viewer.scrollToAnchor(a)
                 except Exception:
                     pass
 
-            # Defer so markdown→html render/layout is complete
-            QTimer.singleShot(0, _do_scroll)
+            # Defer so markdown→html render/layout is complete.
+            # 50ms avoids the race between setHtml() and the document
+            # layout pass completing (which 0ms does not guarantee).
+            QTimer.singleShot(50, _do_scroll)
         except Exception:
             pass
+
+    def _scroll_to_anchor_manual(self, anchor: str) -> bool:
+        """Walk QTextDocument blocks to find an anchor by name and scroll to it."""
+        try:
+            doc = self.viewer.document()
+            layout = doc.documentLayout()
+            layout.documentSize()  # force full layout pass before reading positions
+            sb = self.viewer.verticalScrollBar()
+            block = doc.begin()
+            while block.isValid():
+                it = block.begin()
+                while not it.atEnd():
+                    frag = it.fragment()
+                    if frag.isValid():
+                        fmt = frag.charFormat()
+                        names = fmt.anchorNames() or []
+                        if anchor in names:
+                            rect = layout.blockBoundingRect(block)
+                            y = max(0, int(rect.y()) - 8)
+                            sb.setValue(y)
+                            return True
+                    it += 1
+                block = block.next()
+        except Exception:
+            pass
+        return False
 
     def _load_help_text(self):
         md = None
@@ -433,14 +491,18 @@ class HelpPage(QWidget):
             md = _FALLBACK_HELP_MD
 
         try:
-            self.viewer.setHtml(_help_md_to_html(md))
+            _html = _help_md_to_html(md)
+            self.viewer.setHtml(_html)
         except Exception:
             self.viewer.setPlainText(md)
 
         # If we have a pending anchor request, scroll after loading.
         try:
             if self._pending_anchor:
-                QTimer.singleShot(0, lambda: self.viewer.scrollToAnchor(self._pending_anchor))
+                a = self._pending_anchor
+                self._pending_anchor = None
+                QTimer.singleShot(50, lambda: self._scroll_to_anchor_manual(a)
+                                  or self.viewer.scrollToAnchor(a))
         except Exception:
             pass
 
