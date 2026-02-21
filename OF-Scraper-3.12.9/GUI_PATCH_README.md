@@ -7,34 +7,85 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 
 | Main Window | Select Content Areas & Filters |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/0ebd1a62-d865-4032-a70b-fb17bad868f1" width="450" alt="GUI Main Window"> | <img src="https://github.com/user-attachments/assets/124624c8-cf8a-4465-a1e4-19b081420577" width="450" alt="Select Content Areas & Filters"> |
+| <img src="https://github.com/user-attachments/assets/5bf55728-fe98-4306-9624-218fd9934ce1" width="450" alt="Main Window"> | <img src="https://github.com/user-attachments/assets/16cc4477-6686-4c0f-8ab8-908490e7fd1b" width="450" alt="Select Content Areas & Filters"> |
 
 | Authentication | Configuration |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/a0f4a3a6-cdfd-4eec-b89d-b6a6446b920a" width="450" alt="Authentication Page"> | <img src="https://github.com/user-attachments/assets/358dfa99-2989-40a5-99cc-5cf180f1844c" width="450" alt="Configuration Page"> |
+| <img src="https://github.com/user-attachments/assets/6c296bef-b3e2-47b4-bff4-3aa6b729b3f4" width="450" alt="Authentication"> | <img src="https://github.com/user-attachments/assets/c18de136-ed00-439e-b431-330b908bcf8d" width="450" alt="Configuration"> |
 
 | Select Models | Scraper Running |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/2a272a16-1925-4a9f-8a8d-3aa0a04b4dcd" width="450" alt="Select Models"> | <img src="https://github.com/user-attachments/assets/81ac96d0-f94b-47c0-ada5-0b3f5fb40d4a" width="450" alt="Scraper Running"> |
+| <img src="https://github.com/user-attachments/assets/a24b3be9-6431-4ae7-8c91-edde5e9cb49d" width="450" alt="Select Models"> | <img src="https://github.com/user-attachments/assets/fb5b1ffc-b02b-4f2a-9f8c-1d0bda2b0379" width="450" alt="Scraper Running"> |
 
 | Profile | Help/README |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/03ee5001-6a3f-4bee-8fb8-dd81dd3392b6" width="450" alt="Profile"> | <img src="https://github.com/user-attachments/assets/54a1ccda-997f-409e-a6f9-1d7799210da3" width="450" alt="Help / README"> |
+| <img src="https://github.com/user-attachments/assets/18665429-03ae-4677-af40-bb9c788ff2fd" width="450" alt="Profile"> | <img src="https://github.com/user-attachments/assets/1c06d05a-545f-4b1e-9e76-fde331abcbbe" width="450" alt="Help / README"> |
 
 
 
 ## What it does
 
-- Adds a dark-themed (Catppuccin-inspired) GUI to OF-Scraper with pages for:
+- Adds a (Catppuccin-inspired) dark/light theme GUI to OF-Scraper with pages for:
   - **Scraper** — select actions, content areas, and models with a filterable table
   - **Authentication** — edit credentials, import cookies from your browser (Chrome, Firefox, Edge, Brave, etc.), auto-detect User Agent
   - **Configuration** — edit all config.json settings across tabbed sections (General, File Options, Download, Performance, Content, CDM, Advanced, Response Type, Overwrites)
   - **Profiles** — create, rename, delete, and switch profiles
   - **Merge DBs** — merge model databases
-  - **Help / README** — built-in documentation
+  - **Help / README** — built-in documentation with table of contents and section jump links
 - Installs **PyQt6** automatically using the correct method for your setup
 - Creates a **timestamped backup** of all original files before patching
 - Supports `--restore` to revert to the original files from a backup
+
+## GUI features
+
+### Theme
+- Toggle between **Dark** and **Light** mode using the button in the bottom-left navigation bar
+- Theme preference is saved to `gui_settings.json` in your ofscraper config directory
+
+### Context-sensitive help
+- Every section and option throughout the GUI has a small **?** button next to it
+- Clicking a **?** button navigates directly to the matching section in the Help / README page
+
+### Startup dependency check
+- On launch, the GUI checks whether **FFmpeg** and **CDM key paths** are configured
+- If either is missing, a notice pops up with quick links to jump directly to the relevant config fields
+
+### Auth failure handling
+- When the model list cannot be loaded (auth error), a dialog appears offering:
+  - **Retry** — re-fetch models without leaving the page
+  - **Go to Authentication** — jump directly to the auth page
+  - **Dynamic Mode (Config)** — jump directly to Configuration → Advanced → Dynamic Mode field
+  - **Help / README** — navigate to the Auth Issues section of the built-in help
+- A **Retry** button also appears inline in the navigation bar
+
+### Scraper workflow
+- **Area Selector page**: models are loaded from the API in the background while you configure options; an inline progress indicator shows loading state
+- Filters configured on the Area Selector page are automatically carried over to the Table page sidebar when models are confirmed
+- **Username filter** on the Area Selector page pre-narrows the Model Selector list
+
+### Daemon mode (auto-repeat scraping)
+- Enable from **Select Content Areas & Filters → Daemon Mode**
+- Sets an interval (1–1440 minutes) for repeated scraping runs
+- While waiting between runs, a **countdown timer** is shown in the table toolbar
+- Optional **system tray notification** when each run starts (all platforms)
+- Optional **sound alert** when each run starts (Windows)
+- A **Stop Daemon** button appears in the toolbar; clicking it gracefully stops the loop after the current run
+
+### Table page
+- **Right-click** any cell to instantly filter the table by that cell's value
+- Click any **column header** to sort by that column
+- The footer shows the current row count and filtered vs total count (e.g. `42 / 1200 rows (filtered)`)
+- The toolbar shows a live **Cart: N items** counter as you select rows for download
+- **New Scrape** button: if scraping is active, confirms cancellation first; optionally resets all options and model selections back to defaults before returning to the start
+
+### CLI auto-start
+- If launched with `ofscraper --gui` together with action, area, and username flags, the GUI wizard is skipped and scraping begins automatically — matching the TUI behavior for scripted/automated workflows
+
+### Help / README page
+- Built-in documentation rendered from `GUI_HELP.md`
+- **Jump to…** combo box for quick navigation to any section
+- Full **table of contents** with clickable links; each TOC entry scrolls directly to the matching section
+- **Additional Help** button links to the project Discord
 
 ## Supported platforms and install methods
 
@@ -42,12 +93,15 @@ A self-contained Python script that patches an installed copy of [OF-Scraper](ht
 |----------|:---:|:----:|:--:|
 | Windows  | ✅  | ✅   | ✅ |
 | Linux (Debian-based) | ❌  | ✅   | ✅ |
-
+| Mac OS   | ❌ | ❌  | ❌ |
+| Docker   | ❌ | ❌  | ❌ |
+* ❌ not tested
 ### Platform notes
 
 - **Windows**: Tested on **Windows 11** but should work on Windows 10 and other versions
 - **Linux**: Only **Debian-based** distributions are supported (Ubuntu, Debian, Linux Mint, KDE Neon, Pop!_OS, etc.). Other distributions (Arch, Fedora, etc.) have not been tested and may require additional setup
-- **Mac**: Mac OS has not been tested with this GUI patch
+- **Mac**: Mac OS has not been tested with this GUI patch.
+- **Docker**: Not tested
 
 ### Python version
 
@@ -122,7 +176,7 @@ ofscraper --gui
 - A backup of all modified files is saved to your system temp directory before patching
 - The `--restore` flag can undo the patch using any previous backup
 - PyQt6 is installed automatically via the same package manager used for OF-Scraper (pip/pipx inject/uv)
-- This was created with the help of AI and has been tested to the best of my ability. I take no responcibility for any damage or loss of data. Baskups are recommended.
+- This was created with the help of AI and has been tested to the best of my ability. I take no responsibility for any damage or loss of data. Backups are recommended.
 
 ## Disclaimer
 
