@@ -66,6 +66,9 @@ class AppSignals(QObject):
     # Theme
     theme_changed = pyqtSignal(bool)  # True = dark, False = light
 
+    # Config
+    config_updated = pyqtSignal()
+
 
 # Global signal instance
 app_signals = AppSignals()

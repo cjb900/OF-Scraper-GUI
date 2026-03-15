@@ -26,6 +26,7 @@ class MissingDepsDialog(QDialog):
         missing_manual_cdm: bool,
         on_open_ffmpeg=None,
         on_open_cdm=None,
+        on_open_drm=None,
         parent=None,
     ):
         super().__init__(parent)
@@ -33,6 +34,7 @@ class MissingDepsDialog(QDialog):
         self._missing_manual_cdm = bool(missing_manual_cdm)
         self._on_open_ffmpeg = on_open_ffmpeg
         self._on_open_cdm = on_open_cdm
+        self._on_open_drm = on_open_drm
 
         self.setWindowTitle("Missing configuration paths")
         self.setModal(True)
@@ -72,6 +74,10 @@ class MissingDepsDialog(QDialog):
             actions_row.addWidget(self.ffmpeg_btn)
 
         if self._missing_manual_cdm:
+            self.drm_btn = QPushButton("Generate DRM Keys")
+            self.drm_btn.clicked.connect(self._open_drm)
+            actions_row.addWidget(self.drm_btn)
+
             self.cdm_btn = QPushButton("Open Config → CDM (Manual keys)")
             self.cdm_btn.clicked.connect(self._open_cdm)
             actions_row.addWidget(self.cdm_btn)
@@ -100,10 +106,15 @@ class MissingDepsDialog(QDialog):
             parts.append(
                 """
                 <h3>Manual CDM keys</h3>
-                <p><b>Missing the file path for manual DRM keys.</b> These are needed to be able to scrape DRM protected content.</p>
-                <p>Guide:
-                <a href="https://github.com/FoxRefire/wvg/wiki/How-to-dump-CDM-key-pair-from-AVD">
-                https://github.com/FoxRefire/wvg/wiki/How-to-dump-CDM-key-pair-from-AVD</a></p>
+                <p><b>Manual DRM key paths are not set in your config.</b>
+                These are required to scrape DRM-protected content.</p>
+                <ul>
+                  <li><b>Already have keys?</b> Click <i>Open Config → CDM (Manual keys)</i>
+                  to enter the paths to your <code>client_id.bin</code> and
+                  <code>private_key.pem</code> files.</li>
+                  <li><b>Don't have keys yet?</b> Click <i>Generate DRM Keys</i> to use the
+                  built-in extraction tool to create them automatically.</li>
+                </ul>
                 """
             )
 
@@ -124,6 +135,12 @@ class MissingDepsDialog(QDialog):
         except Exception:
             return True
 
+    def _open_drm(self):
+        if not callable(self._on_open_drm):
+            return
+        self._on_open_drm()
+        self.accept()
+
     def _open_ffmpeg(self):
         if not callable(self._on_open_ffmpeg):
             return
@@ -141,4 +158,3 @@ class MissingDepsDialog(QDialog):
             "Open Configuration to the CDM tab to enter the manual DRM key paths?",
         ):
             self._on_open_cdm()
-

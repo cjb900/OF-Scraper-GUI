@@ -52,10 +52,15 @@ class MainWindow(QMainWindow):
         # Load saved theme preference (dark by default)
         try:
             from ofscraper.gui.utils.gui_settings import load_gui_settings
-            self._is_dark = load_gui_settings().get("theme", "dark") == "dark"
+            _saved = load_gui_settings()
+            self._is_dark = _saved.get("theme", "dark") == "dark"
+            self._verbose_log = bool(_saved.get("verbose_log", False))
         except Exception:
             self._is_dark = True
+            self._verbose_log = False
         set_theme(self._is_dark)
+        if self._verbose_log:
+            self._apply_verbose_log(True)
 
         # Initialize the workflow runner that bridges GUI → scraper backend
         self.workflow = GUIWorkflow(manager)
@@ -64,6 +69,9 @@ class MainWindow(QMainWindow):
         # _setup_ui hardcodes dark visuals; fix up if light mode is preferred
         if not self._is_dark:
             self._apply_theme_visuals(emit_signal=False)
+        # Sync verbose button label to loaded preference
+        if self._verbose_log:
+            self._verbose_btn.setText("Verbose Log: On")
         self._connect_signals()
         self._navigate("scraper")
         # After the window is created and painted, show missing dependency notices once.
@@ -301,6 +309,7 @@ class MainWindow(QMainWindow):
             ("scraper", "Scraper"),
             ("auth", "Authentication"),
             ("config", "Configuration"),
+            ("drm", "DRM Key Creation"),
             ("profiles", "Profiles"),
             ("merge", "Merge DBs"),
             ("help", "Help / README"),
@@ -323,6 +332,15 @@ class MainWindow(QMainWindow):
         )
         self._theme_btn.clicked.connect(self._toggle_theme)
         nav_layout.addWidget(self._theme_btn)
+
+        # Verbose log toggle button
+        self._verbose_btn = QPushButton("Verbose Log: Off")
+        self._verbose_btn.setFixedHeight(28)
+        self._verbose_btn.setStyleSheet(
+            "QPushButton { font-size: 11px; padding: 2px 8px; }"
+        )
+        self._verbose_btn.clicked.connect(self._toggle_verbose_log)
+        nav_layout.addWidget(self._verbose_btn)
 
         nav_layout.addSpacing(4)
 
@@ -372,6 +390,93 @@ class MainWindow(QMainWindow):
         set_theme(self._is_dark)
         self._apply_theme_visuals()
         self._prompt_save_theme()
+
+    def _toggle_verbose_log(self):
+        """Toggle verbose (DEBUG-level) logging on or off."""
+        self._verbose_log = not self._verbose_log
+        self._apply_verbose_log(self._verbose_log)
+        try:
+            from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
+            s = load_gui_settings()
+            s["verbose_log"] = self._verbose_log
+            save_gui_settings(s)
+        except Exception:
+            pass
+        state = "On" if self._verbose_log else "Off"
+        app_signals.status_message.emit(f"Verbose logging {state}")
+
+    def _apply_verbose_log(self, enable: bool):
+        """Toggle verbose (DEBUG) logging on or off.
+
+        When enabled:
+          - Lowers the 'shared' logger and all existing handlers to DEBUG.
+          - Opens a dedicated gui_verbose log file named
+            ofscraper_gui_verbose_<profile>_<timestamp>.log in the same
+            logging folder so it is clearly distinguished from normal runs.
+        When disabled:
+          - Restores original handler levels.
+          - Closes and removes the gui_verbose file handler.
+        """
+        import logging as _logging
+        logger = _logging.getLogger("shared")
+
+        _GUI_VERBOSE_TAG = "_gui_verbose_handler"
+
+        if enable:
+            logger.setLevel(_logging.DEBUG)
+            for h in logger.handlers:
+                if h.level > _logging.DEBUG or h.level == _logging.NOTSET:
+                    h._gui_prev_level = h.level
+                    h.setLevel(_logging.DEBUG)
+
+            # Add a dedicated gui_verbose file handler if not already present
+            if not any(getattr(h, _GUI_VERBOSE_TAG, False) for h in logger.handlers):
+                try:
+                    import datetime as _dt
+                    import ofscraper.utils.paths.common as _paths
+                    import ofscraper.utils.config.data as _data
+
+                    log_folder = _paths.get_log_folder()
+                    profile = _data.get_main_profile()
+                    timestamp = _dt.datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+                    log_dir = log_folder / f"{profile}_{_dt.date.today().strftime('%Y-%m-%d')}"
+                    log_dir.mkdir(parents=True, exist_ok=True)
+                    log_path = log_dir / f"ofscraper_gui_verbose_{profile}_{timestamp}.log"
+
+                    fmt = r" %(asctime)s:[%(module)s.%(funcName)s:%(lineno)d]  %(message)s"
+                    stream = open(log_path, "a", encoding="utf-8")
+                    fh = _logging.StreamHandler(stream)
+                    fh.setLevel(_logging.DEBUG)
+                    fh.setFormatter(_logging.Formatter(fmt, "%Y-%m-%d %H:%M:%S"))
+                    setattr(fh, _GUI_VERBOSE_TAG, True)
+                    fh._gui_verbose_stream = stream
+                    logger.addHandler(fh)
+                    log.info(f"[GUI] Verbose log file: {log_path}")
+                except Exception as e:
+                    log.debug(f"[GUI] Could not create verbose log file: {e}")
+        else:
+            logger.setLevel(_logging.INFO)
+            for h in logger.handlers:
+                prev = getattr(h, "_gui_prev_level", _logging.INFO)
+                h.setLevel(prev)
+
+            # Remove and close the gui_verbose file handler
+            for h in logger.handlers[:]:
+                if getattr(h, _GUI_VERBOSE_TAG, False):
+                    logger.removeHandler(h)
+                    try:
+                        stream = getattr(h, "_gui_verbose_stream", None)
+                        h.close()
+                        if stream:
+                            stream.close()
+                    except Exception:
+                        pass
+
+        # Update button text if widget already exists
+        try:
+            self._verbose_btn.setText(f"Verbose Log: {'On' if enable else 'Off'}")
+        except AttributeError:
+            pass
 
     def _apply_theme_visuals(self, emit_signal=True):
         """Apply all visual elements for the current theme (self._is_dark).
@@ -463,6 +568,7 @@ class MainWindow(QMainWindow):
         from ofscraper.gui.dialogs.config_dialog import ConfigPage
         from ofscraper.gui.dialogs.profile_dialog import ProfilePage
         from ofscraper.gui.dialogs.merge_dialog import MergePage
+        from ofscraper.gui.dialogs.drm_dialog import DRMKeyPage
 
         # Scraper workflow pages (nested in a sub-stack)
         self.scraper_stack = QStackedWidget()
@@ -480,6 +586,7 @@ class MainWindow(QMainWindow):
         self._add_page("scraper", self.scraper_stack)
         self._add_page("auth", AuthPage(manager=self.manager))
         self._add_page("config", ConfigPage(manager=self.manager))
+        self._add_page("drm", DRMKeyPage(manager=self.manager))
         self._add_page("profiles", ProfilePage(manager=self.manager))
         self._add_page("merge", MergePage(manager=self.manager))
         self._add_page("help", HelpPage(manager=self.manager))
@@ -643,6 +750,12 @@ class MainWindow(QMainWindow):
             except Exception:
                 pass
 
+        def open_drm():
+            try:
+                self._navigate("drm")
+            except Exception:
+                pass
+
         try:
             from ofscraper.gui.dialogs.missing_deps_dialog import MissingDepsDialog
 
@@ -651,6 +764,7 @@ class MainWindow(QMainWindow):
                 missing_manual_cdm=missing_manual_cdm,
                 on_open_ffmpeg=open_ffmpeg,
                 on_open_cdm=open_cdm,
+                on_open_drm=open_drm,
                 parent=self,
             )
             dlg.exec()

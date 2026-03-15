@@ -1,6 +1,8 @@
-# Work in progress OF-Scraper 3.12.9 GUI Patch. There may be bugs/issues
+# OF-Scraper GUI Patch
 
-A self-contained Python script that patches an installed (non binary version) copy of [OF-Scraper](https://github.com/datawhores/OF-Scraper) v3.12.9 to add a full **PyQt6 GUI** accessible via the `--gui` flag.
+A self-contained Python script that patches an installed (non-binary) copy of [OF-Scraper](https://github.com/datawhores/OF-Scraper) to add a full **PyQt6 GUI** accessible via the `--gui` flag.
+
+**Supported versions:** `3.12.9` and `3.14.3`
 
 ## Screenshots
 
@@ -29,12 +31,15 @@ A self-contained Python script that patches an installed (non binary version) co
   - **Scraper** — select actions, content areas, and models with a filterable table
   - **Authentication** — edit credentials, import cookies from your browser (Chrome, Firefox, Edge, Brave, etc.), auto-detect User Agent
   - **Configuration** — edit all config.json settings across tabbed sections (General, File Options, Download, Performance, Content, CDM, Advanced, Response Type, Overwrites)
+  - **DRM Key Creation** — built-in tool to generate DRM decryption keys required for protected content
   - **Profiles** — create, rename, delete, and switch profiles
   - **Merge DBs** — merge model databases
   - **Help / README** — built-in documentation with table of contents and section jump links
 - Installs **PyQt6** automatically using the correct method for your setup
 - Creates a **timestamped backup** of all original files before patching
 - Supports `--restore` to revert to the original files from a backup
+- Detects and repairs **broken ofscraper installations** (e.g. from interrupted pip installs) before applying the patch
+- Offers to **launch the GUI immediately** after a successful patch
 
 ## GUI features
 
@@ -42,13 +47,18 @@ A self-contained Python script that patches an installed (non binary version) co
 - Toggle between **Dark** and **Light** mode using the button in the bottom-left navigation bar
 - Theme preference is saved to `gui_settings.json` in your ofscraper config directory
 
+### Verbose Log
+- Toggle **Verbose Log** mode using the button in the bottom-left navigation bar (below the Theme button)
+- When enabled, all log levels are shown in the in-app log panel and a dedicated verbose log file is written to your ofscraper config directory (e.g. `ofscraper_gui_verbose_<profile>_<timestamp>.log`)
+- Verbose logging is disabled by default and the preference is saved to `gui_settings.json`
+
 ### Context-sensitive help
 - Every section and option throughout the GUI has a small **?** button next to it
 - Clicking a **?** button navigates directly to the matching section in the Help / README page
 
 ### Startup dependency check
 - On launch, the GUI checks whether **FFmpeg** and **CDM key paths** are configured
-- If either is missing, a notice pops up with quick links to jump directly to the relevant config fields
+- If either is missing, a notice pops up with quick links to jump directly to the relevant config fields or to the DRM Key Creation page
 
 ### Auth failure handling
 - When the model list cannot be loaded (auth error), a dialog appears offering:
@@ -76,7 +86,19 @@ A self-contained Python script that patches an installed (non binary version) co
 - Click any **column header** to sort by that column
 - The footer shows the current row count and filtered vs total count (e.g. `42 / 1200 rows (filtered)`)
 - The toolbar shows a live **Cart: N items** counter as you select rows for download
+- **Open Downloads Folder** button in the toolbar — opens the configured `save_location` from your config directly in your file manager
 - **New Scrape** button: if scraping is active, confirms cancellation first; optionally resets all options and model selections back to defaults before returning to the start
+
+### Progress bar
+- A compact progress bar in the footer shows overall download progress and a running total of bytes downloaded
+- The bytes counter is **monotonically increasing** — it only ever goes up during a session and never drops back down mid-scrape
+- Resets automatically when a new scrape is started
+
+### DRM Key Creation page
+- Built-in GUI for generating DRM decryption keys needed to download protected content
+- Runs the key extraction process and streams output directly into the app
+- Once keys are generated, the CDM key paths in your config are updated automatically — no need to edit config.json manually
+- Accessible from the sidebar navigation or via the quick link in the startup dependency notice
 
 ### CLI auto-start
 - If launched with `ofscraper --gui` together with action, area, and username flags, the GUI wizard is skipped and scraping begins automatically — matching the TUI behavior for scripted/automated workflows
@@ -87,6 +109,15 @@ A self-contained Python script that patches an installed (non binary version) co
 - Full **table of contents** with clickable links; each TOC entry scrolls directly to the matching section
 - **Additional Help** button links to the project Discord
 
+## Supported versions
+
+| Patch script | OF-Scraper version |
+|---|---|
+| `patch_ofscraper_3.12.9_gui.py` | 3.12.9 |
+| `patch_ofscraper_3.14.3_gui.py` | 3.14.3 |
+
+Both patch scripts include identical GUI features.
+
 ## Supported platforms and install methods
 
 | Platform | pip | pipx | uv |
@@ -96,11 +127,12 @@ A self-contained Python script that patches an installed (non binary version) co
 | Mac OS   | ❌ | ❌  | ❌ |
 | Docker   | ❌ | ❌  | ❌ |
 * ❌ not tested
+
 ### Platform notes
 
 - **Windows**: Tested on **Windows 11** but should work on Windows 10 and other versions
 - **Linux**: Only **Debian-based** distributions are supported (Ubuntu, Debian, Linux Mint, KDE Neon, Pop!_OS, etc.). Other distributions (Arch, Fedora, etc.) have not been tested and may require additional setup
-- **Mac**: Mac OS has not been tested with this GUI patch.
+- **Mac**: Mac OS has not been tested with this GUI patch
 - **Docker**: Not tested
 
 ### Python version
@@ -119,6 +151,10 @@ The script automatically detects how OF-Scraper was installed by checking (in or
 3. **Executable path** — runs `which ofscraper` / `where ofscraper` and infers the method from the path
 4. **Python import** — attempts `import ofscraper` and locates the package via `__path__` (standard pip/venv installs)
 
+### Broken installation detection
+
+The patch script also checks for broken ofscraper installations before patching, for example when a previous pip install was interrupted mid-way and left behind a corrupt `~fscraper` artifact in site-packages. When a broken installation is detected, the script automatically runs `pip install ofscraper==<version> --force-reinstall` to repair it before applying the GUI patch.
+
 ## If OF-Scraper is not detected
 
 If the script cannot find an existing installation, it presents an interactive menu:
@@ -136,14 +172,14 @@ Choose an option:
 Enter choice (1-5):
 ```
 
-- **Options 1-3** install OF-Scraper v3.12.9 using your chosen package manager, then continue with patching
+- **Options 1-3** install OF-Scraper using your chosen package manager, then continue with patching
 - **Option 4** lets you provide the path to your ofscraper package directory manually (e.g. `/path/to/site-packages/ofscraper`). The script validates the path contains `__main__.py` before proceeding
 - You can also use `--target /path/to/ofscraper` to skip detection entirely
 
 ## Usage
 
 ```bash
-# Basic usage — auto-detect and patch
+# Basic usage — auto-detect and patch (replace with 3.14.3 for the newer version)
 python patch_ofscraper_3.12.9_gui.py
 
 # Skip confirmation prompt
@@ -162,6 +198,8 @@ python patch_ofscraper_3.12.9_gui.py --skip-pyqt6
 python patch_ofscraper_3.12.9_gui.py --restore /path/to/backup
 ```
 
+The same flags apply to `patch_ofscraper_3.14.3_gui.py`.
+
 ## After patching
 
 Launch the GUI with:
@@ -170,9 +208,12 @@ Launch the GUI with:
 ofscraper --gui
 ```
 
+The patch script will also offer to launch the GUI for you immediately after a successful patch.
+
+> **Note:** If you run the patch script from inside the `OF-Scraper-3.12.9/` or `OF-Scraper-3.14.3/` source directory, use `python -m ofscraper --gui` from a different directory (e.g. your home directory) to ensure the installed version is used rather than the local source files.
+
 ## Notes
 
-- This patch is specifically for **OF-Scraper v3.12.9** — other versions are not supported
 - A backup of all modified files is saved to your system temp directory before patching
 - The `--restore` flag can undo the patch using any previous backup
 - PyQt6 is installed automatically via the same package manager used for OF-Scraper (pip/pipx inject/uv)

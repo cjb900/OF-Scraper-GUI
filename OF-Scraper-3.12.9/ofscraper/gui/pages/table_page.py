@@ -1,7 +1,8 @@
 import logging
+import os
 
-from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, QUrl, pyqtSlot
+from PyQt6.QtGui import QDesktopServices, QFont
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -120,6 +121,12 @@ class TablePage(QWidget):
         self.new_scrape_btn.setFixedHeight(36)
         self.new_scrape_btn.clicked.connect(self._on_new_scrape)
         toolbar_layout.addWidget(self.new_scrape_btn)
+
+        self.open_folder_btn = StyledButton("Open Downloads Folder")
+        self.open_folder_btn.setFixedHeight(36)
+        self.open_folder_btn.setToolTip("Open the configured download save location in your file manager")
+        self.open_folder_btn.clicked.connect(self._on_open_downloads_folder)
+        toolbar_layout.addWidget(self.open_folder_btn)
 
         # Stop Daemon button (hidden until daemon is running)
         self.stop_daemon_btn = StyledButton("Stop Daemon")
@@ -244,6 +251,11 @@ class TablePage(QWidget):
             f"QPushButton {{ background-color: {c('mauve')}; color: {base};"
             f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
             f" QPushButton:hover {{ background-color: {c('lavender')}; }}"
+        )
+        self.open_folder_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('surface1')}; color: {c('text')};"
+            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
+            f" QPushButton:hover {{ background-color: {c('surface2')}; }}"
         )
         self.stop_daemon_btn.setStyleSheet(
             f"QPushButton {{ background-color: {c('red')}; color: {base};"
@@ -502,6 +514,37 @@ class TablePage(QWidget):
                     page.reset_to_defaults()
                 except Exception:
                     pass
+
+    def _on_open_downloads_folder(self):
+        """Open the configured save_location in the system file manager."""
+        try:
+            from ofscraper.utils.config.file import open_config
+            config = open_config()
+            folder = config.get("file_options", {}).get("save_location", "")
+            if not folder:
+                folder = config.get("save_location", "")
+        except Exception:
+            folder = ""
+
+        if not folder:
+            QMessageBox.warning(
+                self,
+                "No Download Folder",
+                "No save location is configured.\n"
+                "Set one in Configuration → File Options → Save Location.",
+            )
+            return
+
+        folder = os.path.expandvars(os.path.expanduser(folder))
+        if not os.path.isdir(folder):
+            QMessageBox.warning(
+                self,
+                "Folder Not Found",
+                f"The configured download folder does not exist:\n{folder}",
+            )
+            return
+
+        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
     def _on_new_scrape(self):
         """Navigate back to the action page to start a new scrape."""
