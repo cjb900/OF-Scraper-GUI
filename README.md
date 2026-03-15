@@ -9,19 +9,23 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 
 | Main Window | Select Content Areas & Filters |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/5bf55728-fe98-4306-9624-218fd9934ce1" width="450" alt="Main Window"> | <img src="https://github.com/user-attachments/assets/16cc4477-6686-4c0f-8ab8-908490e7fd1b" width="450" alt="Select Content Areas & Filters"> |
+| <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20Select%20Action.jpg" width="450" alt="Main Window"> | <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Select%20Content%20Areas%20and%20Filters.jpg" width="450" alt="Select Content Areas & Filters"> |
 
 | Authentication | Configuration |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/6c296bef-b3e2-47b4-bff4-3aa6b729b3f4" width="450" alt="Authentication"> | <img src="https://github.com/user-attachments/assets/c18de136-ed00-439e-b431-330b908bcf8d" width="450" alt="Configuration"> |
+| <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Authentication.jpg" width="450" alt="Authentication"> | <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Configuration.jpg" width="450" alt="Configuration"> |
+
+| DRM Key Creation | Profile Manager |
+| --- | --- |
+| <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20DRM.jpg" width="450" alt="DRM Key Creation"> | <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Profile.jpg" width="450" alt="Profile Manager"> |
+
+| Merge Databases | Help/README |
+| --- | --- |
+| <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Merge%20Databases.jpg" width="450" alt="Merge Databases"> | <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Help.jpg" width="450" alt="Help / README"> |
 
 | Select Models | Scraper Running |
 | --- | --- |
-| <img src="https://github.com/user-attachments/assets/a24b3be9-6431-4ae7-8c91-edde5e9cb49d" width="450" alt="Select Models"> | <img src="https://github.com/user-attachments/assets/fb5b1ffc-b02b-4f2a-9f8c-1d0bda2b0379" width="450" alt="Scraper Running"> |
-
-| Profile | Help/README |
-| --- | --- |
-| <img src="https://github.com/user-attachments/assets/18665429-03ae-4677-af40-bb9c788ff2fd" width="450" alt="Profile"> | <img src="https://github.com/user-attachments/assets/1c06d05a-545f-4b1e-9e76-fde331abcbbe" width="450" alt="Help / README"> |
+| <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Select%20Models.jpg" width="450" alt="Select Models"> | <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Scraper%20Running.jpg" width="450" alt="Scraper Running"> |
 
 
 
