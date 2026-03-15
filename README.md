@@ -4,6 +4,35 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 
 **Supported versions:** `3.12.9` and `3.14.3`
 
+## Table of Contents
+
+- [Screenshots](#screenshots)
+- [What it does](#what-it-does)
+- [GUI features](#gui-features)
+  - [Theme](#theme)
+  - [Verbose Log](#verbose-log)
+  - [Context-sensitive help](#context-sensitive-help)
+  - [Startup dependency check](#startup-dependency-check)
+  - [Auth failure handling](#auth-failure-handling)
+  - [Scraper workflow](#scraper-workflow)
+  - [Daemon mode](#daemon-mode-auto-repeat-scraping)
+  - [Table page](#table-page)
+  - [Progress bar](#progress-bar)
+  - [DRM Key Creation page](#drm-key-creation-page)
+  - [CLI auto-start](#cli-auto-start)
+  - [Help / README page](#help--readme-page)
+- [Supported versions](#supported-versions)
+- [Supported platforms and install methods](#supported-platforms-and-install-methods)
+  - [Platform notes](#platform-notes)
+  - [Python version](#python-version)
+- [How it detects your installation](#how-it-detects-your-installation)
+  - [Broken installation detection](#broken-installation-detection)
+- [If OF-Scraper is not detected](#if-of-scraper-is-not-detected)
+- [Usage](#usage)
+- [After patching](#after-patching)
+- [Notes](#notes)
+- [Disclaimer](#disclaimer)
+
 ## Screenshots
 
 
