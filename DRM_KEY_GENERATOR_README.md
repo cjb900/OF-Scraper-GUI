@@ -1,4 +1,4 @@
-# DRM Key Extraction Script (`test.py`)
+# DRM Key Generator (`DRM Key Generator.py`)
 
 Automates Widevine L3 key extraction using an Android emulator, Frida, and KeyDive. Produces a `client_id.bin` and `private_key.pem` that can be loaded directly into OF-Scraper's CDM configuration.
 
@@ -68,7 +68,7 @@ pip install frida frida-tools requests
 ## Usage
 
 ```
-python test.py [OPTIONS]
+python DRM Key Generator.py [OPTIONS]
 ```
 
 ### Options
@@ -86,10 +86,10 @@ python test.py [OPTIONS]
 
 ```bash
 # Basic run — saves keys to ./keys/
-python test.py
+python DRM Key Generator.py
 
 # Save to a specific folder and keep the AVD for next time
-python test.py --output-dir ~/drm_keys --keep-avd
+python DRM Key Generator.py --output-dir ~/drm_keys --keep-avd
 ```
 
 ---
@@ -126,12 +126,12 @@ These paths can be entered directly into OF-Scraper's Configuration → CDM tab 
 
 | Symptom | Likely Cause | Fix |
 |---------|-------------|-----|
-| `partition-size must be between 10MB and 2047MB` | Only on older versions — fixed in current script | Update to the latest `test.py` |
-| `JAVA_HOME is not set` | Only on older versions — fixed in current script | Update to the latest `test.py` |
+| `partition-size must be between 10MB and 2047MB` | Only on older versions — fixed in current script | Update to the latest `DRM Key Generator.py` |
+| `JAVA_HOME is not set` | Only on older versions — fixed in current script | Update to the latest `DRM Key Generator.py` |
 | `emulator -accel-check` passes but emulator hangs | GPU backend issue on TCG | Script sets `-gpu off` on Windows TCG automatically |
 | `KeyDive failed to attach hook within 15 minutes` | APK install took too long or Widevine HAL not found | Wait for a full cold-start then re-run with `--keep-avd` |
 | `device offline` after `adb root` | Normal transient state — script auto-waits up to 60 s | No action needed; update script if not retrying |
-| `Virtualization extension is not supported` on Linux | Script incorrectly triggered x86 fallback | Only occurs on older versions; update to latest `test.py` |
+| `Virtualization extension is not supported` on Linux | Script incorrectly triggered x86 fallback | Only occurs on older versions; update to latest `DRM Key Generator.py` |
 | Emulator log stalls for 45 s | Emulator hung (common on underpowered TCG) | Free RAM, close other applications, re-run |
 | `frida.ServerNotStartingError` | ADB root failed or frida-server ABI mismatch | Re-run; script re-downloads matching binary automatically |
 | ANR "System UI isn't responding" dialog | Occurs on slow TCG emulators | Script auto-dismisses ANR dialogs — no action needed |
