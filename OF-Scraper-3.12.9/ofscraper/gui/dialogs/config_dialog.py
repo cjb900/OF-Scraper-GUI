@@ -170,7 +170,6 @@ class ConfigPage(QWidget):
             # Scroll if tab is a QScrollArea (most are)
             scroll = self._tab_scroll.get(tab_label)
             try:
-                # QScrollArea.ensureWidgetVisible is available in Qt
                 if hasattr(scroll, "ensureWidgetVisible"):
                     scroll.ensureWidgetVisible(w)
             except Exception:
@@ -298,22 +297,32 @@ class ConfigPage(QWidget):
                         tooltip="Automatically resume partially downloaded files instead of re-downloading them.")
         self._add_spin(form, "max_post_count", "Max Post Count", 0, 999999, 0,
                        tooltip="Maximum number of posts to process per model.\n0 = unlimited (process all posts).")
+        # Download filter
+        filter_group = QGroupBox("Download Filter (media types to include)")
+        filter_layout = QHBoxLayout(filter_group)
+        filter_layout.setContentsMargins(8, 4, 8, 4)
+        for mt in ["Images", "Audios", "Videos", "Text"]:
+            cb = QCheckBox(mt)
+            cb.setChecked(True)
+            filter_layout.addWidget(cb)
+            self._widgets[f"filter_{mt.lower()}"] = cb
+        form.addRow(filter_group)
         # Binary options
         self._add_path(form, "ffmpeg", "FFmpeg Path", is_dir=False,
                        tooltip="Path to ffmpeg binary for combining audio/video streams (DRM content).\nLeave empty if ffmpeg is in your system PATH.")
         # Script options
-        self._add_line(form, "post_download_script", "Post-Download Script", "",
-                       tooltip="Shell command/script to run after each individual file is downloaded.\nLeave empty to disable.")
+        self._add_line(form, "post_download_script", "Post Download Script", "",
+                       tooltip="Shell command/script to run after each file is downloaded.\nLeave empty to disable.")
         self._add_line(form, "post_script", "Post Script", "",
                        tooltip="Shell command/script to run after all downloads for a model are complete.\nLeave empty to disable.")
         return scroll
 
     def _create_performance_tab(self):
         scroll, form = self._create_scrollable_form()
-        self._add_spin(form, "thread_count", "Thread Count", 1, 3, 2,
-                       tooltip="Number of concurrent download threads (1-3).\nHigher = faster but uses more resources.")
         self._add_spin(form, "download_sems", "Download Semaphores", 1, 15, 6,
                        tooltip="Number of concurrent downloads per thread (1-15).\nHigher = more parallel downloads but may hit rate limits.")
+        self._add_spin(form, "thread_count", "Thread Count", 0, 64, 0,
+                       tooltip="Number of worker threads for processing.\n0 = use default (based on CPU count).")
         self._add_spin(form, "download_limit", "Download Speed Limit (KB/s)", 0, 999999, 0,
                        "0 = unlimited")
         return scroll
@@ -344,17 +353,12 @@ class ConfigPage(QWidget):
                 "Note: KeyDB mode is currently not working (no ETA)."
             ),
         )
-        self._add_line(
-            form,
-            "keydb_api",
-            "KeyDB API Key",
-            "",
-            tooltip="KeyDB is currently not working (no ETA). This setting is currently ignored.",
-        )
         self._add_path(form, "client-id", "Client ID File", is_dir=False,
                        tooltip="Path to Widevine CDM client_id.bin file.\nRequired for 'manual' key mode to decrypt DRM content.")
         self._add_path(form, "private-key", "Private Key File", is_dir=False,
                        tooltip="Path to Widevine CDM private_key.pem file.\nRequired for 'manual' key mode to decrypt DRM content.")
+        self._add_line(form, "keydb_api", "KeyDB API Key", "",
+                       tooltip="API key for KeyDB.dev DRM key lookup service.\nOnly needed if Key Mode is set to 'keydb'.")
         return scroll
 
     def _create_advanced_tab(self):
@@ -378,10 +382,9 @@ class ConfigPage(QWidget):
             "Backend",
             ["aio", "httpx"],
             tooltip=(
-                "HTTP client used for network requests.\n"
-                "- aio: aiohttp (async)\n"
-                "- httpx: httpx (async + sync in some codepaths)\n\n"
-                "If one backend has issues on your network, try the other."
+                "HTTP backend used for API requests.\n"
+                "- aio: aiohttp (default)\n"
+                "- httpx: httpx client"
             ),
         )
         self._add_combo(
@@ -399,16 +402,6 @@ class ConfigPage(QWidget):
         )
         self._add_check(
             form,
-            "code-execution",
-            "Code Execution",
-            False,
-            tooltip=(
-                "Allows evaluating certain placeholder 'custom values' using eval().\n"
-                "This is a security risk if you paste untrusted content."
-            ),
-        )
-        self._add_check(
-            form,
             "downloadbars",
             "Download Bars",
             True,
@@ -419,11 +412,22 @@ class ConfigPage(QWidget):
         )
         self._add_check(
             form,
+            "code-execution",
+            "Allow Code Execution",
+            False,
+            tooltip=(
+                "Allow execution of custom code/scripts defined in config.\n"
+                "Required for custom_values scripts to run."
+            ),
+        )
+        self._add_check(
+            form,
             "appendlog",
             "Append Log",
             False,
             tooltip=(
-                "Append logs into a single daily log file (instead of per-run log files)."
+                "Append to existing log file instead of overwriting it on each run.\n"
+                "Useful for keeping a persistent log history."
             ),
         )
         self._add_check(
@@ -500,13 +504,10 @@ class ConfigPage(QWidget):
             form,
             "custom_values",
             "Custom Values",
-            '{"key": "value"}',
+            "",
             tooltip=(
-                "JSON object of custom placeholder values for file naming templates.\n"
-                'Example: {"studio": "MyStudio", "tag": "favorites"}\n\n'
-                "These values can be referenced in path templates.\n"
-                "Leave empty or set to null to disable.\n"
-                "Requires 'Code Execution' enabled for dynamic expressions."
+                "JSON object for custom config values used by scripts.\n"
+                "Requires 'Allow Code Execution' to be enabled."
             ),
         )
         return scroll
@@ -523,23 +524,68 @@ class ConfigPage(QWidget):
         return scroll
 
     def _create_overwrites_tab(self):
-        scroll, form = self._create_scrollable_form()
-        media_types = ["audios", "videos", "images", "text"]
-        for mt in media_types:
-            self._add_line(
-                form,
-                f"ow_{mt}",
-                mt.capitalize(),
-                '{"dir_format": "", "file_format": "", ...}',
-                tooltip=(
-                    f"JSON object of per-media-type overrides for '{mt}'.\n"
-                    "Supported keys: dir_format, file_format, textlength, date,\n"
-                    "file_size_max, file_size_min, space_replacer, text_type_default,\n"
-                    "temp_dir, truncation_default, block_ads.\n\n"
-                    "Leave empty or {} for no overrides."
-                ),
-            )
-        return scroll
+        """Per-media-type overrides for file/download settings."""
+        outer = QWidget()
+        outer_layout = QVBoxLayout(outer)
+        outer_layout.setContentsMargins(8, 8, 8, 8)
+
+        note = QLabel(
+            "Override file and download settings for specific media types.\n"
+            "Leave fields empty to use the global setting."
+        )
+        note.setWordWrap(True)
+        note.setProperty("subheading", True)
+        outer_layout.addWidget(note)
+
+        sub_tabs = QTabWidget()
+        outer_layout.addWidget(sub_tabs)
+
+        for mt in ["images", "audios", "videos", "text"]:
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            container = QWidget()
+            form = QFormLayout(container)
+            form.setSpacing(10)
+            scroll.setWidget(container)
+
+            def _line(key, label, placeholder="", tooltip="", _form=form, _mt=mt):
+                w = QLineEdit()
+                w.setPlaceholderText(placeholder)
+                if tooltip:
+                    w.setToolTip(tooltip)
+                w.setClearButtonEnabled(True)
+                _form.addRow(label + ":", w)
+                self._widgets[f"ow_{_mt}_{key}"] = w
+                return w
+
+            def _spin(key, label, min_val=0, max_val=999999, default=0, tooltip="", _form=form, _mt=mt):
+                w = QSpinBox()
+                w.setRange(min_val, max_val)
+                w.setValue(default)
+                if tooltip:
+                    w.setToolTip(tooltip)
+                _form.addRow(label + ":", w)
+                self._widgets[f"ow_{_mt}_{key}"] = w
+                return w
+
+            _line("dir_format", "Directory Format", "{model_username}/{responsetype}/{mediatype}/",
+                  tooltip=f"Override directory format for {mt} only.")
+            _line("file_format", "File Format", "{filename}.{ext}",
+                  tooltip=f"Override filename format for {mt} only.")
+            _line("file_size_max", "Max File Size", "0",
+                  tooltip=f"Override max file size for {mt}.\ne.g. '500MB'. Leave empty to use global setting.")
+            _line("file_size_min", "Min File Size", "0",
+                  tooltip=f"Override min file size for {mt}. Leave empty to use global setting.")
+            _spin("download_limit", "Download Limit (KB/s)", 0, 999999, 0,
+                  tooltip=f"Override download speed limit for {mt}. 0 = use global setting.")
+            _spin("length_min", "Min Length (seconds)", 0, 999999, 0,
+                  tooltip=f"Override minimum duration for {mt}. 0 = use global setting.")
+            _spin("length_max", "Max Length (seconds)", 0, 999999, 0,
+                  tooltip=f"Override maximum duration for {mt}. 0 = use global setting.")
+
+            sub_tabs.addTab(scroll, mt.capitalize())
+
+        return outer
 
     # ---- Load / Save ----
 
@@ -549,7 +595,6 @@ class ConfigPage(QWidget):
             from ofscraper.utils.config.config import read_config
             self._config = read_config(update=False) or {}
 
-            # Flatten nested config into widget values
             config = self._config
             flat = {}
 
@@ -565,17 +610,16 @@ class ConfigPage(QWidget):
                 ("download_options", ["system_free_min", "auto_resume", "max_post_count"]),
                 ("binary_options", ["ffmpeg"]),
                 ("scripts_options", ["post_download_script", "post_script"]),
-                ("performance_options", ["thread_count", "download_sems", "download_limit"]),
+                ("performance_options", ["download_sems", "thread_count", "download_limit"]),
                 ("content_filter_options", ["block_ads", "file_size_max", "file_size_min",
                                             "length_max", "length_min"]),
-                ("cdm_options", ["key-mode-default", "keydb_api", "client-id", "private-key"]),
+                ("cdm_options", ["key-mode-default", "client-id", "private-key", "keydb_api"]),
                 ("advanced_options", [
                     "dynamic-mode-default", "backend", "cache-mode",
-                    "code-execution", "downloadbars", "appendlog",
-                    "sanitize_text", "remove_hash_match", "enable_auto_after",
-                    "temp_dir", "infinite_loop_action_mode",
-                    "default_user_list", "default_black_list",
-                    "custom_values"
+                    "downloadbars", "code-execution", "appendlog",
+                    "sanitize_text", "remove_hash_match",
+                    "enable_auto_after", "temp_dir", "infinite_loop_action_mode",
+                    "default_user_list", "default_black_list", "custom_values",
                 ]),
             ]:
                 section = config.get(section_key, {})
@@ -589,28 +633,19 @@ class ConfigPage(QWidget):
                 for rt in resp:
                     flat[f"resp_{rt}"] = resp.get(rt, rt)
 
-            # Overwrites
-            ow = config.get("overwrites", {})
-            if isinstance(ow, dict):
-                for mt in ["audios", "videos", "images", "text"]:
-                    flat[f"ow_{mt}"] = ow.get(mt, {})
-
             # Apply to widgets
             for key, widget in self._widgets.items():
+                if key.startswith("filter_") or key.startswith("ow_"):
+                    continue
                 val = flat.get(key, "")
                 if isinstance(widget, QLineEdit):
-                    # JSON fields: serialize dicts/lists as JSON for display
-                    if (key == "custom_values" or key.startswith("ow_")) and isinstance(val, (dict, list)):
-                        widget.setText(json.dumps(val) if val else "")
-                    else:
-                        widget.setText(str(val) if val else "")
+                    widget.setText(str(val) if val else "")
                 elif isinstance(widget, QSpinBox):
                     try:
                         widget.setValue(int(val) if val else 0)
                     except (ValueError, TypeError):
                         widget.setValue(0)
                 elif isinstance(widget, QCheckBox):
-                    # Some legacy configs stored strings; normalize a few known cases.
                     if key == "infinite_loop_action_mode" and isinstance(val, str):
                         v = val.strip().lower()
                         if v in {"disabled", "false", "0", "no", "off", ""}:
@@ -627,6 +662,23 @@ class ConfigPage(QWidget):
                         widget.setCurrentIndex(idx)
                     else:
                         widget.setCurrentText(str(val) if val else "")
+
+            # Download filter checkboxes
+            try:
+                dl_filter = config.get("download_options", {}).get("filter", None)
+                if dl_filter is None:
+                    for mt in ["images", "audios", "videos", "text"]:
+                        w = self._widgets.get(f"filter_{mt}")
+                        if w:
+                            w.setChecked(True)
+                else:
+                    active = {s.lower() for s in dl_filter}
+                    for mt in ["images", "audios", "videos", "text"]:
+                        w = self._widgets.get(f"filter_{mt}")
+                        if w:
+                            w.setChecked(mt in active)
+            except Exception:
+                pass
 
             # Normalize remove_hash_match tri-state into the UI choices.
             try:
@@ -645,6 +697,37 @@ class ConfigPage(QWidget):
             except Exception:
                 pass
 
+            # custom_values: display as JSON string
+            try:
+                cv_val = config.get("advanced_options", {}).get("custom_values", "")
+                w = self._widgets.get("custom_values")
+                if w:
+                    if isinstance(cv_val, (dict, list)):
+                        w.setText(json.dumps(cv_val))
+                    else:
+                        w.setText(str(cv_val) if cv_val else "")
+            except Exception:
+                pass
+
+            # Overwrites: load per-media-type overrides
+            try:
+                overwrites = config.get("overwrites", {})
+                for mt in ["images", "audios", "videos", "text"]:
+                    mt_config = overwrites.get(mt, {}) if isinstance(overwrites, dict) else {}
+                    for field in ["dir_format", "file_format", "file_size_max", "file_size_min"]:
+                        w = self._widgets.get(f"ow_{mt}_{field}")
+                        if w:
+                            w.setText(str(mt_config.get(field, "")) if mt_config.get(field) else "")
+                    for field in ["download_limit", "length_min", "length_max"]:
+                        w = self._widgets.get(f"ow_{mt}_{field}")
+                        if w:
+                            try:
+                                w.setValue(int(mt_config.get(field, 0) or 0))
+                            except (ValueError, TypeError):
+                                w.setValue(0)
+            except Exception:
+                pass
+
             app_signals.status_message.emit("Configuration loaded")
         except Exception as e:
             log.error(f"Failed to load config: {e}")
@@ -655,7 +738,6 @@ class ConfigPage(QWidget):
         try:
             config = dict(self._config) if self._config else {}
 
-            # Helper to set nested dict values
             def set_nested(d, section, key, val):
                 if section not in d:
                     d[section] = {}
@@ -695,6 +777,14 @@ class ConfigPage(QWidget):
             if w:
                 set_nested(config, "download_options", "max_post_count", w.value())
 
+            # Download filter
+            active_filter = []
+            for mt in ["Images", "Audios", "Videos", "Text"]:
+                w = self._widgets.get(f"filter_{mt.lower()}")
+                if w and w.isChecked():
+                    active_filter.append(mt)
+            set_nested(config, "download_options", "filter", active_filter)
+
             # Binary
             w = self._widgets.get("ffmpeg")
             if w:
@@ -707,7 +797,7 @@ class ConfigPage(QWidget):
                     set_nested(config, "scripts_options", k, w.text())
 
             # Performance
-            for k in ["thread_count", "download_sems", "download_limit"]:
+            for k in ["download_sems", "thread_count", "download_limit"]:
                 w = self._widgets.get(k)
                 if w:
                     set_nested(config, "performance_options", k, w.value())
@@ -726,18 +816,21 @@ class ConfigPage(QWidget):
                     set_nested(config, "content_filter_options", k, w.value())
 
             # CDM
-            for k in ["key-mode-default", "keydb_api", "client-id", "private-key"]:
+            for k in ["key-mode-default", "client-id", "private-key"]:
                 w = self._widgets.get(k)
                 if w:
                     val = w.currentText() if isinstance(w, QComboBox) else w.text()
                     set_nested(config, "cdm_options", k, val)
+            w = self._widgets.get("keydb_api")
+            if w:
+                set_nested(config, "cdm_options", "keydb_api", w.text())
 
             # Advanced
             for k in ["dynamic-mode-default", "backend", "cache-mode"]:
                 w = self._widgets.get(k)
                 if w:
                     set_nested(config, "advanced_options", k, w.currentText())
-            # Tri-state-ish handling for remove_hash_match (None/False/True)
+            # Tri-state handling for remove_hash_match (None/False/True)
             w = self._widgets.get("remove_hash_match")
             if w and isinstance(w, QComboBox):
                 txt = w.currentText()
@@ -749,8 +842,8 @@ class ConfigPage(QWidget):
                     set_nested(config, "advanced_options", "remove_hash_match", False)
 
             for k in [
-                "code-execution",
                 "downloadbars",
+                "code-execution",
                 "appendlog",
                 "sanitize_text",
                 "enable_auto_after",
@@ -764,22 +857,18 @@ class ConfigPage(QWidget):
                 if w:
                     set_nested(config, "advanced_options", k, w.text())
 
-            # custom_values: parse JSON string back to dict/null
+            # custom_values: parse as JSON if possible, else store as string
             w = self._widgets.get("custom_values")
             if w:
                 raw = w.text().strip()
                 if raw:
                     try:
-                        set_nested(config, "advanced_options", "custom_values", json.loads(raw))
+                        parsed = json.loads(raw)
+                        set_nested(config, "advanced_options", "custom_values", parsed)
                     except json.JSONDecodeError:
-                        QMessageBox.warning(
-                            self, "Invalid JSON",
-                            "Custom Values must be valid JSON (e.g. {\"key\": \"value\"}).\n"
-                            "The field was saved as-is (string)."
-                        )
                         set_nested(config, "advanced_options", "custom_values", raw)
                 else:
-                    set_nested(config, "advanced_options", "custom_values", None)
+                    set_nested(config, "advanced_options", "custom_values", "")
 
             # Response type
             resp = {}
@@ -793,27 +882,31 @@ class ConfigPage(QWidget):
                     resp[rt] = w.text() or rt
             config["responsetype"] = resp
 
-            # Overwrites
-            ow = config.get("overwrites", {})
-            if not isinstance(ow, dict):
-                ow = {}
-            for mt in ["audios", "videos", "images", "text"]:
-                w = self._widgets.get(f"ow_{mt}")
-                if w:
-                    raw = w.text().strip()
-                    if raw:
-                        try:
-                            ow[mt] = json.loads(raw)
-                        except json.JSONDecodeError:
-                            QMessageBox.warning(
-                                self, "Invalid JSON",
-                                f"Overwrites '{mt}' must be valid JSON.\n"
-                                "The field was saved as-is (string)."
-                            )
-                            ow[mt] = raw
-                    else:
-                        ow[mt] = {}
-            config["overwrites"] = ow
+            # Overwrites: save per-media-type overrides
+            overwrites = config.get("overwrites", {}) or {}
+            for mt in ["images", "audios", "videos", "text"]:
+                mt_dict = dict(overwrites.get(mt, {})) if isinstance(overwrites.get(mt), dict) else {}
+                for field in ["dir_format", "file_format", "file_size_max", "file_size_min"]:
+                    w = self._widgets.get(f"ow_{mt}_{field}")
+                    if w:
+                        val = w.text().strip()
+                        if val:
+                            mt_dict[field] = val
+                        else:
+                            mt_dict.pop(field, None)
+                for field in ["download_limit", "length_min", "length_max"]:
+                    w = self._widgets.get(f"ow_{mt}_{field}")
+                    if w:
+                        val = w.value()
+                        if val:
+                            mt_dict[field] = val
+                        else:
+                            mt_dict.pop(field, None)
+                if mt_dict:
+                    overwrites[mt] = mt_dict
+                else:
+                    overwrites.pop(mt, None)
+            config["overwrites"] = overwrites
 
             # Write config
             from ofscraper.utils.config.file import write_config
