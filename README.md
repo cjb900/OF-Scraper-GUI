@@ -6,6 +6,8 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 
 ## Table of Contents
 
+- [Usage](#usage)
+- [After patching](#after-patching)
 - [Screenshots](#screenshots)
 - [What it does](#what-it-does)
 - [GUI features](#gui-features)
@@ -28,10 +30,44 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 - [How it detects your installation](#how-it-detects-your-installation)
   - [Broken installation detection](#broken-installation-detection)
 - [If OF-Scraper is not detected](#if-of-scraper-is-not-detected)
-- [Usage](#usage)
-- [After patching](#after-patching)
 - [Notes](#notes)
 - [Disclaimer](#disclaimer)
+
+## Usage
+
+```bash
+# Basic usage — auto-detect and patch (replace with 3.14.3 for the newer version)
+python patch_ofscraper_3.12.9_gui.py
+
+# Skip confirmation prompt
+python patch_ofscraper_3.12.9_gui.py -y
+
+# Dry run — see what would happen without making changes
+python patch_ofscraper_3.12.9_gui.py --dry-run
+
+# Specify install path manually
+python patch_ofscraper_3.12.9_gui.py --target /path/to/site-packages/ofscraper
+
+# Skip PyQt6 installation (if already installed)
+python patch_ofscraper_3.12.9_gui.py --skip-pyqt6
+
+# Restore original files from backup
+python patch_ofscraper_3.12.9_gui.py --restore /path/to/backup
+```
+
+The same flags apply to `patch_ofscraper_3.14.3_gui.py`.
+
+## After patching
+
+Launch the GUI with:
+
+```bash
+ofscraper --gui
+```
+
+The patch script will also offer to launch the GUI for you immediately after a successful patch.
+
+> **Note:** If you run the patch script from inside the `OF-Scraper-3.12.9/` or `OF-Scraper-3.14.3/` source directory, use `python -m ofscraper --gui` from a different directory (e.g. your home directory) to ensure the installed version is used rather than the local source files.
 
 ## Screenshots
 
@@ -208,42 +244,6 @@ Enter choice (1-5):
 - **Options 1-3** install OF-Scraper using your chosen package manager, then continue with patching
 - **Option 4** lets you provide the path to your ofscraper package directory manually (e.g. `/path/to/site-packages/ofscraper`). The script validates the path contains `__main__.py` before proceeding
 - You can also use `--target /path/to/ofscraper` to skip detection entirely
-
-## Usage
-
-```bash
-# Basic usage — auto-detect and patch (replace with 3.14.3 for the newer version)
-python patch_ofscraper_3.12.9_gui.py
-
-# Skip confirmation prompt
-python patch_ofscraper_3.12.9_gui.py -y
-
-# Dry run — see what would happen without making changes
-python patch_ofscraper_3.12.9_gui.py --dry-run
-
-# Specify install path manually
-python patch_ofscraper_3.12.9_gui.py --target /path/to/site-packages/ofscraper
-
-# Skip PyQt6 installation (if already installed)
-python patch_ofscraper_3.12.9_gui.py --skip-pyqt6
-
-# Restore original files from backup
-python patch_ofscraper_3.12.9_gui.py --restore /path/to/backup
-```
-
-The same flags apply to `patch_ofscraper_3.14.3_gui.py`.
-
-## After patching
-
-Launch the GUI with:
-
-```bash
-ofscraper --gui
-```
-
-The patch script will also offer to launch the GUI for you immediately after a successful patch.
-
-> **Note:** If you run the patch script from inside the `OF-Scraper-3.12.9/` or `OF-Scraper-3.14.3/` source directory, use `python -m ofscraper --gui` from a different directory (e.g. your home directory) to ensure the installed version is used rather than the local source files.
 
 ## Notes
 
