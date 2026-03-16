@@ -1,7 +1,7 @@
 import logging
 
-from PyQt6.QtCore import Qt, pyqtSlot
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, QEvent, QObject, QRunnable, QSize, QThreadPool, QUrl, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QDesktopServices, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -22,8 +22,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from PyQt6.QtCore import QThreadPool
 
 from ofscraper.gui.signals import app_signals
 from ofscraper.gui.styles import c
@@ -50,6 +48,34 @@ def _make_help_btn(anchor: str) -> QToolButton:
     b.clicked.connect(lambda: app_signals.help_anchor_requested.emit(anchor))
     return b
 
+class _AvatarSignals(QObject):
+    """Signals for avatar download tasks (must be a QObject for cross-thread emit)."""
+    loaded = pyqtSignal(str, bytes)  # model name, raw image bytes
+
+
+class _AvatarTask(QRunnable):
+    """Downloads a single avatar image in a thread-pool worker."""
+
+    def __init__(self, name: str, url: str, signals: _AvatarSignals):
+        super().__init__()
+        self.name = name
+        self.url = url
+        self.signals = signals
+        self.setAutoDelete(True)
+
+    def run(self):
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                self.url, headers={"User-Agent": "Mozilla/5.0"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = resp.read()
+            self.signals.loaded.emit(self.name, data)
+        except Exception:
+            pass
+
+
 SORT_OPTIONS = [
     ("Name", "name"),
     ("Last Seen", "last-seen"),
@@ -71,6 +97,9 @@ class ModelSelectorPage(QWidget):
         self.manager = manager
         self._all_models = {}  # name -> model object
         self._filtered_names = []
+        self._avatar_cache: dict[str, QIcon] = {}
+        self._show_avatars = False
+        self._avatar_signals = _AvatarSignals()
         self._setup_ui()
         self._connect_signals()
 
@@ -122,6 +151,14 @@ class ModelSelectorPage(QWidget):
         toggle_btn.clicked.connect(self._toggle_all)
         bulk_layout.addWidget(toggle_btn)
 
+        self.avatars_check = QCheckBox("Show Avatars")
+        self.avatars_check.setToolTip(
+            "Download and display each creator's profile picture.\n"
+            "Click an avatar to open their OnlyFans page."
+        )
+        self.avatars_check.toggled.connect(self._toggle_avatars)
+        bulk_layout.addWidget(self.avatars_check)
+
         bulk_layout.addStretch()
 
         self.count_label = QLabel("0 / 0 selected")
@@ -154,6 +191,7 @@ class ModelSelectorPage(QWidget):
         self.model_list = QListWidget()
         self.model_list.setAlternatingRowColors(True)
         self.model_list.itemChanged.connect(self._update_count)
+        self.model_list.viewport().installEventFilter(self)
         left_layout.addWidget(self.model_list)
 
         splitter.addWidget(left_widget)
@@ -300,6 +338,28 @@ class ModelSelectorPage(QWidget):
         # show progress next to the "Next: Select Models" button.
         # Keep this page passive and only populate from the manager.
         app_signals.theme_changed.connect(self._apply_theme)
+        self._avatar_signals.loaded.connect(self._on_avatar_loaded)
+
+    def eventFilter(self, obj, event):
+        """Detect left-clicks on the avatar icon area and open the model's OnlyFans page."""
+        if (
+            self._show_avatars
+            and obj is self.model_list.viewport()
+            and event.type() == QEvent.Type.MouseButtonPress
+            and event.button() == Qt.MouseButton.LeftButton
+        ):
+            item = self.model_list.itemAt(event.pos())
+            if item:
+                item_rect = self.model_list.visualItemRect(item)
+                icon_w = self.model_list.iconSize().width()
+                # Approximate icon region: checkbox (~20 px) + icon width + small margin
+                rel_x = event.pos().x() - item_rect.left()
+                if rel_x <= 20 + icon_w + 6:
+                    name = item.data(Qt.ItemDataRole.UserRole)
+                    if name:
+                        QDesktopServices.openUrl(QUrl(f"https://onlyfans.com/{name}"))
+                        return True  # consume — don't toggle the checkbox
+        return super().eventFilter(obj, event)
 
     def _apply_theme(self, _is_dark=True):
         self.retry_btn.setStyleSheet(
@@ -479,10 +539,76 @@ class ModelSelectorPage(QWidget):
             self.model_list.addItem(item)
         self.model_list.blockSignals(False)
         self._update_count()
+        # Re-apply avatars for any already-cached items
+        if self._show_avatars:
+            self._apply_avatars_to_list()
         # Re-apply any active search text (e.g. pre-set by username filter from area page)
         current_text = self.search_input.text()
         if current_text:
             self._filter_list(current_text)
+
+    # ------------------------------------------------------------------
+    # Avatar loading
+    # ------------------------------------------------------------------
+
+    def _toggle_avatars(self, checked: bool):
+        self._show_avatars = checked
+        if checked:
+            self.model_list.setIconSize(QSize(40, 40))
+            self._load_avatars()
+        else:
+            self._clear_avatars()
+            self.model_list.setIconSize(QSize(0, 0))
+
+    def _load_avatars(self):
+        """Queue background downloads for any model whose avatar isn't cached yet."""
+        pool = QThreadPool.globalInstance()
+        for name, model in self._all_models.items():
+            if name in self._avatar_cache:
+                continue
+            url = getattr(model, "avatar", None)
+            if url:
+                pool.start(_AvatarTask(name, url, self._avatar_signals))
+        # Immediately apply whatever is already cached
+        self._apply_avatars_to_list()
+
+    @pyqtSlot(str, bytes)
+    def _on_avatar_loaded(self, name: str, data: bytes):
+        """Main-thread slot: convert raw bytes → QIcon and update matching list item."""
+        if not self._show_avatars:
+            return
+        pixmap = QPixmap()
+        pixmap.loadFromData(data)
+        if pixmap.isNull():
+            return
+        pixmap = pixmap.scaled(
+            40, 40,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        icon = QIcon(pixmap)
+        self._avatar_cache[name] = icon
+        for i in range(self.model_list.count()):
+            item = self.model_list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == name:
+                item.setIcon(icon)
+                break
+
+    def _apply_avatars_to_list(self):
+        """Set cached icons on all current list items."""
+        for i in range(self.model_list.count()):
+            item = self.model_list.item(i)
+            name = item.data(Qt.ItemDataRole.UserRole)
+            if name in self._avatar_cache:
+                item.setIcon(self._avatar_cache[name])
+
+    def _clear_avatars(self):
+        """Remove icons from all list items (cache is kept for re-enable)."""
+        empty = QIcon()
+        for i in range(self.model_list.count()):
+            self.model_list.item(i).setIcon(empty)
+
+    # ------------------------------------------------------------------
 
     def _filter_list(self, text):
         """Filter visible items based on search text.

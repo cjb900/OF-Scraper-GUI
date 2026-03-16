@@ -328,13 +328,50 @@ class WidevineMasterAutomator:
                 [self.sdkmanager, f"--sdk_root={self.sdk_dir}"] + missing,
                 input="y\n" * 20,
                 text=True,
+                capture_output=True,
                 env=self._sdk_env(),
             )
+            # Always print sdkmanager output so failures are visible
+            for line in (result.stdout + result.stderr).splitlines():
+                print(f"   [sdkmanager] {line}")
             if result.returncode != 0:
                 print("❌ sdkmanager failed. Check your internet connection.")
                 sys.exit(1)
         else:
             print("✅ SDK components already installed.")
+
+        # Verify adb is actually present after installation.
+        # On Windows, antivirus software frequently quarantines adb.exe immediately
+        # after it is downloaded, causing a silent failure that only surfaces later.
+        if not os.path.exists(self.adb):
+            pt_dir = os.path.join(self.sdk_dir, "platform-tools")
+            pt_exists = os.path.isdir(pt_dir)
+            print(f"\n❌ adb not found at expected path: {self.adb}")
+            if pt_exists:
+                # Directory exists but adb.exe is missing — almost certainly AV quarantine
+                pt_contents = os.listdir(pt_dir)
+                print(f"   platform-tools folder exists but adb.exe is absent.")
+                print(f"   Folder contents: {pt_contents[:10]}")
+                print()
+                print("   This is almost certainly caused by antivirus software quarantining")
+                print("   adb.exe immediately after download (Windows Defender, Malwarebytes, etc.).")
+                print()
+                print("   How to fix:")
+                print(f"   1. Open your antivirus protection history / quarantine and")
+                print(f"      restore/allow: {self.adb}")
+                print(f"   2. Or add a folder exclusion for: {self.sdk_dir}")
+                print(f"      then delete and re-run: {pt_dir}")
+            else:
+                # Directory doesn't even exist — sdkmanager install failed silently
+                print(f"   platform-tools folder was not created: {pt_dir}")
+                print("   sdkmanager may have failed to download or extract platform-tools.")
+                print()
+                print("   How to fix:")
+                print("   1. Check your internet connection and try again.")
+                print(f"   2. Or manually download Android platform-tools from:")
+                print("      https://developer.android.com/studio/releases/platform-tools")
+                print(f"      and extract to: {pt_dir}")
+            sys.exit(1)
 
         # 4. Create AVD if missing or if it was previously built for a different ABI.
         avd_home = os.path.join(self.home_dir, ".android", "avd")
@@ -569,7 +606,14 @@ class WidevineMasterAutomator:
         time.sleep(8)   # give OS time to release file handles (Windows needs longer)
 
         # Kill ADB server (removes stale emulator registrations)
-        subprocess.run([self.adb, "kill-server"], capture_output=True)
+        if os.path.exists(self.adb):
+            subprocess.run([self.adb, "kill-server"], capture_output=True)
+        else:
+            fallback_adb = shutil.which("adb")
+            if fallback_adb:
+                subprocess.run([fallback_adb, "kill-server"], capture_output=True)
+            else:
+                print("   ⚠️  adb not found — skipping kill-server")
         time.sleep(1)
 
         # Remove AVD lock files.
