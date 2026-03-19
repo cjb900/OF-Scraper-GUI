@@ -4,6 +4,10 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 
 **Supported versions:** `3.12.9` and `3.14.3`
 
+> **Python version requirement**
+> Python **3.11.x** or **3.12.x** is required. Python 3.13+ and versions below 3.11 are **not supported** and may cause issues with OF-Scraper or this patch.
+> Recommended: [Python 3.11.6](https://www.python.org/downloads/release/python-3116/)
+
 ## Table of Contents
 
 - [Usage](#usage)
@@ -13,6 +17,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Select Content Areas & Filters](#select-content-areas--filters)
   - [Select Models](#select-models)
   - [Scraper Running](#scraper-running)
+  - [Check Mode](#check-mode)
   - [Authentication](#authentication)
   - [Configuration](#configuration)
   - [DRM Key Creation](#drm-key-creation)
@@ -28,6 +33,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Scraper workflow](#scraper-workflow)
   - [Daemon mode](#daemon-mode-auto-repeat-scraping)
   - [Table page](#table-page)
+  - [Check mode](#check-mode-1)
   - [Progress bar](#progress-bar)
   - [CLI auto-start](#cli-auto-start)
 - [Supported versions](#supported-versions)
@@ -86,13 +92,14 @@ A visual walkthrough of each page in the GUI.
 
 ### Scraper — Select Action
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20Select%20Action.jpg" width="600" alt="Main Window — Select Action">
+<img src="https://github.com/user-attachments/assets/7532a143-b492-4898-996e-c4d4f84f8c40" width="600" alt="Main Window — Select Action">
 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
 - **Download** — download media files from your subscribed creators
 - **Like/Unlike** — automate liking or unliking posts
 - **Metadata** — update your local database without downloading files
+- **Check modes** (Post Check, Message Check, Paid Check, Story Check) — browse all content for a creator in a table view and selectively download individual items
 
 After selecting an action, click **Next** to move on to selecting content areas and filters.
 
@@ -141,6 +148,26 @@ Shows live output from the scraper while it runs:
 - **Cart counter** (toolbar) — shows how many items are queued for download
 - **Open Downloads Folder** button — opens your configured download folder directly in File Explorer
 - **Stop / New Scrape** buttons — stop the current run or start fresh
+
+---
+
+### Check Mode
+
+<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Check%20Mode.jpg" width="600" alt="Check Mode table">
+
+Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**) let you browse every piece of media for a creator before committing to a download. Instead of queuing everything at once, you see a full table first and pick exactly what to save.
+
+- **Locked / paywalled items** are clearly labeled **Locked** in the Download Cart column — grey background, cannot be selected — so you can instantly see what is behind a paywall without trying to download it
+- **Toggle rows** for download by clicking the Download Cart cell, then click **Send Downloads** to download only what you selected
+- **Filters** work the same as on the main table — narrow by media type, response type, date range, price, and more
+- **Progress bar** in the footer tracks each selected download individually: e.g. `3 / 10` as items complete
+- Items update in real time as they finish: `[downloaded]`, `[skipped]`, or `[failed]`
+
+> **Which check mode to use:**
+> - **Post Check** — timeline, pinned, archived, streams, and label posts
+> - **Message Check** — direct messages and PPV messages
+> - **Paid Check** — explicitly purchased content
+> - **Story Check** — stories and highlights
 
 ---
 
@@ -279,6 +306,13 @@ Built-in documentation available at any time without leaving the app:
 - The toolbar shows a live **Cart: N items** counter as you select rows for download
 - **Open Downloads Folder** button in the toolbar — opens the configured `save_location` from your config directly in your file manager
 - **New Scrape** button: if scraping is active, confirms cancellation first; optionally resets all options and model selections back to defaults before returning to the start
+
+### Check mode
+- Select **Post Check**, **Message Check**, **Paid Check**, or **Story Check** from the action selector to enter check mode
+- A full media table is shown for the selected creator(s) — including content that is behind a paywall
+- **Locked** items (paywalled, no download URL) are clearly marked in the Download Cart column with a grey cell that cannot be clicked
+- Select any unlocked rows and click **Send Downloads** to download only those items
+- The footer progress bar tracks check mode downloads individually (e.g. `3 / 10` as items complete)
 
 ### Progress bar
 - A compact progress bar in the footer shows overall download progress and a running total of bytes downloaded
