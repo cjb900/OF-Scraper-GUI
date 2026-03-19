@@ -344,7 +344,11 @@ class TablePage(QWidget):
             return
 
         selected_areas = area_page.get_selected_areas()
-        if not selected_areas:
+        # Check modes that don't require area selection (msg/paid/story check)
+        _check_modes_no_area = {"msg_check", "paid_check", "story_check"}
+        _current_actions = getattr(area_page, "_current_actions", set()) or set()
+        _skip_area_check = bool(_current_actions & _check_modes_no_area)
+        if not selected_areas and not _skip_area_check:
             app_signals.error_occurred.emit(
                 "No Areas Selected",
                 "No content areas were configured. Go back and select areas.",

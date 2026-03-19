@@ -25,6 +25,12 @@ log = logging.getLogger("shared")
 config = None
 
 
+def reset_config_cache():
+    """Clear the in-memory config cache so the next read_config() re-reads from disk."""
+    global config
+    config = None
+
+
 def read_config(update=True):
     global config
     if config:

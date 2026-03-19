@@ -45,6 +45,9 @@ class AppSignals(QObject):
     scraping_finished = pyqtSignal()  # emitted when scraper thread completes
     cancel_scrape_requested = pyqtSignal()  # UI requests current scrape cancel
 
+    # Media type filter from area selector page
+    mediatypes_configured = pyqtSignal(list)  # list of media type strings e.g. ["Images", "Videos"]
+
     # Date range filter from area selector page
     date_range_configured = pyqtSignal(object)  # dict: {enabled, from_date, to_date} (date strings "YYYY-MM-DD")
 

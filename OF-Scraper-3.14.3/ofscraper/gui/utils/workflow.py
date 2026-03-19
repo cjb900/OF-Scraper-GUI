@@ -268,6 +268,8 @@ class _GUIDownloadState:
 
     def __init__(self):
         self.total_media = 0
+        self.locked_total = 0  # When > 0, gui_add_download_task won't override total_media
+        self.check_completed = 0  # Accumulates completed count across process_dicts calls
         self._poll_stop = None
         self._poll_thread = None
 
@@ -373,12 +375,18 @@ def _install_gui_progress_hooks():
         if _gui_cancel_event.is_set():
             raise KeyboardInterrupt()
         total = kwargs.get("total", 0)
-        _gui_state.total_media = total
-        result = _orig_add_download_task(*args, **kwargs)
-        try:
-            app_signals.overall_progress_updated.emit(0, total)
-        except Exception:
-            pass
+        if _gui_state.locked_total <= 0:
+            # Normal mode: use the task total and emit an initial 0/N signal.
+            _gui_state.total_media = total
+            result = _orig_add_download_task(*args, **kwargs)
+            try:
+                app_signals.overall_progress_updated.emit(0, _gui_state.total_media)
+            except Exception:
+                pass
+        else:
+            # Check mode: total_media is pre-set; do NOT emit (0, N) here because
+            # that would reset the bar back to 0 at the start of every per-item call.
+            result = _orig_add_download_task(*args, **kwargs)
         return result
 
     def gui_update_download_task(*args, **kwargs):
@@ -386,15 +394,21 @@ def _install_gui_progress_hooks():
             raise KeyboardInterrupt()
         _orig_update_download_task(*args, **kwargs)
         try:
-            sum_count = (
-                common_globals.photo_count
-                + common_globals.video_count
-                + common_globals.audio_count
-                + common_globals.skipped
-                + common_globals.forced_skipped
-            )
             total = _gui_state.total_media
-            app_signals.overall_progress_updated.emit(sum_count, total)
+            if _gui_state.locked_total > 0:
+                # Check mode: common_globals counters reset per process_dicts call so
+                # they don't accumulate. Use our own counter instead.
+                _gui_state.check_completed += 1
+                completed = _gui_state.check_completed
+            else:
+                completed = (
+                    common_globals.photo_count
+                    + common_globals.video_count
+                    + common_globals.audio_count
+                    + common_globals.skipped
+                    + common_globals.forced_skipped
+                )
+            app_signals.overall_progress_updated.emit(completed, total)
             app_signals.total_bytes_updated.emit(
                 int(common_globals.total_bytes_downloaded)
             )
@@ -979,6 +993,7 @@ class GUIWorkflow:
         self._selected_actions = set()
         self._selected_models = []
         self._selected_areas = []
+        self._selected_mediatypes = []
         self._scrape_paid = False
         self._discord_enabled = False
         self._advanced = {}
@@ -1000,6 +1015,7 @@ class GUIWorkflow:
         app_signals.action_selected.connect(self._on_action_selected)
         app_signals.models_selected.connect(self._on_models_selected)
         app_signals.areas_selected.connect(self._on_areas_selected)
+        app_signals.mediatypes_configured.connect(self._on_mediatypes_configured)
         app_signals.scrape_paid_toggled.connect(self._on_scrape_paid)
         app_signals.discord_configured.connect(self._on_discord_configured)
         app_signals.daemon_configured.connect(self._on_daemon_configured)
@@ -1007,6 +1023,7 @@ class GUIWorkflow:
         app_signals.advanced_scrape_configured.connect(self._on_advanced)
         app_signals.date_range_configured.connect(self._on_date_range_configured)
         app_signals.cancel_scrape_requested.connect(self._on_cancel_scrape)
+        app_signals.downloads_queued.connect(self._on_downloads_queued)
 
     def _on_action_selected(self, actions):
         self._selected_actions = actions
@@ -1015,6 +1032,11 @@ class GUIWorkflow:
     def _on_models_selected(self, models):
         self._selected_models = models
         log.info(f"[GUI Workflow] Models set: {len(models)} models")
+        # Check modes auto-start as soon as models are confirmed —
+        # no separate "Start Scraping" click required.
+        if bool(self._selected_actions & self._CHECK_MODES):
+            self._daemon_stop.clear()
+            self._start_scraping()
 
     def _on_scrape_paid(self, enabled):
         self._scrape_paid = enabled
@@ -1076,9 +1098,22 @@ class GUIWorkflow:
         except Exception:
             pass
 
+    def _on_mediatypes_configured(self, mediatypes):
+        self._selected_mediatypes = mediatypes
+        log.info(f"[GUI Workflow] Media types set: {mediatypes}")
+
     def _on_areas_selected(self, areas):
         self._selected_areas = areas
         log.info(f"[GUI Workflow] Areas set: {areas}")
+        if bool(self._selected_actions & self._CHECK_MODES):
+            # areas_selected is emitted early from the area selector (before model
+            # selection).  If models are already known (e.g. user clicked "Start
+            # Scraping" again to re-run), start immediately.  Otherwise wait —
+            # _on_models_selected will fire the run once models are confirmed.
+            if self._selected_models:
+                self._daemon_stop.clear()
+                self._start_scraping()
+            return
         # Clear any previous stop request
         self._daemon_stop.clear()
         # This is the trigger to start the pipeline
@@ -1106,6 +1141,35 @@ class GUIWorkflow:
         self._scraper_thread = thread
         thread.start()
 
+    _CHECK_MODES = {"post_check", "msg_check", "paid_check", "story_check"}
+
+    def _set_check_args(self, args, write_args, _settings):
+        """Set CLI args for a check-mode operation."""
+        check_mode = (self._selected_actions & self._CHECK_MODES).pop()
+        args.command = check_mode
+        usernames = [m.name for m in self._selected_models]
+        if check_mode in ("post_check", "msg_check"):
+            args.url = usernames
+            args.check_usernames = []
+        else:
+            args.check_usernames = usernames
+            args.url = []
+        if check_mode == "post_check":
+            args.check_area = list(self._selected_areas)
+        args.force_all = True
+        args.after = 0
+        args.action = ["download"]
+        args.actions = ["download"]
+        write_args.setArgs(args)
+        try:
+            _settings.update_settings()
+        except Exception:
+            pass
+        log.info(
+            f"[GUI Check] Args: command={check_mode}, "
+            f"users={usernames}, areas={getattr(args, 'check_area', [])}"
+        )
+
     def _set_args(self):
         """Programmatically set the CLI args based on GUI selections."""
         import ofscraper.utils.args.accessors.read as read_args
@@ -1115,6 +1179,11 @@ class GUIWorkflow:
         import sys
 
         args = read_args.retriveArgs()
+
+        # Check mode: configure separately and return early
+        if bool(self._selected_actions & self._CHECK_MODES):
+            self._set_check_args(args, write_args, _settings)
+            return
 
         # Record baseline once (first GUI-driven run) so we can restore values when
         # GUI options (like "rescrape") are toggled off on later runs.
@@ -1153,6 +1222,12 @@ class GUIWorkflow:
 
         # Set the scrape_paid flag
         args.scrape_paid = self._scrape_paid
+
+        # Set media types — use GUI selection so it overrides the config filter.
+        # An explicit non-empty list takes precedence over config_data.get_filter()
+        # in settings.py (merged.mediatypes = args.mediatypes or config_data.get_filter()).
+        if self._selected_mediatypes:
+            args.mediatypes = list(self._selected_mediatypes)
 
         # Discord webhook updates: emulate `--discord NORMAL` when enabled AND
         # a webhook URL exists in config.
@@ -1263,6 +1338,117 @@ class GUIWorkflow:
             time.sleep(1)
         return True
 
+    def _run_check_mode(self):
+        """Run a check mode (post_check / msg_check / paid_check / story_check).
+
+        Calls ``check.gui_checker()`` which fetches API data and emits
+        ``data_replace`` with the resulting rows.  Downloads are handled later
+        via the ``downloads_queued`` signal when the user sends cart items.
+        """
+        import ofscraper.commands.check as check_mod
+
+        check_mode = (self._selected_actions & self._CHECK_MODES).pop()
+        app_signals.status_message.emit(f"Running {check_mode}...")
+        app_signals.log_message.emit("INFO", f"Starting check mode: {check_mode}")
+        try:
+            check_mod.gui_checker(check_mode)
+            app_signals.log_message.emit("INFO", f"Check mode {check_mode} complete")
+            app_signals.status_message.emit(
+                "Check mode complete — select items in the table and click 'Send Downloads'"
+            )
+        except Exception as e:
+            log.error(f"Check mode error: {e}")
+            log.debug(traceback.format_exc())
+            app_signals.log_message.emit("ERROR", f"Check mode failed: {e}")
+            app_signals.error_occurred.emit("Check Mode Error", str(e))
+            app_signals.scraping_finished.emit()
+
+    def _on_downloads_queued(self, row_data_list):
+        """Handle download requests from the check-mode table.
+
+        Only acts when the current action is a check mode; regular scrapes
+        handle their own downloads via the downloader pipeline.
+        """
+        if not bool(self._selected_actions & self._CHECK_MODES):
+            return
+        if not row_data_list:
+            return
+        t = threading.Thread(
+            target=self._run_check_downloads,
+            args=(row_data_list,),
+            daemon=True,
+            name="gui-check-downloads",
+        )
+        t.start()
+
+    def _run_check_downloads(self, row_data_list):
+        """Process download requests from the check-mode cart in a background thread."""
+        from collections import defaultdict
+        import ofscraper.commands.check as check_mod
+
+        app_signals.status_message.emit("Downloading selected check items...")
+        app_signals.log_message.emit(
+            "INFO", f"Processing {len(row_data_list)} check-mode download(s)"
+        )
+
+        _install_gui_log_handler()
+        _install_gui_live_stubs()
+        _install_gui_progress_hooks()
+
+        # Pre-set the total BEFORE any add_overall_task calls so the progress bar
+        # shows X/N instead of resetting to 1/1 per item (process_dicts calls
+        # add_overall_task with total=1 for each individual item in check mode).
+        total_items = len(row_data_list)
+        _gui_state.locked_total = total_items
+        _gui_state.total_media = total_items
+        _gui_state.check_completed = 0
+        try:
+            import ofscraper.commands.scraper.actions.utils.globals as _cg
+            _cg.photo_count = 0
+            _cg.video_count = 0
+            _cg.audio_count = 0
+            _cg.skipped = 0
+            _cg.forced_skipped = 0
+            _cg.total_bytes_downloaded = 0
+        except Exception:
+            pass
+        try:
+            app_signals.overall_progress_updated.emit(0, total_items)
+            app_signals.total_bytes_updated.emit(0)
+        except Exception:
+            pass
+
+        try:
+            user_cart = defaultdict(lambda: {"posts": [], "media": [], "rows": []})
+            for row_data in row_data_list:
+                try:
+                    media_item, post_item, username, model_id = check_mod._get_data_from_row(row_data)
+                    user_cart[model_id]["posts"].append(post_item)
+                    user_cart[model_id]["media"].append(media_item)
+                    key = str(row_data.get("media_id", ""))
+                    user_cart[model_id]["rows"].append((key, row_data))
+                    user_cart[model_id]["username"] = username
+                except Exception as e:
+                    log.error(f"Check download row error: {e}")
+
+            for model_id, data in user_cart.items():
+                username = data.get("username", "")
+                try:
+                    check_mod._process_user_batch(
+                        username, model_id, data["media"], data["posts"], data["rows"]
+                    )
+                except Exception as e:
+                    log.error(f"Check download batch error for {username}: {e}")
+                    log.debug(traceback.format_exc())
+        finally:
+            _gui_state.locked_total = 0
+            _uninstall_gui_progress_hooks()
+            _uninstall_gui_live_stubs()
+            _uninstall_gui_log_handler()
+
+        app_signals.status_message.emit("Check mode downloads complete")
+        app_signals.log_message.emit("INFO", "Check mode download processing complete")
+
     def _run_scraper_thread(self):
         """Run the scraper pipeline in a background thread.
         If daemon mode is enabled, loops with the configured interval."""
@@ -1271,6 +1457,11 @@ class GUIWorkflow:
             _install_gui_log_handler()
             _install_gui_live_stubs()
             _install_gui_progress_hooks()
+
+            # Check mode: one-shot run — no daemon loop
+            if bool(self._selected_actions & self._CHECK_MODES):
+                self._run_check_mode()
+                return
 
             while True:
                 if _gui_cancel_event.is_set():

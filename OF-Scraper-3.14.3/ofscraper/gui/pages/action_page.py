@@ -4,6 +4,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QRadioButton,
@@ -33,6 +34,31 @@ _ACTION_TIPS = {
     "Download + Like": "Scrape and download content, then also like the posts.",
     "Download + Unlike": "Scrape and download content, then also unlike previously liked posts.",
 }
+
+CHECK_CHOICES = [
+    ("Check posts: build table of timeline/pinned/archived media", {"post_check"}),
+    ("Check messages: build table of message & paid media", {"msg_check"}),
+    ("Check paid content: build table of all paid/purchased media", {"paid_check"}),
+    ("Check stories: build table of story & highlight media", {"story_check"}),
+]
+
+_CHECK_TIPS = {
+    "Check posts: build table of timeline/pinned/archived media":
+        "Fetches timeline, pinned, archived, label, and stream posts for the selected models\n"
+        "and builds an interactive table showing downloaded/unlocked status.\n"
+        "Select items in the table then click 'Send Downloads' to download them.",
+    "Check messages: build table of message & paid media":
+        "Fetches direct messages and paid content for the selected models\n"
+        "and builds a browsable table. Select items to download.",
+    "Check paid content: build table of all paid/purchased media":
+        "Fetches all purchased/paid content for the selected models\n"
+        "and builds a browsable table. Select items to download.",
+    "Check stories: build table of story & highlight media":
+        "Fetches stories and highlights for the selected models\n"
+        "and builds a browsable table. Select items to download.",
+}
+
+ALL_CHOICES = ACTION_CHOICES + CHECK_CHOICES
 
 
 class ActionPage(QWidget):
@@ -74,6 +100,27 @@ class ActionPage(QWidget):
             self._button_group.addButton(radio, i)
             layout.addWidget(radio)
 
+        # Separator between action modes and check modes
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addSpacing(8)
+        layout.addWidget(sep)
+
+        check_label = QLabel("Check Modes  (browse & selectively download)")
+        check_label.setFont(QFont("Segoe UI", 11))
+        check_label.setProperty("subheading", True)
+        layout.addWidget(check_label)
+
+        for i, (label, actions) in enumerate(CHECK_CHOICES):
+            radio = QRadioButton(label)
+            radio.setFont(QFont("Segoe UI", 13))
+            radio.setStyleSheet("QRadioButton { padding: 8px 4px; }")
+            radio.setProperty("actions", actions)
+            radio.setToolTip(_CHECK_TIPS.get(label, ""))
+            self._button_group.addButton(radio, len(ACTION_CHOICES) + i)
+            layout.addWidget(radio)
+
         # Select first by default
         first = self._button_group.button(0)
         if first:
@@ -103,8 +150,8 @@ class ActionPage(QWidget):
             self._selected_actions = ACTION_CHOICES[0][1]
 
     def _on_action_changed(self, btn_id):
-        if 0 <= btn_id < len(ACTION_CHOICES):
-            self._selected_actions = ACTION_CHOICES[btn_id][1]
+        if 0 <= btn_id < len(ALL_CHOICES):
+            self._selected_actions = ALL_CHOICES[btn_id][1]
 
     def _on_next(self):
         if self._selected_actions:

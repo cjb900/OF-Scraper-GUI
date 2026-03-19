@@ -656,7 +656,12 @@ class MainWindow(QMainWindow):
         self.table_page.toggle_sidebar_btn.setChecked(True)
         # Copy filter state from area page to table page sidebar
         self.area_page.copy_filter_state_to(self.table_page.sidebar)
-        app_signals.status_message.emit("Click Start Scraping to begin")
+        _check_modes = {"post_check", "msg_check", "paid_check", "story_check"}
+        _current = getattr(self.area_page, "_current_actions", set()) or set()
+        if bool(_current & _check_modes):
+            app_signals.status_message.emit("Checking — fetching data, please wait...")
+        else:
+            app_signals.status_message.emit("Click Start Scraping to begin")
 
     @pyqtSlot(list)
     def _on_areas_selected(self, areas):
@@ -717,16 +722,19 @@ class MainWindow(QMainWindow):
                 missing_ffmpeg = not p.is_file()
             except Exception:
                 missing_ffmpeg = True
-        # Manual keys: treat missing if either required file path is blank
-        # Manual keys missing/invalid if either path is blank or not a file.
-        client_raw = str(cdm_client).strip() if cdm_client is not None else ""
-        priv_raw = str(cdm_private).strip() if cdm_private is not None else ""
-        missing_manual_cdm = True
-        if client_raw and priv_raw:
-            try:
-                missing_manual_cdm = not (Path(client_raw).is_file() and Path(priv_raw).is_file())
-            except Exception:
-                missing_manual_cdm = True
+        # Manual keys: only check if key-mode-default is "manual"; other modes don't need them.
+        cdm_opts = cfg.get("cdm_options") if isinstance(cfg.get("cdm_options"), dict) else {}
+        key_mode = str(cdm_opts.get("key-mode-default") or "cdrm").lower().strip() or "cdrm"
+        missing_manual_cdm = False
+        if key_mode == "manual":
+            client_raw = str(cdm_client).strip() if cdm_client is not None else ""
+            priv_raw = str(cdm_private).strip() if cdm_private is not None else ""
+            missing_manual_cdm = True
+            if client_raw and priv_raw:
+                try:
+                    missing_manual_cdm = not (Path(client_raw).is_file() and Path(priv_raw).is_file())
+                except Exception:
+                    missing_manual_cdm = True
 
         if not (missing_ffmpeg or missing_manual_cdm):
             return

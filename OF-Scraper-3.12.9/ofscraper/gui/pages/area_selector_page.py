@@ -158,6 +158,34 @@ class AreaSelectorPage(QWidget):
         bulk_layout.addWidget(_make_help_btn("sca-content-areas"))
         layout.addLayout(bulk_layout)
 
+        # Media Types group
+        media_sep = QFrame()
+        media_sep.setFrameShape(QFrame.Shape.HLine)
+        media_sep.setStyleSheet(f"color: {c('sep')};")
+        self._separators.append(media_sep)
+        layout.addWidget(media_sep)
+
+        media_group = QGroupBox("Media Types to Download")
+        media_layout = QHBoxLayout(media_group)
+        media_layout.setSpacing(16)
+
+        # Initialize checkboxes from the current config filter setting
+        config_filter = config_data.get_filter() or ["Images", "Videos", "Audios"]
+        config_filter_lower = {x.lower() for x in config_filter}
+
+        self._mediatype_checks = {}
+        for mt in ["Images", "Videos", "Audios"]:
+            cb = QCheckBox(mt)
+            cb.setFont(QFont("Segoe UI", 11))
+            cb.setChecked(mt.lower() in config_filter_lower)
+            cb.setToolTip(f"Include {mt.lower()} in this scrape session.")
+            media_layout.addWidget(cb)
+            self._mediatype_checks[mt] = cb
+
+        media_layout.addStretch()
+        media_layout.addWidget(_make_help_btn("sca-media-types"))
+        layout.addWidget(media_group)
+
         # Extra options
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -507,6 +535,11 @@ class AreaSelectorPage(QWidget):
         self.daemon_interval.setEnabled(False)
         self.notify_check.setChecked(False)
         self.sound_check.setChecked(False)
+        # Reset media type checkboxes to match config
+        config_filter = config_data.get_filter() or ["Images", "Videos", "Audios"]
+        config_filter_lower = {x.lower() for x in config_filter}
+        for mt, cb in self._mediatype_checks.items():
+            cb.setChecked(mt.lower() in config_filter_lower)
         # Reset filter sidebar
         self.filter_sidebar.reset_all()
         # Reset model loading state so models reload on next visit
@@ -772,6 +805,11 @@ class AreaSelectorPage(QWidget):
             if cb.isChecked() and cb.isEnabled() and not cb.isHidden()
         ]
 
+    def get_selected_mediatypes(self):
+        selected = [mt for mt, cb in self._mediatype_checks.items() if cb.isChecked()]
+        # If nothing checked, fall back to all types so the scrape isn't broken
+        return selected if selected else ["Images", "Videos", "Audios"]
+
     def _on_daemon_toggled(self, checked):
         self.daemon_interval.setEnabled(checked)
 
@@ -857,6 +895,8 @@ class AreaSelectorPage(QWidget):
             return
 
         log.info(f"Areas configured: {selected}")
+        mediatypes = self.get_selected_mediatypes()
+        app_signals.mediatypes_configured.emit(mediatypes)
 
         # Pre-filter models by username if one was entered
         username = self.get_username_filter()

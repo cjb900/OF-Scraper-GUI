@@ -983,6 +983,7 @@ class GUIWorkflow:
         self._selected_actions = set()
         self._selected_models = []
         self._selected_areas = []
+        self._selected_mediatypes = []
         self._scrape_paid = False
         self._discord_enabled = False
         self._advanced = {}
@@ -1002,6 +1003,7 @@ class GUIWorkflow:
         app_signals.action_selected.connect(self._on_action_selected)
         app_signals.models_selected.connect(self._on_models_selected)
         app_signals.areas_selected.connect(self._on_areas_selected)
+        app_signals.mediatypes_configured.connect(self._on_mediatypes_configured)
         app_signals.scrape_paid_toggled.connect(self._on_scrape_paid)
         app_signals.discord_configured.connect(self._on_discord_configured)
         app_signals.daemon_configured.connect(self._on_daemon_configured)
@@ -1070,6 +1072,10 @@ class GUIWorkflow:
             app_signals.log_message.emit("WARNING", "Cancel requested by user")
         except Exception:
             pass
+
+    def _on_mediatypes_configured(self, mediatypes):
+        self._selected_mediatypes = mediatypes
+        log.info(f"[GUI Workflow] Media types set: {mediatypes}")
 
     def _on_areas_selected(self, areas):
         self._selected_areas = areas
@@ -1146,6 +1152,12 @@ class GUIWorkflow:
 
         # Set the scrape_paid flag
         args.scrape_paid = self._scrape_paid
+
+        # Set media types — use GUI selection so it overrides the config filter.
+        # settings.get_mediatypes() uses: args.mediatype or config_data.get_filter()
+        # An explicit non-empty list takes precedence over the config value.
+        if self._selected_mediatypes:
+            args.mediatype = list(self._selected_mediatypes)
 
         # Discord webhook updates: emulate `--discord NORMAL` when enabled AND
         # a webhook URL exists in config.

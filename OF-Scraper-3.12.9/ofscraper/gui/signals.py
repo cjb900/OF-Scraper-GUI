@@ -45,6 +45,9 @@ class AppSignals(QObject):
     scraping_finished = pyqtSignal()  # emitted when scraper thread completes
     cancel_scrape_requested = pyqtSignal()  # UI requests current scrape cancel
 
+    # Media type filter from area selector page
+    mediatypes_configured = pyqtSignal(list)  # list of media type strings e.g. ["Images", "Videos"]
+
     # Daemon mode
     daemon_configured = pyqtSignal(bool, float, bool, bool)  # enabled, interval_min, notify, sound
     daemon_next_run = pyqtSignal(str)  # countdown text like "Next scrape in 12:34"

@@ -65,16 +65,61 @@ class WidevineMasterAutomator:
             capture_output=capture, text=True,
         )
 
+    @staticmethod
+    def _scrub_system_java(env, jdk_dir):
+        """Remove any system-Java env vars that could override the portable JDK.
+
+        Problems this prevents:
+        - JAVA_HOME / JRE_HOME pointing at the wrong JDK version
+        - CLASSPATH carrying paths from a system JDK installation
+        - _JAVA_OPTIONS / JAVA_TOOL_OPTIONS / JDK_JAVA_OPTIONS set by system JDK
+          installers (these are honoured even when JAVA_HOME is overridden)
+        - PATH entries under common Java install prefixes (C:\\Program Files\\Java,
+          C:\\Program Files\\Eclipse Adoptium, /usr/lib/jvm, etc.) that appear
+          before our portable bin dir
+        """
+        # 1. Remove variables that leak system-JDK config into child processes
+        for var in ("JRE_HOME", "CLASSPATH",
+                    "_JAVA_OPTIONS", "JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS",
+                    "JAVA_OPTIONS"):
+            env.pop(var, None)
+
+        # 2. Hard-set our portable JAVA_HOME (overrides any system value)
+        env["JAVA_HOME"] = jdk_dir
+
+        # 3. Strip known system-Java PATH prefixes and prepend our portable bin
+        portable_bin = os.path.join(jdk_dir, "bin")
+        system_java_prefixes = (
+            # Windows common locations
+            r"C:\Program Files\Java",
+            r"C:\Program Files\Eclipse Adoptium",
+            r"C:\Program Files\Microsoft",          # Microsoft OpenJDK
+            r"C:\Program Files\Zulu",
+            r"C:\Program Files\BellSoft",
+            r"C:\ProgramData\Oracle\Java\javapath",
+            # Linux/macOS common locations
+            "/usr/lib/jvm",
+            "/usr/local/lib/jvm",
+            "/Library/Java/JavaVirtualMachines",
+        )
+        sep = os.pathsep
+        filtered = sep.join(
+            p for p in env.get("PATH", "").split(sep)
+            if p and not any(p.startswith(prefix) for prefix in system_java_prefixes)
+            and p != portable_bin          # avoid duplicates
+        )
+        env["PATH"] = portable_bin + sep + filtered
+        return env
+
     def _sdk_env(self):
         env = os.environ.copy()
         env["ANDROID_SDK_ROOT"] = self.sdk_dir
         env["ANDROID_HOME"]     = self.sdk_dir
         env["ANDROID_AVD_HOME"] = os.path.join(self.home_dir, ".android", "avd")
-        # Inject portable JDK if we downloaded one (needed by sdkmanager on Linux/macOS)
+        # Always isolate the portable JDK so a system Java cannot interfere.
         jdk_dir = os.path.join(self.sdk_dir, "jdk")
         if os.path.isdir(jdk_dir):
-            env["JAVA_HOME"] = jdk_dir
-            env["PATH"] = os.path.join(jdk_dir, "bin") + os.pathsep + env.get("PATH", "")
+            self._scrub_system_java(env, jdk_dir)
         return env
 
     def get_view_center(self, target_text_or_id):
@@ -113,15 +158,14 @@ class WidevineMasterAutomator:
     # ── Java (required by sdkmanager on all platforms) ────────────────────────
 
     def _ensure_java(self):
-        """Ensure Java 17 is available. Download a portable JDK if absent."""
-        # Already on PATH?
-        if shutil.which("java"):
-            return
-
-        # Already downloaded into our SDK dir?
+        """Ensure Java 17 is available. Always prefers the portable JDK bundled
+        inside sdk_dir/jdk so the system-installed JDK is never used (avoids
+        version-mismatch issues with sdkmanager / avdmanager)."""
         jdk_dir  = os.path.join(self.sdk_dir, "jdk")
         java_bin = os.path.join(jdk_dir, "bin",
                                 "java.exe" if self.os_type == "Windows" else "java")
+
+        # Already downloaded into our SDK dir?
         if os.path.exists(java_bin):
             self._activate_jdk(jdk_dir)
             return
@@ -177,11 +221,9 @@ class WidevineMasterAutomator:
         self._activate_jdk(jdk_dir)
 
     def _activate_jdk(self, jdk_dir):
-        """Point the current process (and child processes) at the portable JDK."""
-        os.environ["JAVA_HOME"] = jdk_dir
-        os.environ["PATH"] = (
-            os.path.join(jdk_dir, "bin") + os.pathsep + os.environ.get("PATH", "")
-        )
+        """Point the current process (and child processes) at the portable JDK,
+        scrubbing any system-Java variables that could take precedence."""
+        self._scrub_system_java(os.environ, jdk_dir)
 
     # ── Android SDK setup ─────────────────────────────────────────────────────
 
@@ -496,8 +538,11 @@ class WidevineMasterAutomator:
         cpu_has_vt    = False
         bios_enabled  = False
         try:
+            _ps_exe = self._find_powershell()
+            if not _ps_exe:
+                raise FileNotFoundError("PowerShell not found")
             ps = subprocess.run(
-                ["powershell", "-NoProfile", "-Command",
+                [_ps_exe, "-NoProfile", "-Command",
                  "(Get-CimInstance Win32_Processor | "
                  "Select-Object -First 1 "
                  "VirtualizationFirmwareEnabled,VMMonitorModeExtensions) | "
@@ -587,20 +632,42 @@ class WidevineMasterAutomator:
                 print(line, end="")
             print("--- End of log ---\n")
 
+    @staticmethod
+    def _find_powershell():
+        """Return the PowerShell executable path, or None if unavailable."""
+        for candidate in ("powershell.exe", "powershell",
+                          r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"):
+            found = shutil.which(candidate) or (
+                candidate if (os.path.isabs(candidate) and os.path.exists(candidate)) else None
+            )
+            if found:
+                return found
+        return None
+
     def _cleanup_stale_emulator(self):
         """Kill any stale emulator processes and remove AVD lock files."""
         # Kill ALL emulator-related processes using PowerShell on Windows
         # (catches emulator.exe, emulator64-x86_64.exe, qemu-system-x86_64.exe, etc.)
         if self.os_type == "Windows":
-            subprocess.run(
-                [
-                    "powershell", "-NoProfile", "-Command",
-                    "Get-Process | Where-Object {"
-                    "  $_.Name -match 'emulator' -or $_.Name -match 'qemu'"
-                    "} | Stop-Process -Force -ErrorAction SilentlyContinue",
-                ],
-                capture_output=True,
-            )
+            ps = self._find_powershell()
+            if ps:
+                subprocess.run(
+                    [
+                        ps, "-NoProfile", "-Command",
+                        "Get-Process | Where-Object {"
+                        "  $_.Name -match 'emulator' -or $_.Name -match 'qemu'"
+                        "} | Stop-Process -Force -ErrorAction SilentlyContinue",
+                    ],
+                    capture_output=True,
+                )
+            else:
+                # PowerShell not found — fall back to taskkill (always present on Windows)
+                for proc in ("emulator.exe", "qemu-system-x86_64.exe",
+                             "emulator64-x86_64.exe"):
+                    subprocess.run(
+                        ["taskkill", "/F", "/IM", proc],
+                        capture_output=True,
+                    )
         else:
             subprocess.run(["pkill", "-9", "-f", "emulator"], capture_output=True)
         time.sleep(8)   # give OS time to release file handles (Windows needs longer)

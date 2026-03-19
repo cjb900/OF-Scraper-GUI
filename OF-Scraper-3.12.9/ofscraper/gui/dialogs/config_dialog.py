@@ -592,7 +592,8 @@ class ConfigPage(QWidget):
     def _load_config(self):
         """Load current config values into the widgets."""
         try:
-            from ofscraper.utils.config.config import read_config
+            from ofscraper.utils.config.config import read_config, reset_config_cache
+            reset_config_cache()
             self._config = read_config(update=False) or {}
 
             config = self._config

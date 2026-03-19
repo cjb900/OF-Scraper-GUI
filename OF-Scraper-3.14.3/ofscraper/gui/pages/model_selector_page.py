@@ -1,6 +1,6 @@
 import logging
 
-from PyQt6.QtCore import Qt, QEvent, QObject, QRunnable, QSize, QThreadPool, QUrl, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import Qt, QEvent, QObject, QRunnable, QSize, QThreadPool, QTimer, QUrl, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QDesktopServices, QFont, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -50,11 +50,13 @@ def _make_help_btn(anchor: str) -> QToolButton:
 
 class _AvatarSignals(QObject):
     """Signals for avatar download tasks (must be a QObject for cross-thread emit)."""
-    loaded = pyqtSignal(str, bytes)  # model name, raw image bytes
+    # Emits a pre-scaled QImage so the main thread only does a lightweight
+    # QPixmap.fromImage() conversion — all heavy image work stays off the UI thread.
+    loaded = pyqtSignal(str, object)  # model name, scaled QImage
 
 
 class _AvatarTask(QRunnable):
-    """Downloads a single avatar image in a thread-pool worker."""
+    """Downloads and scales a single avatar image in a thread-pool worker."""
 
     def __init__(self, name: str, url: str, signals: _AvatarSignals):
         super().__init__()
@@ -66,12 +68,22 @@ class _AvatarTask(QRunnable):
     def run(self):
         try:
             import urllib.request
+            from PyQt6.QtGui import QImage
             req = urllib.request.Request(
                 self.url, headers={"User-Agent": "Mozilla/5.0"}
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = resp.read()
-            self.signals.loaded.emit(self.name, data)
+            # QImage is thread-safe; do the heavy load + scale here off the main thread
+            img = QImage()
+            img.loadFromData(data)
+            if not img.isNull():
+                img = img.scaled(
+                    40, 40,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self.signals.loaded.emit(self.name, img)
         except Exception:
             pass
 
@@ -100,6 +112,15 @@ class ModelSelectorPage(QWidget):
         self._avatar_cache: dict[str, QIcon] = {}
         self._show_avatars = False
         self._avatar_signals = _AvatarSignals()
+        # Dedicated thread pool for avatar downloads — isolated from Qt's global pool
+        self._avatar_pool = QThreadPool()
+        self._avatar_pool.setMaxThreadCount(4)
+        # Batch avatar updates — collect names here, flush every 150 ms
+        self._pending_avatar_names: set = set()
+        self._avatar_flush_timer = QTimer()
+        self._avatar_flush_timer.setSingleShot(False)
+        self._avatar_flush_timer.setInterval(150)
+        self._avatar_flush_timer.timeout.connect(self._flush_pending_avatars)
         self._setup_ui()
         self._connect_signals()
 
@@ -352,9 +373,12 @@ class ModelSelectorPage(QWidget):
             if item:
                 item_rect = self.model_list.visualItemRect(item)
                 icon_w = self.model_list.iconSize().width()
-                # Approximate icon region: checkbox (~20 px) + icon width + small margin
                 rel_x = event.pos().x() - item_rect.left()
-                if rel_x <= 20 + icon_w + 6:
+                # Checkbox indicator is ~0-20 px — let those clicks through so
+                # the checkbox can be toggled normally.
+                # Only consume clicks that land in the icon zone (20 px to icon right edge).
+                checkbox_w = 20
+                if checkbox_w < rel_x <= checkbox_w + icon_w + 4:
                     name = item.data(Qt.ItemDataRole.UserRole)
                     if name:
                         QDesktopServices.openUrl(QUrl(f"https://onlyfans.com/{name}"))
@@ -562,51 +586,67 @@ class ModelSelectorPage(QWidget):
 
     def _load_avatars(self):
         """Queue background downloads for any model whose avatar isn't cached yet."""
-        pool = QThreadPool.globalInstance()
         for name, model in self._all_models.items():
             if name in self._avatar_cache:
                 continue
             url = getattr(model, "avatar", None)
             if url:
-                pool.start(_AvatarTask(name, url, self._avatar_signals))
+                self._avatar_pool.start(_AvatarTask(name, url, self._avatar_signals))
         # Immediately apply whatever is already cached
         self._apply_avatars_to_list()
 
-    @pyqtSlot(str, bytes)
-    def _on_avatar_loaded(self, name: str, data: bytes):
-        """Main-thread slot: convert raw bytes → QIcon and update matching list item."""
+    @pyqtSlot(str, object)
+    def _on_avatar_loaded(self, name: str, image):
+        """Main-thread slot: image is pre-scaled QImage; just convert to QPixmap and batch."""
         if not self._show_avatars:
             return
-        pixmap = QPixmap()
-        pixmap.loadFromData(data)
-        if pixmap.isNull():
+        try:
+            pixmap = QPixmap.fromImage(image)
+            if pixmap.isNull():
+                return
+            self._avatar_cache[name] = QIcon(pixmap)
+            self._pending_avatar_names.add(name)
+            if not self._avatar_flush_timer.isActive():
+                self._avatar_flush_timer.start()
+        except Exception:
+            pass
+
+    def _flush_pending_avatars(self):
+        """Apply all pending avatar icons to the list in one suppressed-repaint pass."""
+        if not self._pending_avatar_names:
+            self._avatar_flush_timer.stop()
             return
-        pixmap = pixmap.scaled(
-            40, 40,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        icon = QIcon(pixmap)
-        self._avatar_cache[name] = icon
+        names = self._pending_avatar_names.copy()
+        self._pending_avatar_names.clear()
+        self.model_list.setUpdatesEnabled(False)
         for i in range(self.model_list.count()):
             item = self.model_list.item(i)
-            if item.data(Qt.ItemDataRole.UserRole) == name:
-                item.setIcon(icon)
-                break
+            name = item.data(Qt.ItemDataRole.UserRole)
+            if name in names and name in self._avatar_cache:
+                item.setIcon(self._avatar_cache[name])
+        self.model_list.setUpdatesEnabled(True)
+        if not self._pending_avatar_names:
+            self._avatar_flush_timer.stop()
 
     def _apply_avatars_to_list(self):
-        """Set cached icons on all current list items."""
+        """Set cached icons on all current list items (single suppressed-repaint pass)."""
+        self.model_list.setUpdatesEnabled(False)
         for i in range(self.model_list.count()):
             item = self.model_list.item(i)
             name = item.data(Qt.ItemDataRole.UserRole)
             if name in self._avatar_cache:
                 item.setIcon(self._avatar_cache[name])
+        self.model_list.setUpdatesEnabled(True)
 
     def _clear_avatars(self):
         """Remove icons from all list items (cache is kept for re-enable)."""
+        self._avatar_flush_timer.stop()
+        self._pending_avatar_names.clear()
         empty = QIcon()
+        self.model_list.setUpdatesEnabled(False)
         for i in range(self.model_list.count()):
             self.model_list.item(i).setIcon(empty)
+        self.model_list.setUpdatesEnabled(True)
 
     # ------------------------------------------------------------------
 

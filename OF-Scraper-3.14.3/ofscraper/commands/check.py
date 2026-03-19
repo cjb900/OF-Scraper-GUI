@@ -791,7 +791,7 @@ async def row_gather(username, model_id):
         if is_downloaded:
             cart_state = "[downloaded]"
         elif not is_unlocked:
-            cart_state = "Not Unlocked"
+            cart_state = "Locked"
         else:
             cart_state = "[]"
 
@@ -823,3 +823,88 @@ async def row_gather(username, model_id):
 
     ROWS = ROWS or []
     ROWS.extend(out)
+
+
+def _normalize_rows_for_gui(rows):
+    """Normalize check.py ROWS list for the GUI data table.
+
+    The GUI table expects ``number`` to be a string and ``index`` to be set.
+    check.py stores ``number`` as an int — convert here so the table renders
+    correctly without touching any of the check.py internal logic.
+    """
+    result = []
+    for i, row in enumerate(rows or []):
+        normalized = dict(row)
+        normalized["number"] = str(row.get("number", i + 1))
+        if "index" not in normalized:
+            normalized["index"] = i
+        result.append(normalized)
+    return result
+
+
+def gui_checker(check_mode):
+    """GUI-compatible entry point for check modes.
+
+    Runs the appropriate data-fetch runner, then emits the collected rows via
+    ``app_signals.data_replace`` instead of launching the Textual TUI.
+    ``app.app`` is patched so that any subsequent ``update_cell_state()`` calls
+    (triggered when the user sends downloads) emit ``app_signals.cell_update``
+    instead of trying to update a TUI widget.
+    """
+    from ofscraper.gui.signals import app_signals
+    import ofscraper.classes.table.app as _tui_app
+
+    # Patch the TUI app so update_cell_state emits GUI signals
+    class _GUICheckCellAdapter:
+        def update_cell_state(self, key, state, color=None):
+            try:
+                app_signals.cell_update.emit(str(key), "download_cart", str(state))
+            except Exception:
+                pass
+
+        def __bool__(self):
+            return True
+
+    _tui_app.app = _GUICheckCellAdapter()
+
+    # Reset global state from any previous check run
+    global ROWS, check_user_dict, ALL_MEDIA
+    ROWS = {}
+    check_user_dict.clear()
+    ALL_MEDIA = {}
+    _process_user_batch.counter = 0
+
+    allow_check_dupes()
+    set_after_check_mode()
+
+    try:
+        check_auth()
+        if check_mode == "post_check":
+            post_check_runner()
+        elif check_mode == "msg_check":
+            message_checker_runner()
+        elif check_mode == "paid_check":
+            purchase_checker_runner()
+        elif check_mode == "story_check":
+            stories_checker_runner()
+        else:
+            log.error(f"gui_checker: unknown check mode '{check_mode}'")
+            app_signals.scraping_finished.emit()
+            return
+    except Exception as e:
+        log.error(f"gui_checker error: {e}")
+        log.traceback_(traceback.format_exc())
+        try:
+            app_signals.log_message.emit("ERROR", f"Check mode error: {e}")
+        except Exception:
+            pass
+        app_signals.scraping_finished.emit()
+        return
+
+    gui_rows = _normalize_rows_for_gui(ROWS)
+    log.info(f"gui_checker: emitting {len(gui_rows)} rows via data_replace")
+    try:
+        app_signals.data_replace.emit(gui_rows)
+    except Exception as e:
+        log.error(f"gui_checker: failed to emit rows: {e}")
+    app_signals.scraping_finished.emit()

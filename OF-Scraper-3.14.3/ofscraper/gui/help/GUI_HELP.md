@@ -22,6 +22,11 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 - [Table / Scraping page](#table-root)
   - [Toolbar buttons](#table-toolbar)
   - [Progress + logs](#table-progress)
+- [Check Mode](#check-mode-root)
+  - [Which mode to use](#check-mode-which)
+  - [The check table](#check-mode-table)
+  - [Locked content](#check-mode-locked)
+  - [Downloading from check mode](#check-mode-download)
 - [Filters (Table page + embedded)](#filters-root)
 - [Table columns](#table-columns)
 - [Merge DBs](#merge-dbs)
@@ -436,6 +441,50 @@ This is where scraped rows appear, filters are applied, and downloads are queued
 - The **overall progress bar** is shown in the footer at the bottom.
 - The console area shows detailed logs and trace output.
 
+<a id="check-mode-root"></a>
+## Check Mode
+
+Check modes let you browse all media for a creator in a table view and selectively download individual items, rather than queueing everything at once. This is useful when you want to preview what is available — including locked/paywalled content — before deciding what to save.
+
+<a id="check-mode-which"></a>
+### Which mode to use
+
+Select a check mode from the **Select Action** step:
+
+| Mode | What it scans |
+|---|---|
+| **Post Check** | Timeline, pinned, archived, streams, and label posts |
+| **Message Check** | Direct messages and PPV messages |
+| **Paid Check** | Explicitly purchased/paid content |
+| **Story Check** | Stories and highlights |
+
+> If you are looking for PPV messages (pay-per-view content sent via DMs), use **Message Check** — these do not appear in Post Check.
+
+<a id="check-mode-table"></a>
+### The check table
+
+After models are selected and the check runs, a full media table is populated with every item found — including content you have not purchased. The table supports the same filters, sorting, and column layout as the main scraping table.
+
+<a id="check-mode-locked"></a>
+### Locked content
+
+Items that are behind a paywall (no download URL available) are shown with a **Locked** label in the Download Cart column:
+
+- The cell has a grey background and cannot be clicked or toggled
+- These items cannot be downloaded without purchasing them on OnlyFans first
+- Use the **Status → Downloaded/Unlocked** filter and select **Locked** to isolate all paywalled rows
+
+<a id="check-mode-download"></a>
+### Downloading from check mode
+
+1. Click the **Download Cart** cell of any unlocked row to toggle it to `[added]`
+2. Use **Select All** in the toolbar to queue everything unlocked at once
+3. Click **>> Send Downloads** to begin downloading all queued items
+4. Each row updates in real time: `[downloading]` → `[downloaded]`, `[skipped]`, or `[failed]`
+5. The footer progress bar tracks individual item completion — e.g. `3 / 10` as each file finishes
+
+---
+
 <a id="filters-root"></a>
 ## Filters (Table page + embedded on Areas page)
 
@@ -521,10 +570,13 @@ Possible values:
 - `[added]`: queued for download
 - `[downloading]`: currently downloading
 - `[downloaded]`: finished
+- `[skipped]`: skipped (already downloaded or filtered out)
 - `[failed]`: download failed
+- `Locked`: paywalled — item cannot be downloaded (check mode only)
 
 Tip:
 - Click the **Download Cart** cell to toggle selection.
+- `Locked` cells cannot be toggled — purchase the content on OnlyFans first.
 
 <a id="table-col-username"></a>
 ### UserName
