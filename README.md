@@ -92,7 +92,7 @@ A visual walkthrough of each page in the GUI.
 
 ### Scraper — Select Action
 
-<img src="https://github.com/user-attachments/assets/7532a143-b492-4898-996e-c4d4f84f8c40" width="600" alt="Main Window — Select Action">
+<img src="https://github.com/user-attachments/assets/e8fdf3d6-5cb0-4b1b-b968-78ab0070a937" width="600" alt="Main Window — Select Action">
 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
