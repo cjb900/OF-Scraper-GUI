@@ -340,6 +340,21 @@ class MainDownloadManager(DownloadManager):
         # 6. Run Post-Download Scripts
         await self._after_download_script(path_to_file)
 
+        # 7. Dispatch plugin event
+        try:
+            from ofscraper.plugins.manager import plugin_manager
+
+            _n = len(plugin_manager.plugins)
+            _name = pathlib.Path(str(path_to_file)).name
+            common_globals.log.info(
+                f"[PluginManager] on_item_downloaded ({_n} plugin(s)) -> {_name}"
+            )
+            plugin_manager.dispatch_event("on_item_downloaded", ele, str(path_to_file))
+        except Exception as e:
+            common_globals.log.warning(
+                f"[PluginManager] on_item_downloaded failed: {e}"
+            )
+
         return ele.mediatype, total
 
     async def _get_data(self, ele):

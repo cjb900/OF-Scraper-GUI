@@ -12,6 +12,7 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 - [Scraper workflow](#scraper-workflow)
 - [Select Content Areas & Filters](#sca-root)
   - [Content Areas](#sca-content-areas)
+  - [Media Types to Download](#sca-media-types)
   - [Additional Options](#sca-additional-options)
   - [Advanced Scrape Options](#sca-advanced-options)
   - [Daemon Mode](#sca-daemon-mode)
@@ -77,6 +78,25 @@ These are the sources to scan (depending on action):
 
 Example:
 - If you only care about messages, uncheck everything except **Messages** to speed up scraping.
+
+> **Note:** Not all areas are available for every action:
+> - **Download** supports all 10 areas.
+> - **Like / Unlike** supports only: Timeline, Pinned, Archived, Streams, Labels.
+> Profile, Highlights, Stories, Messages, and Purchased are not available for Like/Unlike.
+
+<a id="sca-media-types"></a>
+### Media Types to Download
+
+Control which file types are included in this scrape session:
+
+- **Images**: Photos and image files
+- **Videos**: Video files
+- **Audios**: Audio files
+
+These checkboxes default to your current config filter settings (`Download → Media Type Filter`) but can be overridden per-session without saving changes to your configuration.
+
+Example:
+- Uncheck **Videos** to download images and audio only for this run, without changing your saved config.
 
 <a id="sca-additional-options"></a>
 ### Additional Options
@@ -594,6 +614,30 @@ Text/description associated with the post/message (may be truncated).
 
 - If you purge files/DB and immediately start a download scrape, folders/databases may be recreated right away.
 - For some message/PPV entries, “viewable/unlocked” may not map 1:1 to “purchased”.
+
+---
+
+<a id=”manual-url-scrape”></a>
+## Scraping by Post URL / ID
+
+Use **Scrape individual posts by URL or Post ID** (on the Action page) to download
+specific posts without selecting a creator.
+
+**How it works:**
+1. Choose **Scrape individual posts by URL or Post ID** on the Action page and click **Next**
+2. On the URL input page, enter one or more post URLs or post IDs — one per line, or comma-separated
+3. Click **▶ Start Scraping**
+
+**Accepted formats:**
+- Full post URL: `https://onlyfans.com/123456789/username`
+- Post ID only: `123456789`
+- Profile URL: `https://onlyfans.com/username` (scrapes all accessible posts for that creator)
+
+**Notes:**
+- This is equivalent to the TUI command `ofscraper manual --url <url>`
+- Model selection and area selection are skipped entirely
+- Multiple URLs/IDs can be entered at once — separate them with newlines or commas
+- Lines starting with `#` are treated as comments and ignored
 
 ---
 

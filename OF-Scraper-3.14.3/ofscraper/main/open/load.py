@@ -21,6 +21,11 @@ def main():
         readConfig()
         setLogger()
         make_folder()
+
+        # Initialize plugins for headless/scrape execution
+        from ofscraper.plugins.manager import plugin_manager
+        plugin_manager.discover_and_load()
+
         run.main()
     except Exception as E:
         print(E)

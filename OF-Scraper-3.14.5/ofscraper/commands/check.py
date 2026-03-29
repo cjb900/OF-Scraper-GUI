@@ -1,0 +1,933 @@
+import asyncio
+import inspect
+import logging
+import re
+import threading
+import time
+import traceback
+from copy import deepcopy
+from functools import partial
+
+from collections import defaultdict
+from ofscraper.utils.args.callbacks.arguments import username
+from rich.text import Text
+
+
+import arrow
+
+import ofscraper.data.api.archive as archived
+import ofscraper.data.api.highlights as highlights
+import ofscraper.data.api.labels as labels
+import ofscraper.data.api.messages as messages_
+import ofscraper.data.api.paid as paid_
+import ofscraper.data.api.pinned as pinned
+import ofscraper.data.api.profile as profile
+import ofscraper.data.api.streams as streams
+import ofscraper.data.api.timeline as timeline
+import ofscraper.classes.of.posts as posts_
+import ofscraper.classes.table.app as app
+import ofscraper.db.operations as operations
+import ofscraper.utils.settings as settings
+import ofscraper.utils.auth.request as auth_requests
+import ofscraper.utils.console as console_
+import ofscraper.utils.of_env.of_env as of_env
+import ofscraper.utils.live.screens as progress_utils
+import ofscraper.utils.live.updater as progress_updater
+import ofscraper.utils.system.network as network
+from ofscraper.data.api.common.check import read_check, set_check
+from ofscraper.data.api.common.timeline import get_individual_timeline_post
+from ofscraper.commands.utils.strings import check_str
+from ofscraper.db.operations import make_changes_to_content_tables
+from ofscraper.db.operations_.media import (
+    batch_mediainsert,
+    get_media_post_ids_downloaded,
+)
+from ofscraper.utils.checkers import check_auth
+from ofscraper.utils.context.run_async import run
+from ofscraper.scripts.after_download_action_script import after_download_action_script
+import ofscraper.managers.manager as manager
+from ofscraper.commands.scraper.actions.download.download import process_dicts
+from ofscraper.managers.postcollection import PostCollection
+from ofscraper.main.close.final.final import final_action
+
+log = logging.getLogger("shared")
+console = console_.get_shared_console()
+
+
+ALL_MEDIA = {}
+ROWS = {}
+MEDIA_KEY = ["id", "postid", "username"]
+check_user_dict = defaultdict(dict)
+_msg_check_filter = "paid_only"  # "paid_only" | "free_only" | "all"
+
+
+def process_download_queue():
+    """
+    Orchestrator function that processes the entire download queue in batches grouped by user.
+    """
+    while True:
+        if app.row_queue.empty():
+            time.sleep(1)
+            continue
+        user_cart = defaultdict(lambda: {"posts": [], "media": [], "rows": []})
+        while not app.row_queue.empty():
+            try:
+                key, row_data = app.row_queue.get()
+                media_item, post_item, username, model_id = _get_data_from_row(row_data)
+
+                # Append all necessary data for later processing
+                user_cart[model_id]["posts"].append(post_item)
+                user_cart[model_id]["media"].append(media_item)
+                user_cart[model_id]["rows"].append((key, row_data))
+                user_cart[model_id]["username"] = username  # Store username once
+
+            except Exception as e:
+                log.debug(f"Error processing row from queue: {e}")
+                log.traceback_(traceback.format_exc())
+
+        # 2. PROCESS: Loop through each user's batch and process their items
+        for model_id, data in user_cart.items():
+            username = data["username"]
+            log.info(f"Processing download batch for user: {username}")
+            try:
+                # Pass the user's entire batch to the processing function
+                _process_user_batch(
+                    username, model_id, data["media"], data["posts"], data["rows"]
+                )
+
+                # Run after-actions for this user
+                after_download_action_script(username, data["media"], data["posts"])
+                manager.Manager.current_model_manager.mark_as_processed(
+                    username, activity="download"
+                )
+                manager.Manager.stats_manager.update_and_print_stats(
+                    username, "download", data["media"]
+                )
+
+            except Exception as e:
+                log.info(
+                    f"An error occurred while processing the batch for {username}."
+                )
+                log.traceback_(e)
+
+        # 3. FINAL CLEANUP: Now that all batches are processed, clear the queue
+        final_action()
+        manager.Manager.current_model_manager.clear_queue("download")
+        manager.Manager.stats_manager.clear_activity_stats("download")
+        log.info("Download processing complete. Waiting for new items...")
+
+
+def _get_data_from_row(row: dict):
+    """
+    Takes a row dictionary and returns fresh, deep copies of the
+    corresponding data objects to prevent state issues between loops.
+    """
+    username = row["username"]
+    media_id = int(row["media_id"])
+
+    manager.Manager.current_model_manager.add_models(username, activity="download")
+    model_obj = manager.Manager.current_model_manager.get_model(username)
+    if not model_obj:
+        raise Exception(f"Could not find model for username: {username}")
+
+    # Find the original, cached media object
+    cached_media = check_user_dict[model_obj.id]["collection"].find_media_item(media_id)
+    if not cached_media:
+        raise Exception(f"No media data found for media_id {media_id} from {username}")
+
+    # Create fresh, deep copies to work with.
+    # This ensures no state from a previous loop is carried over.
+    fresh_media = deepcopy(cached_media)
+    fresh_post = deepcopy(cached_media.post)
+
+    # The rest of the system will now use these fresh, stateless copies
+    return fresh_media, fresh_post, username, model_obj.id
+
+
+def _process_user_batch(
+    username: str, model_id: int, media_list: list, post_list: list, row_list: list
+):
+    """
+    Processes all media items for a single user's batch.
+    """
+    if _process_user_batch.counter == 0:
+        log.info("Performing first-run CDM check...")
+        if not network.check_cdm():
+            log.info("CDM check raised an error. This check will not be repeated.")
+        else:
+            log.info("CDM check passed. This check will not be repeated.")
+    _process_user_batch.counter += 1
+
+    operations.table_init_create(model_id=model_id, username=username)
+    try:
+        model_obj = manager.Manager.current_model_manager.get_model(username)
+        status_text = "Active" if model_obj.active else "Expired"
+        expire_date = model_obj.expired_string or "Unknown Date"
+        log.warning(f"[{username}] Subscription: {status_text}")
+        log.warning(f"[{username}] Expiration Date: {expire_date}")
+    except Exception as e:
+        log.debug(f"Could not print subscription status for {username}: {e}")
+    for i in range(len(media_list)):
+        key = row_list[i][0]
+
+        # DYNAMIC FETCH: Grab the absolute newest media object from the collection.
+        try:
+            fresh_collection = check_user_dict[model_id]["collection"]
+            media = fresh_collection.find_media_item(media_list[i].id) or media_list[i]
+            post = media.post
+        except Exception:
+            media = media_list[i]
+            post = post_list[i]
+
+        log.info(f"Attempting to download: {media.filename} for {username}")
+
+        for attempt in range(2):
+            try:
+                # Wrap in a list beforehand to guarantee reference integrity
+                target_media = [media]
+                values = process_dicts(username, model_id, target_media, [post])
+
+                if values is None or values[-1] == 1:
+                    raise Exception("Download failed based on process_dicts result")
+
+                media_list[i] = target_media[0]
+                post_list[i] = target_media[0].post
+
+                # Success cases
+                if values[-2] == 1:
+                    log.info(f"Download skipped: {media.filename}")
+                    app.app.update_cell_state(key, "[skipped]", "bold bright_yellow")
+                else:
+                    log.info(f"Download finished: {media.filename}")
+                    app.app.update_cell_state(key, "[downloaded]", "bold green")
+
+                break
+
+            except Exception as e:
+                log.debug(f"Attempt {attempt + 1} failed for {media.filename}: {e}")
+                if attempt == 0:
+                    log.debug("Refreshing data and retrying...")
+                    data_refill(model_id)
+                    time.sleep(1)
+
+                    # Re-fetch the fresh object for the retry attempt
+                    try:
+                        fresh_collection = check_user_dict[model_id]["collection"]
+                        media = fresh_collection.find_media_item(media.id) or media
+                        post = media.post
+                        log.info(
+                            f"Successfully retrieved fresh URL for {media.filename}"
+                        )
+                    except Exception:
+                        pass
+                else:
+                    log.info(f"Download failed for {media.filename}.")
+                    app.app.update_cell_state(key, "[failed]", "bold red")
+
+
+# Initialize counter on the function object
+_process_user_batch.counter = 0
+
+
+@run
+async def data_refill(model_id):
+    if settings.get_settings().command == "msg_check":
+        retriver = partial(message_check_retriver, forced=True)
+    elif settings.get_settings().command == "paid_check":
+        retriver = partial(purchase_check_retriver, forced=True)
+    elif settings.get_settings().command == "story_check":
+        retriver = partial(stories_check_retriver, forced=True)
+    elif settings.get_settings().command == "post_check":
+        retriver = partial(post_check_retriver, forced=True)
+    else:
+        return
+    async for username, model_id, final_post_array in retriver():
+        await process_post_media(username, model_id, final_post_array)
+
+
+def allow_check_dupes():
+    args = settings.get_args()
+    args.force_all = True
+    settings.update_args(args)
+
+
+def get_areas():
+    return settings.get_settings().check_area
+
+
+def checker():
+    check_auth()
+    allow_check_dupes()
+    set_after_check_mode()
+    try:
+        if settings.get_settings().command == "post_check":
+            post_checker()
+        elif settings.get_settings().command == "msg_check":
+            message_checker()
+        elif settings.get_settings().command == "paid_check":
+            purchase_checker()
+        elif settings.get_settings().command == "story_check":
+            stories_checker()
+    except Exception as E:
+        log.traceback_(E)
+        log.traceback_(traceback.format_exc())
+        raise E
+
+
+def set_after_check_mode():
+    args = settings.get_args()
+    args.after = 0
+    settings.update_args(args)
+
+
+def post_checker():
+    post_check_runner()
+    start_helper()
+
+
+@run
+async def post_check_runner():
+    async for user_name, model_id, final_post_array in post_check_retriver():
+        with progress_utils.setup_live("api"):
+            progress_updater.activity.update_task(
+                description=check_str.format(
+                    username=user_name, activity="Timeline posts"
+                ),
+                visible=True,
+            )
+            await process_post_media(user_name, model_id, final_post_array)
+            await make_changes_to_content_tables(
+                final_post_array, model_id=model_id, username=user_name
+            )
+            await row_gather(user_name, model_id)
+
+
+@run
+async def post_check_retriver(forced=False):
+    user_dict = {}
+    links = list(url_helper())
+    if settings.get_settings().force:
+        forced = True
+    async with manager.Manager.session.aget_ofsession(
+        sem_count=of_env.getattr("API_REQ_CHECK_MAX"),
+    ) as c:
+        for ele in links:
+            name_match = re.search(
+                f"onlyfans.com/({of_env.getattr('USERNAME_REGEX')}+$)", ele
+            )
+            name_match2 = re.search(f"^{of_env.getattr('USERNAME_REGEX')}+$", ele)
+            user_name = None
+            model_id = None
+            timeline_data = []
+            labels_data = []
+            pinned_data = []
+            archived_data = []
+            streams_data = []
+
+            if name_match:
+                user_name = name_match.group(1)
+                log.info(f"Getting Full Timeline for {user_name}")
+                model_id = profile.get_id(user_name)
+                user_dict.setdefault(model_id, {})["model_id"] = model_id
+                user_dict.setdefault(model_id, {})["username"] = user_name
+
+            elif name_match2:
+                user_name = name_match2.group(0)
+                model_id = profile.get_id(user_name)
+                user_dict.setdefault(model_id, {})["model_id"] = model_id
+                user_dict.setdefault(model_id, {})["username"] = user_name
+            if user_dict.get(model_id) and model_id and user_name:
+                areas = get_areas()
+                await operations.table_init_create(
+                    username=user_name, model_id=model_id
+                )
+                if "Timeline" in areas:
+                    oldtimeline = read_check(model_id, timeline.API)
+                    if oldtimeline is not None and not forced:
+                        timeline_data = oldtimeline
+                    else:
+                        timeline_data = await timeline.get_timeline_posts(
+                            model_id, user_name, c=c
+                        )
+                        set_check(timeline_data, model_id, timeline.API)
+
+                if "Archived" in areas:
+                    oldarchive = read_check(model_id, archived.API)
+                    if oldarchive is not None and not forced:
+                        archived_data = oldarchive
+                    else:
+                        archived_data = await archived.get_archived_posts(
+                            model_id, user_name, c=c
+                        )
+                        set_check(archived_data, model_id, archived.API)
+
+                if "Pinned" in areas:
+                    oldpinned = read_check(model_id, pinned.API)
+                    if oldpinned is not None and not forced:
+                        pinned_data = oldpinned
+                    else:
+                        pinned_data = await pinned.get_pinned_posts(model_id, c=c)
+                        set_check(pinned_data, model_id, pinned.API)
+
+                if "Labels" in areas:
+                    oldlabels = read_check(model_id, labels.API)
+                    if oldlabels is not None and not forced:
+                        labels_data = oldlabels
+                    else:
+                        labels_resp = await labels.get_labels(model_id, c=c)
+                        await operations.make_label_table_changes(
+                            labels_resp,
+                            model_id=model_id,
+                            username=user_name,
+                            posts=False,
+                        )
+                        labels_data = [
+                            post
+                            for label in labels_resp
+                            for post in label.get("posts", [])
+                        ]
+                        set_check(labels_data, model_id, labels.API)
+
+                if "Streams" in areas:
+                    oldstreams = read_check(model_id, streams.API)
+                    if oldstreams is not None and not forced:
+                        streams_data = oldstreams
+                    else:
+                        streams_resp = await streams.get_streams_posts(
+                            model_id, user_name, c=c
+                        )
+                        streams_data = [
+                            post
+                            for streams in streams_resp
+                            for post in streams.get("posts", [])
+                        ]
+                        set_check(streams_data, model_id, streams.API)
+
+                await operations.make_post_table_changes(
+                    all_posts=pinned_data
+                    + archived_data
+                    + labels_data
+                    + timeline_data
+                    + streams_data,
+                    model_id=model_id,
+                    username=user_name,
+                )
+                all_post_data = []
+                for ele in [
+                    pinned_data,
+                    archived_data,
+                    labels_data,
+                    timeline_data,
+                    streams_data,
+                ]:
+                    if ele == timeline_data:
+
+                        all_post_data.append(
+                            timeline.filter_timeline_post(
+                                list(
+                                    map(
+                                        lambda x: posts_.Post(x, model_id, user_name),
+                                        timeline_data,
+                                    )
+                                )
+                            )
+                        )
+                    else:
+                        all_post_data.append(
+                            map(lambda x: posts_.Post(x, model_id, user_name), ele)
+                        )
+
+                all_post_data = list(
+                    map(
+                        lambda x: posts_.Post(x, model_id, user_name),
+                        pinned_data
+                        + archived_data
+                        + labels_data
+                        + timeline_data
+                        + streams_data,
+                    )
+                )
+
+                yield user_name, model_id, all_post_data
+        # individual links
+        for ele in list(
+            filter(
+                lambda x: re.search(
+                    f"onlyfans.com/{of_env.getattr('NUMBER_REGEX')}+/{of_env.getattr('USERNAME_REGEX')}+$",
+                    x,
+                ),
+                links,
+            )
+        ):
+            name_match = re.search(f"/({of_env.getattr('USERNAME_REGEX')}+$)", ele)
+            num_match = re.search(f"/({of_env.getattr('NUMBER_REGEX')}+)", ele)
+            if name_match and num_match:
+                user_name = name_match.group(1)
+                model_id = profile.get_id(user_name)
+                post_id = num_match.group(1)
+                log.info(f"Getting individual link for {user_name}")
+                resp = get_individual_timeline_post(post_id)
+                data = posts_.Post(resp, model_id, user_name)
+                yield user_name, model_id, [data]
+
+
+def reset_data():
+    # clean up args once check modes are ready to launch
+    args = settings.get_args()
+    if args.username:
+        args.username = settings.get_settings().usernames = None
+    settings.update_args(args)
+
+
+def start_helper():
+    global ROWS
+    reset_data()
+    network.check_cdm()
+    thread_starters(ROWS)
+
+
+def message_checker():
+    message_checker_runner()
+    start_helper()
+
+
+@run
+async def message_checker_runner():
+    async for user_name, model_id, final_post_array in message_check_retriver():
+        with progress_utils.setup_live("api"):
+            progress_updater.activity.update_task(
+                description=check_str.format(username=user_name, activity="Messages"),
+                visible=True,
+            )
+            await process_post_media(user_name, model_id, final_post_array)
+            await make_changes_to_content_tables(
+                final_post_array, model_id=model_id, username=user_name
+            )
+            await row_gather(user_name, model_id)
+
+
+async def message_check_retriver(forced=False):
+    links = list(url_helper())
+    if settings.get_settings().force:
+        forced = True
+    async with manager.Manager.session.aget_ofsession() as c:
+        for item in links:
+            num_match = re.search(
+                f"({of_env.getattr('NUMBER_REGEX')}+)", item
+            ) or re.search(f"^({of_env.getattr('NUMBER_REGEX')}+)$", item)
+            name_match = re.search(f"^{of_env.getattr('USERNAME_REGEX')}+$", item)
+
+            if num_match:
+                model_id = num_match.group(1)
+                user_name = profile.scrape_profile(model_id)["username"]
+            elif name_match:
+                user_name = name_match.group(0)
+                model_id = profile.get_id(user_name)
+
+            if model_id and user_name:
+                log.info(f"Getting Messages/Paid content for {user_name}")
+                await operations.table_init_create(
+                    model_id=model_id, username=user_name
+                )
+
+                # --- Messages ---
+                messages = None
+                oldmessages = read_check(model_id, messages_.API)
+                log.debug(f"Number of messages in cache {len(oldmessages or [])}")
+
+                if oldmessages is not None and not forced:
+                    messages = oldmessages
+                else:
+                    messages = await messages_.get_messages(model_id, user_name, c=c)
+                    set_check(messages, model_id, messages_.API)
+
+                message_posts_array = list(
+                    map(lambda x: posts_.Post(x, model_id, user_name), messages)
+                )
+                await operations.make_messages_table_changes(
+                    message_posts_array, model_id=model_id, username=user_name
+                )
+
+                # --- Paid Content ---
+                oldpaid = read_check(model_id, paid_.API)
+                paid = None
+
+                if oldpaid is not None and not forced:
+                    paid = oldpaid
+                else:
+                    paid = await paid_.get_paid_posts(model_id, user_name, c=c)
+                    set_check(paid, model_id, paid_.API)
+
+                paid_posts_array = list(
+                    map(lambda x: posts_.Post(x, model_id, user_name), paid)
+                )
+
+                final_post_array = paid_posts_array + message_posts_array
+                yield user_name, model_id, final_post_array
+
+
+def purchase_checker():
+    purchase_checker_runner()
+    start_helper()
+
+
+@run
+async def purchase_checker_runner():
+    async for user_name, model_id, final_post_array in purchase_check_retriver():
+        with progress_utils.setup_live("api"):
+            progress_updater.activity.update_task(
+                description=check_str.format(
+                    username=user_name, activity="Purchased posts"
+                ),
+                visible=True,
+            )
+            await process_post_media(user_name, model_id, final_post_array)
+            await make_changes_to_content_tables(
+                final_post_array, model_id=model_id, username=user_name
+            )
+            await row_gather(user_name, model_id)
+
+
+@run
+async def purchase_check_retriver(forced=False):
+    user_dict = {}
+    auth_requests.make_headers()
+    if settings.get_settings().force:
+        forced = True
+    async with manager.Manager.session.aget_ofsession(
+        sem_count=of_env.getattr("API_REQ_CHECK_MAX"),
+    ) as c:
+        for name in settings.get_settings().check_usernames:
+            user_name = profile.scrape_profile(name)["username"]
+            model_id = name if name.isnumeric() else profile.get_id(user_name)
+            user_dict[model_id] = user_dict.get(model_id, [])
+
+            await operations.table_init_create(model_id=model_id, username=user_name)
+
+            oldpaid = read_check(model_id, paid_.API)
+            paid = None
+
+            if oldpaid is not None and not forced:
+                paid = oldpaid
+            elif user_name == of_env.getattr("DELETED_MODEL_PLACEHOLDER"):
+                paid_user_dict = await paid_.get_all_paid_posts()
+                seen = set()
+                paid = [
+                    post
+                    for post in paid_user_dict.get(str(model_id), [])
+                    if post["id"] not in seen and not seen.add(post["id"])
+                ]
+            else:
+                paid = await paid_.get_paid_posts(model_id, user_name, c=c)
+                set_check(paid, model_id, paid_.API)
+            posts_array = list(map(lambda x: posts_.Post(x, model_id, user_name), paid))
+            yield user_name, model_id, posts_array
+
+
+def stories_checker():
+    stories_checker_runner()
+    start_helper()
+
+
+@run
+async def stories_checker_runner():
+    async for user_name, model_id, final_post_array in stories_check_retriver():
+        with progress_utils.setup_live("api"):
+            progress_updater.activity.update_task(
+                description=check_str.format(
+                    username=user_name, activity="Stories posts"
+                )
+            )
+            await process_post_media(user_name, model_id, final_post_array)
+            await make_changes_to_content_tables(
+                final_post_array, model_id=model_id, username=user_name
+            )
+            await row_gather(user_name, model_id)
+
+
+@run
+async def stories_check_retriver(forced=False):
+    user_dict = {}
+    async with manager.Manager.session.aget_ofsession(
+        sem_count=of_env.getattr("API_REQ_CHECK_MAX"),
+    ) as c:
+        for user_name in settings.get_settings().check_usernames:
+            user_name = profile.scrape_profile(user_name)["username"]
+            model_id = profile.get_id(user_name)
+            user_dict[model_id] = user_dict.get(model_id, [])
+            await operations.table_init_create(model_id=model_id, username=user_name)
+            stories = await highlights.get_stories_post(model_id, c=c)
+            highlights_ = await highlights.get_highlight_post(model_id, c=c)
+            highlights_ = list(
+                map(
+                    lambda x: posts_.Post(x, model_id, user_name, "highlights"),
+                    highlights_,
+                )
+            )
+            stories = list(
+                map(lambda x: posts_.Post(x, model_id, user_name, "stories"), stories)
+            )
+            yield user_name, model_id, stories + highlights_
+
+
+def url_helper():
+    out = []
+    out.extend(settings.get_settings().file or [])
+    out.extend(settings.get_settings().url or [])
+    return map(lambda x: x.strip(), out)
+
+
+async def process_post_media(username, model_id, posts_array):
+    check_user_dict[model_id].setdefault(
+        "collection", PostCollection(username=username, model_id=model_id)
+    )
+    collection = check_user_dict[model_id]["collection"]
+    collection: PostCollection
+    collection.add_posts(posts_array, overwrite=True)
+    media = collection.all_unique_media
+    await insert_media(username, model_id, media)
+    return media
+
+
+async def insert_media(username, model_id, media):
+    await batch_mediainsert(
+        media,
+        model_id=model_id,
+        username=username,
+        downloaded=False,
+    )
+
+
+@run
+async def get_paid_ids(model_id, user_name):
+    oldpaid = read_check(model_id, paid_.API)
+    paid = None
+
+    if oldpaid is not None and not settings.get_settings().force:
+        paid = oldpaid
+    else:
+        async with manager.Manager.session.aget_ofsession(
+            sem_count=of_env.getattr("API_REQ_CHECK_MAX")
+        ) as c:
+            paid = await paid_.get_paid_posts(model_id, user_name, c=c)
+            set_check(paid, model_id, paid_.API)
+
+    media = await process_post_media(user_name, model_id, paid)
+    media = list(filter(lambda x: x.canview is True, media))
+    return list(map(lambda x: x.id, media))
+
+
+def thread_starters(ROWS_):
+    worker_thread = threading.Thread(target=process_download_queue, daemon=True)
+    worker_thread.start()
+    start_table(ROWS_)
+
+
+def start_table(ROWS_):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    ROWS = ROWS_
+    app.app(table_data=ROWS)
+
+
+def texthelper(text):
+    text = text or ""
+    text = inspect.cleandoc(text)
+    text = re.sub(" +$", "", text)
+    text = re.sub("^ +", "", text)
+    text = re.sub("<[^>]*>", "", text)
+    text = (
+        text
+        if len(text) < of_env.getattr("TABLE_STR_MAX")
+        else f"{text[:of_env.getattr('TABLE_STR_MAX')]}..."
+    )
+    return text
+
+
+def unlocked_helper(ele):
+    return ele.canview
+
+
+def download_type_helper(ele):
+    if ele.mpd:
+        return "protected"
+    elif ele.url:
+        return "normal"
+    return "n/a"
+
+
+def datehelper(date):
+    if date == "None":
+        return "Probably Deleted"
+    return date
+
+
+def checkmarkhelper(ele):
+    return "[]" if unlocked_helper(ele) else "Not Unlocked"
+
+
+async def row_gather(username, model_id):
+    global ROWS
+    downloaded = set(
+        get_media_post_ids_downloaded(model_id=model_id, username=username)
+    )
+    collection = check_user_dict[model_id]["collection"]
+    if not collection:
+        raise Exception("No postcollection object found")
+    media = collection.all_unique_media
+    out = []
+    log.info(f"Generating UI Table with {len(media)} items... This may take a moment.")
+    try:
+        sorted_media = sorted(media, key=lambda x: x.date, reverse=True)
+    except Exception:
+        # Fallback just in case the dates are poorly formatted
+        sorted_media = sorted(media, key=lambda x: arrow.get(x.date), reverse=True)
+
+    is_msg_check = settings.get_settings().command == "msg_check"
+    for count, ele in enumerate(sorted_media):
+        is_unlocked = unlocked_helper(ele)
+        is_downloaded = (ele.id, ele.post_id) in downloaded
+        post_media_len = len(ele._post.post_media)
+
+        # Apply message filter when running msg_check
+        if is_msg_check and _msg_check_filter != "all" and not is_downloaded:
+            try:
+                price = ele._post.price
+                if _msg_check_filter == "paid_only" and is_unlocked and price == 0:
+                    # Hide free viewable messages — keep paid/PPV and locked
+                    continue
+                elif _msg_check_filter == "free_only" and price > 0:
+                    # Hide paid/PPV messages (whether locked or purchased)
+                    continue
+            except Exception:
+                pass
+
+        if is_downloaded:
+            cart_state = "[downloaded]"
+        elif not is_unlocked:
+            cart_state = "Locked"
+        else:
+            cart_state = "[]"
+
+        all_posts_with_this_media = collection.posts_with_media_id(ele.id)
+        other_posts = [p for p in all_posts_with_this_media if p != ele.post_id]
+
+        out.append(
+            {
+                "index": count + 1,
+                "number": count + 1,
+                "download_cart": cart_state,
+                "username": username,
+                "downloaded": is_downloaded,
+                "unlocked": is_unlocked,
+                "download_type": download_type_helper(ele),
+                "other_posts_with_media": other_posts,
+                "post_media_count": post_media_len,
+                "mediatype": ele.mediatype.capitalize(),
+                "post_date": datehelper(ele.formatted_postdate),
+                "media": post_media_len,
+                "length": ele.numeric_duration,
+                "responsetype": ele.responsetype.capitalize(),
+                "price": "Free" if ele._post.price == 0 else f"{ele._post.price:.2f}",
+                "post_id": ele.post_id,
+                "media_id": ele.id,
+                "text": ele.post.db_sanitized_text,
+            }
+        )
+
+    ROWS = ROWS or []
+    ROWS.extend(out)
+
+
+def _normalize_rows_for_gui(rows):
+    """Normalize check.py ROWS list for the GUI data table.
+
+    The GUI table expects ``number`` to be a string and ``index`` to be set.
+    check.py stores ``number`` as an int — convert here so the table renders
+    correctly without touching any of the check.py internal logic.
+    """
+    result = []
+    for i, row in enumerate(rows or []):
+        normalized = dict(row)
+        normalized["number"] = str(row.get("number", i + 1))
+        if "index" not in normalized:
+            normalized["index"] = i
+        result.append(normalized)
+    return result
+
+
+def gui_checker(check_mode, msg_filter="paid_only"):
+    """GUI-compatible entry point for check modes.
+
+    Runs the appropriate data-fetch runner, then emits the collected rows via
+    ``app_signals.data_replace`` instead of launching the Textual TUI.
+    ``app.app`` is patched so that any subsequent ``update_cell_state()`` calls
+    (triggered when the user sends downloads) emit ``app_signals.cell_update``
+    instead of trying to update a TUI widget.
+
+    Args:
+        check_mode: one of "post_check", "msg_check", "paid_check", "story_check"
+        msg_filter: controls which messages appear in msg_check —
+            "paid_only" (default): paid/PPV and locked only, hides free messages
+            "free_only": free messages only, hides paid/PPV content
+            "all": all messages, no filtering
+    """
+    global _msg_check_filter
+    _msg_check_filter = msg_filter
+    from ofscraper.gui.signals import app_signals
+    import ofscraper.classes.table.app as _tui_app
+
+    # Patch the TUI app so update_cell_state emits GUI signals
+    class _GUICheckCellAdapter:
+        def update_cell_state(self, key, state, color=None):
+            try:
+                app_signals.cell_update.emit(str(key), "download_cart", str(state))
+            except Exception:
+                pass
+
+        def __bool__(self):
+            return True
+
+    _tui_app.app = _GUICheckCellAdapter()
+
+    # Reset global state from any previous check run
+    global ROWS, check_user_dict, ALL_MEDIA
+    ROWS = {}
+    check_user_dict.clear()
+    ALL_MEDIA = {}
+    _process_user_batch.counter = 0
+
+    allow_check_dupes()
+    set_after_check_mode()
+
+    try:
+        check_auth()
+        if check_mode == "post_check":
+            post_check_runner()
+        elif check_mode == "msg_check":
+            message_checker_runner()
+        elif check_mode == "paid_check":
+            purchase_checker_runner()
+        elif check_mode == "story_check":
+            stories_checker_runner()
+        else:
+            log.error(f"gui_checker: unknown check mode '{check_mode}'")
+            app_signals.scraping_finished.emit()
+            return
+    except Exception as e:
+        log.error(f"gui_checker error: {e}")
+        log.traceback_(traceback.format_exc())
+        try:
+            app_signals.log_message.emit("ERROR", f"Check mode error: {e}")
+        except Exception:
+            pass
+        app_signals.scraping_finished.emit()
+        return
+
+    gui_rows = _normalize_rows_for_gui(ROWS)
+    log.info(f"gui_checker: emitting {len(gui_rows)} rows via data_replace")
+    try:
+        app_signals.data_replace.emit(gui_rows)
+    except Exception as e:
+        log.error(f"gui_checker: failed to emit rows: {e}")
+    app_signals.scraping_finished.emit()

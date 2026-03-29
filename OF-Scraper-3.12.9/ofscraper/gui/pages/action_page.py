@@ -24,6 +24,7 @@ ACTION_CHOICES = [
     ("Unlike a selection of a user's posts", {"unlike"}),
     ("Download + Like", {"like", "download"}),
     ("Download + Unlike", {"unlike", "download"}),
+    ("Scrape individual posts by URL or Post ID", {"manual_url"}),
 ]
 
 _ACTION_TIPS = {
@@ -32,6 +33,11 @@ _ACTION_TIPS = {
     "Unlike a selection of a user's posts": "Automatically unlike previously liked posts in the selected content areas.",
     "Download + Like": "Scrape and download content, then also like the posts.",
     "Download + Unlike": "Scrape and download content, then also unlike previously liked posts.",
+    "Scrape individual posts by URL or Post ID": (
+        "Download specific posts by providing OnlyFans post URLs or post IDs.\n"
+        "Model and area selection are skipped — enter URLs directly on the next page.\n"
+        "Equivalent to the TUI 'manual --url' command."
+    ),
 }
 
 

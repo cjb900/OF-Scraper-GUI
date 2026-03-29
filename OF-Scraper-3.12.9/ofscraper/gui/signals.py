@@ -55,6 +55,9 @@ class AppSignals(QObject):
     daemon_stopped = pyqtSignal()  # emitted when daemon loop is cancelled
     stop_daemon_requested = pyqtSignal()  # UI requests daemon stop
 
+    # Manual URL / post-ID scraping (bypasses model + area selection)
+    manual_urls_confirmed = pyqtSignal(list)  # list of URL/ID strings
+
     # Notifications
     show_notification = pyqtSignal(str, str)  # title, message (system tray toast)
 

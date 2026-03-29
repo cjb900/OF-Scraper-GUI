@@ -217,17 +217,35 @@ Choose what you want to do:
 - **Download content from a user**: Scrape content and build the table.
 - **Like / Unlike**: Perform like/unlike actions on supported areas.
 - **Download + Like / Unlike**: Do both.
+- **Check modes** (Post Check, Message Check, Paid Check, Story Check): Browse all media for a creator in a table and selectively download.
+  - **Message Check** has an additional filter: Paid/PPV only (default), Free messages only, or All messages.
 
 ### 2) Select Content Areas & Filters
 
 #### Content Areas
 These are the sources to scan (depending on action):
 
-- **Profile, Timeline, Pinned, Archived, Highlights, Stories, Messages, Purchased, Streams, Labels**
+- **Profile**: Avatar and banner media.
+- **Timeline**: Main feed posts.
+- **Pinned**: Pinned profile posts.
+- **Archived**: Archived/expired posts.
+- **Highlights**: Saved story highlights.
+- **Stories**: Active/recent stories.
+- **Messages**: Direct messages and PPV message media.
+- **Purchased**: Explicitly purchased/unlocked PPV content.
+- **Streams**: Livestream recordings.
+- **Labels**: Content organized under the model's custom labels.
+
+Note: **Like / Unlike** supports only: Timeline, Pinned, Archived, Streams, Labels.
+
+#### Media Types to Download
+Control which file types are included in this scrape session (defaults to your config filter settings):
+- **Images**, **Videos**, **Audios** — uncheck any to exclude that type for this run only.
 
 #### Additional Options
 - **Scrape entire paid page (slower but more comprehensive)**: Tries harder to enumerate paid items (may be slower).
 - **Scrape labels**: Pull content via labels when available.
+- **Send updates to Discord**: Posts log updates to your configured Discord webhook. Requires a webhook URL in Config → General.
 
 #### Advanced Scrape Options
 - **Allow duplicates (do NOT skip duplicates; treat reposts as new items)**: Disables duplicate-skipping logic.
@@ -296,6 +314,27 @@ The **Unlocked** column is not a direct 1:1 match with “purchased”.
 2. Pick a **Destination** folder for the merged output.
 3. Click **Start Merge** (back up first).
 
+## Scraping by Post URL / ID
+
+Use **Scrape individual posts by URL or Post ID** (on the Action page) to download
+specific posts without selecting a creator.
+
+**How it works:**
+1. Choose **Scrape individual posts by URL or Post ID** on the Action page and click **Next**
+2. On the URL input page, enter one or more post URLs or post IDs — one per line, or comma-separated
+3. Click **▶ Start Scraping**
+
+**Accepted formats:**
+- Full post URL: `https://onlyfans.com/123456789/username`
+- Post ID only: `123456789`
+- Profile URL: `https://onlyfans.com/username` (scrapes all accessible posts for that creator)
+
+**Notes:**
+- This is equivalent to the TUI command `ofscraper manual --url <url>`
+- Model selection and area selection are skipped entirely
+- Multiple URLs/IDs can be entered at once — separate them with newlines or commas
+- Lines starting with `#` are treated as comments and ignored
+
 ## Common troubleshooting
 
 - If a purge option deletes files/DB and you immediately start a download scrape, the scraper may recreate folders/databases right away.
@@ -347,6 +386,7 @@ class HelpPage(QWidget):
         self.jump_combo.addItem("Merge DBs", "merge-dbs")
         self.jump_combo.addItem("Troubleshooting notes", "troubleshooting")
         self.jump_combo.addItem("Auth Issues", "auth-issues")
+        self.jump_combo.addItem("Scraping by Post URL / ID", "manual-url-scrape")
         self.jump_combo.currentIndexChanged.connect(self._on_jump_changed)
         actions.addWidget(self.jump_combo)
         actions.addStretch()

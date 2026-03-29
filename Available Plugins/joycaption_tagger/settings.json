@@ -1,0 +1,13 @@
+{
+  "comfyui_url": "http://192.168.90.163:8188",
+  "caption_type": "Descriptive",
+  "caption_length": "long",
+  "extra_options": [],
+  "name_input": "",
+  "timeout": 600,
+  "auto_tag_images": true,
+  "smart_folders": false,
+  "smart_folder_path": "",
+  "tag_top_k": 20,
+  "workflow_file": "joycaption.json"
+}

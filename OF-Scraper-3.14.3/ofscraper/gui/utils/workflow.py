@@ -730,7 +730,12 @@ def _query_post_info(cur):
 def _load_models_from_db(selected_models):
     """Query the DB for all media records of each selected model and emit
     them to the GUI table.  Runs synchronously (called from the scraper
-    background thread after the pipeline finishes)."""
+    background thread after the pipeline finishes).
+
+    Returns a dict: {username: {"photos": N, "videos": N, "audios": N,
+                                "dl_photos": N, "dl_videos": N, "dl_audios": N}}
+    so callers can report accurate download stats.
+    """
     import pathlib
     import sqlite3
 
@@ -752,6 +757,8 @@ def _load_models_from_db(selected_models):
         THEN duration ELSE NULL END AS duration
     FROM medias;
     """
+
+    per_model_stats = {}  # {username: {photos, videos, audios, dl_photos, ...}}
 
     for model in selected_models:
         model_id = model.id
@@ -784,6 +791,27 @@ def _load_models_from_db(selected_models):
             cur.close()
 
             if data:
+                # Compute per-model media counts for Discord summary
+                _st = {"photos": 0, "videos": 0, "audios": 0,
+                       "dl_photos": 0, "dl_videos": 0, "dl_audios": 0}
+                for _row in data:
+                    # DB stores "Images", "Videos", "Audios" (capitalized plural)
+                    _mt = (_row.get("media_type") or "").lower()
+                    _dl = bool(_row.get("downloaded"))
+                    if _mt in ("image", "images"):
+                        _st["photos"] += 1
+                        if _dl:
+                            _st["dl_photos"] += 1
+                    elif _mt in ("video", "videos", "gif", "gifs"):
+                        _st["videos"] += 1
+                        if _dl:
+                            _st["dl_videos"] += 1
+                    elif _mt in ("audio", "audios"):
+                        _st["audios"] += 1
+                        if _dl:
+                            _st["dl_audios"] += 1
+                per_model_stats[username] = _st
+
                 rows = _build_db_rows(data, username, post_info)
                 if rows:
                     # Use data_replace so the DB result replaces any rows
@@ -805,6 +833,8 @@ def _load_models_from_db(selected_models):
                     lock.release(force=True)
                 except Exception:
                     pass
+
+    return per_model_stats
 
 
 def _emit_download_status(media, model_id, username):
@@ -995,9 +1025,10 @@ class GUIWorkflow:
         self._selected_areas = []
         self._selected_mediatypes = []
         self._scrape_paid = False
-        self._discord_enabled = False
+        self._discord_level = "OFF"
         self._advanced = {}
         self._did_purge = False
+        self._manual_urls = []
         # Date range filter from area_selector_page
         self._date_range = {}
         # Snapshot specific args so GUI toggles don't permanently clobber CLI intent.
@@ -1009,7 +1040,13 @@ class GUIWorkflow:
         self._daemon_notify = True
         self._daemon_sound = True
         self._daemon_stop = threading.Event()
+        self._msg_check_filter = "paid_only"  # "paid_only" | "free_only" | "all"
         self._connect_signals()
+        # Mute Discord at startup — the handler is initialized from the config
+        # file which may have a non-OFF level, causing every WARNING+ message
+        # during model loading, API calls, etc. to be sent to Discord.
+        # We re-enable it only when the user explicitly starts a scrape.
+        self._mute_discord_handler()
 
     def _connect_signals(self):
         app_signals.action_selected.connect(self._on_action_selected)
@@ -1024,10 +1061,19 @@ class GUIWorkflow:
         app_signals.date_range_configured.connect(self._on_date_range_configured)
         app_signals.cancel_scrape_requested.connect(self._on_cancel_scrape)
         app_signals.downloads_queued.connect(self._on_downloads_queued)
+        app_signals.msg_check_include_free_toggled.connect(self._on_msg_check_include_free)
+        app_signals.manual_urls_confirmed.connect(self._on_manual_urls_confirmed)
 
     def _on_action_selected(self, actions):
         self._selected_actions = actions
         log.info(f"[GUI Workflow] Actions set: {actions}")
+
+    def _on_manual_urls_confirmed(self, urls):
+        self._manual_urls = list(urls)
+        self._selected_actions = {"manual_url"}
+        log.info(f"[GUI Workflow] Manual URL mode: {len(urls)} URL(s)")
+        self._daemon_stop.clear()
+        self._start_scraping()
 
     def _on_models_selected(self, models):
         self._selected_models = models
@@ -1041,8 +1087,26 @@ class GUIWorkflow:
     def _on_scrape_paid(self, enabled):
         self._scrape_paid = enabled
 
-    def _on_discord_configured(self, enabled: bool):
-        self._discord_enabled = bool(enabled)
+    def _on_msg_check_include_free(self, filter_value):
+        self._msg_check_filter = filter_value  # "paid_only", "free_only", or "all"
+
+    def _on_discord_configured(self, level: str):
+        self._discord_level = level if level in ("OFF", "LOW", "NORMAL") else "OFF"
+
+    @staticmethod
+    def _mute_discord_handler():
+        """Set the Discord log handler to level 100 (effectively OFF)."""
+        try:
+            import logging as _lg
+            from ofscraper.utils.logs.classes.handlers.discord import (
+                DiscordHandler as _DH,
+            )
+            for _h in _lg.getLogger("shared").handlers:
+                if isinstance(_h, _DH):
+                    _h.setLevel(100)
+                    break
+        except Exception:
+            pass
 
     def _on_advanced(self, config):
         try:
@@ -1143,6 +1207,21 @@ class GUIWorkflow:
 
     _CHECK_MODES = {"post_check", "msg_check", "paid_check", "story_check"}
 
+    def _set_manual_url_args(self, args, write_args, _settings):
+        """Set CLI args for manual URL / post-ID scraping."""
+        args.command = "manual"
+        args.url = list(self._manual_urls)
+        args.action = ["download"]
+        args.actions = ["download"]
+        write_args.setArgs(args)
+        try:
+            _settings.update_settings()
+        except Exception:
+            pass
+        log.info(
+            f"[GUI Manual URL] Args: command=manual, {len(self._manual_urls)} URL(s)"
+        )
+
     def _set_check_args(self, args, write_args, _settings):
         """Set CLI args for a check-mode operation."""
         check_mode = (self._selected_actions & self._CHECK_MODES).pop()
@@ -1180,6 +1259,11 @@ class GUIWorkflow:
 
         args = read_args.retriveArgs()
 
+        # Manual URL / post-ID mode — set command=manual and skip everything else
+        if self._selected_actions == {"manual_url"}:
+            self._set_manual_url_args(args, write_args, _settings)
+            return
+
         # Check mode: configure separately and return early
         if bool(self._selected_actions & self._CHECK_MODES):
             self._set_check_args(args, write_args, _settings)
@@ -1193,14 +1277,14 @@ class GUIWorkflow:
                     "after": getattr(args, "after", None),
                     "no_cache": bool(getattr(args, "no_cache", False)),
                     "no_api_cache": bool(getattr(args, "no_api_cache", False)),
-                    "discord": getattr(args, "discord", "OFF"),
+                    "discord_level": getattr(args, "discord_level", "OFF"),
                 }
             except Exception:
                 self._baseline_args = {
                     "after": None,
                     "no_cache": False,
                     "no_api_cache": False,
-                    "discord": "OFF",
+                    "discord_level": "OFF",
                 }
 
         # Set actions (3.14.3 scraper checks args.actions; keep args.action for compat)
@@ -1229,18 +1313,14 @@ class GUIWorkflow:
         if self._selected_mediatypes:
             args.mediatypes = list(self._selected_mediatypes)
 
-        # Discord webhook updates: emulate `--discord NORMAL` when enabled AND
-        # a webhook URL exists in config.
-        try:
-            has_webhook = bool((config_data.get_discord() or "").strip())
-        except Exception:
-            has_webhook = False
+        # Discord webhook updates: set discord_level from GUI selection.
+        # The CLI arg --discord maps to args.discord_level (not args.discord).
         argv = [str(a) for a in (getattr(sys, "argv", None) or [])]
         cli_sets_discord = any(
             a in {"-dc", "--discord"} or a.startswith("--discord=") for a in argv
         )
         if not cli_sets_discord:
-            args.discord = "NORMAL" if (self._discord_enabled and has_webhook) else "OFF"
+            args.discord_level = self._discord_level
 
         # Advanced flags
         allow_dupes = bool(self._advanced.get("allow_dupe_downloads"))
@@ -1351,7 +1431,10 @@ class GUIWorkflow:
         app_signals.status_message.emit(f"Running {check_mode}...")
         app_signals.log_message.emit("INFO", f"Starting check mode: {check_mode}")
         try:
-            check_mod.gui_checker(check_mode)
+            check_mod.gui_checker(
+                check_mode,
+                msg_filter=self._msg_check_filter,
+            )
             app_signals.log_message.emit("INFO", f"Check mode {check_mode} complete")
             app_signals.status_message.emit(
                 "Check mode complete — select items in the table and click 'Send Downloads'"
@@ -1524,17 +1607,58 @@ class GUIWorkflow:
 
                     GUIScraperManager = _make_gui_scraper_manager()
                     scraping_manager = GUIScraperManager()
-                    app_signals.log_message.emit(
-                        "INFO",
-                        f"Running scraper for {len(self._selected_models)} model(s): "
-                        f"{', '.join(m.name for m in self._selected_models)}",
-                    )
-                    app_signals.log_message.emit(
-                        "INFO",
-                        f"Actions: {list(self._selected_actions)}, "
-                        f"Areas: {list(self._selected_areas)}",
-                    )
-                    scraping_manager.runner()
+                    if self._selected_actions == {"manual_url"}:
+                        app_signals.log_message.emit(
+                            "INFO",
+                            f"Running manual URL scrape: {len(self._manual_urls)} URL(s)",
+                        )
+                    else:
+                        app_signals.log_message.emit(
+                            "INFO",
+                            f"Running scraper for {len(self._selected_models)} model(s): "
+                            f"{', '.join(m.name for m in self._selected_models)}",
+                        )
+                        app_signals.log_message.emit(
+                            "INFO",
+                            f"Actions: {list(self._selected_actions)}, "
+                            f"Areas: {list(self._selected_areas)}",
+                        )
+
+                    # Sync the Discord handler's level to the current discord_level.
+                    # The handler is created at startup before the GUI sets discord_level,
+                    # so it defaults to "OFF" (level 100) and must be updated here.
+                    try:
+                        import logging as _logging
+                        import ofscraper.utils.logs.utils.level as _log_level
+                        import ofscraper.utils.settings as _settings
+                        from ofscraper.utils.logs.classes.handlers.discord import (
+                            DiscordHandler as _DiscordHandler,
+                        )
+                        _level_str = (
+                            getattr(_settings.get_settings(), "discord_level", None)
+                            or "OFF"
+                        )
+                        _level = _log_level.getLevel(_level_str)
+                        for _h in _logging.getLogger("shared").handlers:
+                            if isinstance(_h, _DiscordHandler):
+                                _h.setLevel(_level)
+                                break
+                    except Exception:
+                        pass
+
+                    if self._selected_actions == {"manual_url"}:
+                        import ofscraper.commands.manual as _manual_cmd
+                        _manual_cmd.manual_download()
+                    else:
+                        scraping_manager.runner()
+
+                    # Mute Discord immediately after runner() — the handler
+                    # was enabled for scrape notifications and must be silenced
+                    # before the DB load to avoid spam.  The actual summary is
+                    # sent AFTER _load_models_from_db (which uses FileLock and
+                    # is guaranteed to see fully committed DB data).
+                    self._mute_discord_handler()
+
                     app_signals.log_message.emit(
                         "INFO", "Scraper pipeline completed successfully"
                     )
@@ -1551,11 +1675,56 @@ class GUIWorkflow:
                 if _gui_cancel_event.is_set():
                     raise KeyboardInterrupt()
 
-                # Load previously scraped content from DB
+                # Load previously scraped content from DB.
+                # _load_models_from_db acquires FileLock so it always sees
+                # fully committed data.  It returns per-model media counts
+                # which we use for the Discord summary.
                 app_signals.log_message.emit(
                     "INFO", "Loading content from database..."
                 )
-                _load_models_from_db(self._selected_models)
+                _db_stats = _load_models_from_db(self._selected_models)
+
+                # Post per-model stats to Discord now that we have accurate
+                # counts from the FileLock-protected DB read above.
+                if self._discord_level != "OFF":
+                    try:
+                        import logging as _dlog
+                        # Briefly re-enable Discord just for this summary.
+                        import ofscraper.utils.logs.utils.level as _ll
+                        from ofscraper.utils.logs.classes.handlers.discord import (
+                            DiscordHandler as _DH,
+                        )
+                        _lvl = _ll.getLevel(self._discord_level)
+                        for _h in _dlog.getLogger("shared").handlers:
+                            if isinstance(_h, _DH):
+                                _h.setLevel(_lvl)
+                                break
+                        _lines = ["\n\n--- Scrape Results ---"]
+                        for _m in self._selected_models:
+                            _un = _m.name
+                            _st = _db_stats.get(_un, {})
+                            _photos = _st.get("photos", 0)
+                            _videos = _st.get("videos", 0)
+                            _audios = _st.get("audios", 0)
+                            _dl_photos = _st.get("dl_photos", 0)
+                            _dl_videos = _st.get("dl_videos", 0)
+                            _dl_audios = _st.get("dl_audios", 0)
+                            _total = _photos + _videos + _audios
+                            _dl_total = _dl_photos + _dl_videos + _dl_audios
+                            _lines.append(
+                                # Use \[ to escape brackets so Rich's markup
+                                # parser (inside DiscordFormatter) doesn't
+                                # strip [username] as a style tag.
+                                f"\\[{_un}] {_dl_total}/{_total} media downloaded"
+                                f" [{_dl_videos} videos,"
+                                f" {_dl_audios} audios,"
+                                f" {_dl_photos} photos]"
+                            )
+                        _dlog.getLogger("shared").warning("\n".join(_lines))
+                    except Exception:
+                        pass
+                    finally:
+                        self._mute_discord_handler()
 
                 # Emit like/unlike status AFTER table rows are loaded from DB
                 # so the signal handler can find the matching rows to update.

@@ -16,6 +16,7 @@ class AppSignals(QObject):
     scrape_labels_toggled = pyqtSignal(bool)
     advanced_scrape_configured = pyqtSignal(object)  # dict of advanced options
     discord_configured = pyqtSignal(bool)  # enable discord webhook updates (uses --discord)
+    msg_check_include_free_toggled = pyqtSignal(str)  # "paid_only" | "free_only" | "all"
 
     # Data loading
     data_loading_started = pyqtSignal()
@@ -57,6 +58,9 @@ class AppSignals(QObject):
     daemon_run_starting = pyqtSignal(int)  # run number (emitted when a daemon re-run begins)
     daemon_stopped = pyqtSignal()  # emitted when daemon loop is cancelled
     stop_daemon_requested = pyqtSignal()  # UI requests daemon stop
+
+    # Manual URL / post-ID scraping (bypasses model + area selection)
+    manual_urls_confirmed = pyqtSignal(list)  # list of URL/ID strings
 
     # Notifications
     show_notification = pyqtSignal(str, str)  # title, message (system tray toast)

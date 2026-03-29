@@ -59,6 +59,7 @@ ALL_MEDIA = {}
 ROWS = {}
 MEDIA_KEY = ["id", "postid", "username"]
 check_user_dict = defaultdict(dict)
+_msg_check_filter = "paid_only"  # "paid_only" | "free_only" | "all"
 
 
 def process_download_queue():
@@ -783,10 +784,24 @@ async def row_gather(username, model_id):
         # Fallback just in case the dates are poorly formatted
         sorted_media = sorted(media, key=lambda x: arrow.get(x.date), reverse=True)
 
+    is_msg_check = settings.get_settings().command == "msg_check"
     for count, ele in enumerate(sorted_media):
         is_unlocked = unlocked_helper(ele)
         is_downloaded = (ele.id, ele.post_id) in downloaded
         post_media_len = len(ele._post.post_media)
+
+        # Apply message filter when running msg_check
+        if is_msg_check and _msg_check_filter != "all" and not is_downloaded:
+            try:
+                price = ele._post.price
+                if _msg_check_filter == "paid_only" and is_unlocked and price == 0:
+                    # Hide free viewable messages — keep paid/PPV and locked
+                    continue
+                elif _msg_check_filter == "free_only" and price > 0:
+                    # Hide paid/PPV messages (whether locked or purchased)
+                    continue
+            except Exception:
+                pass
 
         if is_downloaded:
             cart_state = "[downloaded]"
@@ -842,7 +857,7 @@ def _normalize_rows_for_gui(rows):
     return result
 
 
-def gui_checker(check_mode):
+def gui_checker(check_mode, msg_filter="paid_only"):
     """GUI-compatible entry point for check modes.
 
     Runs the appropriate data-fetch runner, then emits the collected rows via
@@ -850,7 +865,16 @@ def gui_checker(check_mode):
     ``app.app`` is patched so that any subsequent ``update_cell_state()`` calls
     (triggered when the user sends downloads) emit ``app_signals.cell_update``
     instead of trying to update a TUI widget.
+
+    Args:
+        check_mode: one of "post_check", "msg_check", "paid_check", "story_check"
+        msg_filter: controls which messages appear in msg_check —
+            "paid_only" (default): paid/PPV and locked only, hides free messages
+            "free_only": free messages only, hides paid/PPV content
+            "all": all messages, no filtering
     """
+    global _msg_check_filter
+    _msg_check_filter = msg_filter
     from ofscraper.gui.signals import app_signals
     import ofscraper.classes.table.app as _tui_app
 

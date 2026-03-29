@@ -73,6 +73,12 @@ class MainWindow(QMainWindow):
         if self._verbose_log:
             self._verbose_btn.setText("Verbose Log: On")
         self._connect_signals()
+
+        # Load custom plugins and let them patch the UI if desired
+        from ofscraper.plugins.manager import plugin_manager
+        plugin_manager.discover_and_load()
+        plugin_manager.dispatch_event("on_ui_setup", self)
+
         self._navigate("scraper")
         # After the window is created and painted, show missing dependency notices once.
         QTimer.singleShot(250, self._maybe_show_missing_dependency_notice)
@@ -99,8 +105,11 @@ class MainWindow(QMainWindow):
         if not bool(getattr(args, "gui", False)):
             return
 
-        # Require explicit action(s) and username selection; otherwise keep normal GUI flow.
-        raw_actions = getattr(args, "action", None) or []
+        # Require usernames and areas to auto-start; action defaults to 'download'.
+        # Check both 'actions' (Click dest) and legacy 'action' attribute.
+        raw_actions = (
+            getattr(args, "actions", None) or getattr(args, "action", None) or []
+        )
         raw_users = getattr(args, "usernames", None) or []
         raw_posts = getattr(args, "posts", None) or []
         raw_da = getattr(args, "download_area", None) or []
@@ -124,19 +133,38 @@ class MainWindow(QMainWindow):
 
         actions = {a.strip().lower() for a in _flatten_strs(raw_actions) if str(a).strip()}
         usernames = {u.strip().lower() for u in _flatten_strs(raw_users) if str(u).strip()}
-        has_areas = bool(_flatten_strs(raw_posts) or _flatten_strs(raw_da) or _flatten_strs(raw_la))
+        has_download_areas = bool(_flatten_strs(raw_posts) or _flatten_strs(raw_da))
+        has_like_areas = bool(_flatten_strs(raw_la))
+        has_areas = has_download_areas or has_like_areas
 
-        if not actions or not usernames or not has_areas:
+        # No usernames or areas → nothing to auto-start
+        if not usernames or not has_areas:
             return
+
+        # Infer action when --action/--actions not explicitly passed:
+        # if only like_area is set → like; otherwise → download.
+        if not actions:
+            if has_like_areas and not has_download_areas:
+                actions = {"like"}
+            else:
+                actions = {"download"}
 
         log.info(
             f"[GUI] Auto-start detected from CLI args: actions={sorted(actions)}, "
             f"usernames={('ALL' if 'all' in usernames else sorted(usernames))}"
         )
 
-        # Compute final areas using the same accessor logic the CLI uses.
+        # Compute final areas using the area accessors directly (bypasses
+        # get_final_posts_area() which needs settings.actions to already be set).
         try:
-            final_areas = set(areas_accessor.get_final_posts_area() or set())
+            final_areas: set = set()
+            if "download" in actions:
+                final_areas.update(areas_accessor.get_download_area() or set())
+            if "like" in actions or "unlike" in actions:
+                final_areas.update(areas_accessor.get_like_area() or set())
+            # Fallback: if neither produced areas (e.g. empty posts list), skip
+            if not final_areas:
+                return
         except Exception:
             final_areas = set()
 
@@ -565,6 +593,7 @@ class MainWindow(QMainWindow):
         from ofscraper.gui.pages.area_selector_page import AreaSelectorPage
         from ofscraper.gui.pages.table_page import TablePage
         from ofscraper.gui.pages.help_page import HelpPage
+        from ofscraper.gui.pages.url_input_page import UrlInputPage
         from ofscraper.gui.dialogs.auth_dialog import AuthPage
         from ofscraper.gui.dialogs.config_dialog import ConfigPage
         from ofscraper.gui.dialogs.profile_dialog import ProfilePage
@@ -577,11 +606,13 @@ class MainWindow(QMainWindow):
         self.action_page = ActionPage(manager=self.manager)
         self.model_page = ModelSelectorPage(manager=self.manager)
         self.area_page = AreaSelectorPage(manager=self.manager)
+        self.url_input_page = UrlInputPage(manager=self.manager)
         self.table_page = TablePage(manager=self.manager)
 
         self.scraper_stack.addWidget(self.action_page)
         self.scraper_stack.addWidget(self.model_page)
         self.scraper_stack.addWidget(self.area_page)
+        self.scraper_stack.addWidget(self.url_input_page)
         self.scraper_stack.addWidget(self.table_page)
 
         self._add_page("scraper", self.scraper_stack)
@@ -608,6 +639,7 @@ class MainWindow(QMainWindow):
         app_signals.areas_selected.connect(self._on_areas_selected)
         app_signals.data_loading_finished.connect(self._on_data_loaded)
         app_signals.data_replace.connect(self._on_data_replace)
+        app_signals.manual_urls_confirmed.connect(self._on_manual_urls_confirmed)
 
     def _navigate(self, page_id):
         if page_id in self._pages:
@@ -645,8 +677,18 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(set)
     def _on_action_selected(self, actions):
-        """Move from action page to area/filter configuration page."""
-        self.scraper_stack.setCurrentWidget(self.area_page)
+        """Move from action page to area/filter configuration page, or URL input page."""
+        if actions == {"manual_url"}:
+            self.scraper_stack.setCurrentWidget(self.url_input_page)
+        else:
+            self.scraper_stack.setCurrentWidget(self.area_page)
+
+    @pyqtSlot(list)
+    def _on_manual_urls_confirmed(self, urls):
+        """URLs confirmed — navigate to table page and start scraping."""
+        self.scraper_stack.setCurrentWidget(self.table_page)
+        self.table_page.sidebar.setVisible(False)
+        app_signals.status_message.emit(f"Scraping {len(urls)} post(s)...")
 
     @pyqtSlot(list)
     def _on_models_selected(self, models):

@@ -1,0 +1,7 @@
+{
+  "name": "LLM Assistant",
+  "version": "1.0.0",
+  "author": "Antigravity",
+  "description": "Natural-language assistant. Type plain English to control scraper settings and start downloads. Uses a locally embedded LLM — no Ollama, no API keys, no internet required at runtime.",
+  "api_version": 1
+}

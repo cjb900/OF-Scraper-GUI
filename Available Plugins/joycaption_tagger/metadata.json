@@ -1,0 +1,7 @@
+{
+  "name": "JoyCaption Tagger",
+  "version": "1.0.0",
+  "author": "Antigravity",
+  "description": "Tags downloaded images using JoyCaption running inside ComfyUI (Docker or local). Requires a ComfyUI server with the JoyCaption custom nodes installed.",
+  "api_version": 1
+}

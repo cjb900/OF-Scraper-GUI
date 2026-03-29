@@ -401,6 +401,22 @@ class AltDownloadManager(DownloadManager):
 
         await self._after_download_script(sharedPlaceholderObj.trunicated_filepath)
 
+        try:
+            from ofscraper.plugins.manager import plugin_manager
+
+            _final = sharedPlaceholderObj.trunicated_filepath
+            _final_s = str(pathlib.Path(_final)) if _final is not None else _final
+            _n = len(plugin_manager.plugins)
+            _name = pathlib.Path(_final_s).name if _final_s else "?"
+            common_globals.log.info(
+                f"[PluginManager] on_item_downloaded alt ({_n} plugin(s)) -> {_name}"
+            )
+            plugin_manager.dispatch_event("on_item_downloaded", ele, _final_s)
+        except Exception as e:
+            common_globals.log.warning(
+                f"[PluginManager] on_item_downloaded (alt) failed: {e}"
+            )
+
         audio_total = audio["total"] if audio else 0
         video_total = video["total"] if video else 0
         return ele.mediatype, video_total + audio_total

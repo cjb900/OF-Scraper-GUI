@@ -268,6 +268,8 @@ class _GUIDownloadState:
 
     def __init__(self):
         self.total_media = 0
+        self.locked_total = 0  # When > 0, gui_add_download_task won't override total_media
+        self.check_completed = 0  # Accumulates completed count across process_dicts calls
         self._poll_stop = None
         self._poll_thread = None
 
@@ -353,7 +355,7 @@ def _install_gui_progress_hooks():
     without modifying any core download code.
     """
     import ofscraper.utils.live.updater as progress_updater
-    import ofscraper.actions.utils.globals as common_globals
+    import ofscraper.commands.scraper.actions.utils.globals as common_globals
 
     global _orig_update_download_task
     global _orig_add_download_task
@@ -361,23 +363,30 @@ def _install_gui_progress_hooks():
     global _orig_add_like_task
     global _orig_increment_like_task
     global _orig_remove_like_task
-    _orig_update_download_task = progress_updater.update_download_task
-    _orig_add_download_task = progress_updater.add_download_task
-    _orig_remove_download_task = progress_updater.remove_download_task
-    _orig_add_like_task = getattr(progress_updater, "add_like_task", None)
-    _orig_increment_like_task = getattr(progress_updater, "increment_like_task", None)
-    _orig_remove_like_task = getattr(progress_updater, "remove_like_task", None)
+    # In ofscraper 3.14.3 these are methods on ProgressManager objects
+    _orig_update_download_task = progress_updater.download.update_overall_task
+    _orig_add_download_task = progress_updater.download.add_overall_task
+    _orig_remove_download_task = progress_updater.download.remove_overall_task
+    _orig_add_like_task = progress_updater.like.add_overall_task
+    _orig_increment_like_task = progress_updater.like.update_overall_task
+    _orig_remove_like_task = progress_updater.like.remove_overall_task
 
     def gui_add_download_task(*args, **kwargs):
         if _gui_cancel_event.is_set():
             raise KeyboardInterrupt()
         total = kwargs.get("total", 0)
-        _gui_state.total_media = total
-        result = _orig_add_download_task(*args, **kwargs)
-        try:
-            app_signals.overall_progress_updated.emit(0, total)
-        except Exception:
-            pass
+        if _gui_state.locked_total <= 0:
+            # Normal mode: use the task total and emit an initial 0/N signal.
+            _gui_state.total_media = total
+            result = _orig_add_download_task(*args, **kwargs)
+            try:
+                app_signals.overall_progress_updated.emit(0, _gui_state.total_media)
+            except Exception:
+                pass
+        else:
+            # Check mode: total_media is pre-set; do NOT emit (0, N) here because
+            # that would reset the bar back to 0 at the start of every per-item call.
+            result = _orig_add_download_task(*args, **kwargs)
         return result
 
     def gui_update_download_task(*args, **kwargs):
@@ -385,15 +394,21 @@ def _install_gui_progress_hooks():
             raise KeyboardInterrupt()
         _orig_update_download_task(*args, **kwargs)
         try:
-            sum_count = (
-                common_globals.photo_count
-                + common_globals.video_count
-                + common_globals.audio_count
-                + common_globals.skipped
-                + common_globals.forced_skipped
-            )
             total = _gui_state.total_media
-            app_signals.overall_progress_updated.emit(sum_count, total)
+            if _gui_state.locked_total > 0:
+                # Check mode: common_globals counters reset per process_dicts call so
+                # they don't accumulate. Use our own counter instead.
+                _gui_state.check_completed += 1
+                completed = _gui_state.check_completed
+            else:
+                completed = (
+                    common_globals.photo_count
+                    + common_globals.video_count
+                    + common_globals.audio_count
+                    + common_globals.skipped
+                    + common_globals.forced_skipped
+                )
+            app_signals.overall_progress_updated.emit(completed, total)
             app_signals.total_bytes_updated.emit(
                 int(common_globals.total_bytes_downloaded)
             )
@@ -409,18 +424,16 @@ def _install_gui_progress_hooks():
         except Exception:
             pass
 
-    progress_updater.update_download_task = gui_update_download_task
-    progress_updater.add_download_task = gui_add_download_task
-    progress_updater.remove_download_task = gui_remove_download_task
+    progress_updater.download.update_overall_task = gui_update_download_task
+    progress_updater.download.add_overall_task = gui_add_download_task
+    progress_updater.download.remove_overall_task = gui_remove_download_task
 
     # Like progress hooks (best-effort): surface like/unlike progress in the GUI.
-    # `like.py` uses like_overall_progress tasks, which we can mirror into the GUI task list.
+    # In 3.14.3, like.py uses progress_updater.like.add/update/remove_overall_task
     like_task_map = {}  # underlying task -> gui_task_id
     like_task_counter = {"n": 0}
 
     def gui_add_like_task(*args, **kwargs):
-        if _orig_add_like_task is None:
-            return None
         if _gui_cancel_event.is_set():
             raise KeyboardInterrupt()
         total = kwargs.get("total", None)
@@ -438,8 +451,6 @@ def _install_gui_progress_hooks():
         return task
 
     def gui_increment_like_task(*args, advance=1, **kwargs):
-        if _orig_increment_like_task is None:
-            return None
         if _gui_cancel_event.is_set():
             raise KeyboardInterrupt()
         _orig_increment_like_task(*args, advance=advance, **kwargs)
@@ -452,8 +463,6 @@ def _install_gui_progress_hooks():
             pass
 
     def gui_remove_like_task(task):
-        if _orig_remove_like_task is None:
-            return None
         if _gui_cancel_event.is_set():
             raise KeyboardInterrupt()
         _orig_remove_like_task(task)
@@ -464,12 +473,9 @@ def _install_gui_progress_hooks():
         except Exception:
             pass
 
-    if _orig_add_like_task is not None:
-        progress_updater.add_like_task = gui_add_like_task
-    if _orig_increment_like_task is not None:
-        progress_updater.increment_like_task = gui_increment_like_task
-    if _orig_remove_like_task is not None:
-        progress_updater.remove_like_task = gui_remove_like_task
+    progress_updater.like.add_overall_task = gui_add_like_task
+    progress_updater.like.update_overall_task = gui_increment_like_task
+    progress_updater.like.remove_overall_task = gui_remove_like_task
 
 
 def _uninstall_gui_progress_hooks():
@@ -477,17 +483,17 @@ def _uninstall_gui_progress_hooks():
     import ofscraper.utils.live.updater as progress_updater
 
     if _orig_update_download_task is not None:
-        progress_updater.update_download_task = _orig_update_download_task
+        progress_updater.download.update_overall_task = _orig_update_download_task
     if _orig_add_download_task is not None:
-        progress_updater.add_download_task = _orig_add_download_task
+        progress_updater.download.add_overall_task = _orig_add_download_task
     if _orig_remove_download_task is not None:
-        progress_updater.remove_download_task = _orig_remove_download_task
+        progress_updater.download.remove_overall_task = _orig_remove_download_task
     if _orig_add_like_task is not None:
-        progress_updater.add_like_task = _orig_add_like_task
+        progress_updater.like.add_overall_task = _orig_add_like_task
     if _orig_increment_like_task is not None:
-        progress_updater.increment_like_task = _orig_increment_like_task
+        progress_updater.like.update_overall_task = _orig_increment_like_task
     if _orig_remove_like_task is not None:
-        progress_updater.remove_like_task = _orig_remove_like_task
+        progress_updater.like.remove_overall_task = _orig_remove_like_task
 
 
 # ---------------------------------------------------------------------------
@@ -724,7 +730,12 @@ def _query_post_info(cur):
 def _load_models_from_db(selected_models):
     """Query the DB for all media records of each selected model and emit
     them to the GUI table.  Runs synchronously (called from the scraper
-    background thread after the pipeline finishes)."""
+    background thread after the pipeline finishes).
+
+    Returns a dict: {username: {"photos": N, "videos": N, "audios": N,
+                                "dl_photos": N, "dl_videos": N, "dl_audios": N}}
+    so callers can report accurate download stats.
+    """
     import pathlib
     import sqlite3
 
@@ -746,6 +757,8 @@ def _load_models_from_db(selected_models):
         THEN duration ELSE NULL END AS duration
     FROM medias;
     """
+
+    per_model_stats = {}  # {username: {photos, videos, audios, dl_photos, ...}}
 
     for model in selected_models:
         model_id = model.id
@@ -778,6 +791,27 @@ def _load_models_from_db(selected_models):
             cur.close()
 
             if data:
+                # Compute per-model media counts for Discord summary
+                _st = {"photos": 0, "videos": 0, "audios": 0,
+                       "dl_photos": 0, "dl_videos": 0, "dl_audios": 0}
+                for _row in data:
+                    # DB stores "Images", "Videos", "Audios" (capitalized plural)
+                    _mt = (_row.get("media_type") or "").lower()
+                    _dl = bool(_row.get("downloaded"))
+                    if _mt in ("image", "images"):
+                        _st["photos"] += 1
+                        if _dl:
+                            _st["dl_photos"] += 1
+                    elif _mt in ("video", "videos", "gif", "gifs"):
+                        _st["videos"] += 1
+                        if _dl:
+                            _st["dl_videos"] += 1
+                    elif _mt in ("audio", "audios"):
+                        _st["audios"] += 1
+                        if _dl:
+                            _st["dl_audios"] += 1
+                per_model_stats[username] = _st
+
                 rows = _build_db_rows(data, username, post_info)
                 if rows:
                     # Use data_replace so the DB result replaces any rows
@@ -799,6 +833,8 @@ def _load_models_from_db(selected_models):
                     lock.release(force=True)
                 except Exception:
                     pass
+
+    return per_model_stats
 
 
 def _emit_download_status(media, model_id, username):
@@ -844,18 +880,22 @@ def _emit_download_status(media, model_id, username):
 # ---------------------------------------------------------------------------
 def _make_gui_scraper_manager():
     """Create a scraperManager subclass that emits media data to the GUI."""
-    from ofscraper.commands.managers.scraper import scraperManager
+    from ofscraper.commands.scraper.scraper import scraperManager
     import ofscraper.utils.args.accessors.read as read_args
-    from ofscraper.actions.actions.download.download import downloader
-    import ofscraper.actions.actions.like.like as like_action
+    from ofscraper.commands.scraper.actions.download.download import downloader
+    import ofscraper.commands.scraper.actions.like.like as like_action
 
     class GUIScraperManager(scraperManager):
         """scraperManager subclass that emits media rows to the GUI table
         before executing download/like actions for each user."""
 
-        async def _execute_user_action(
-            self, posts=None, like_posts=None, ele=None, media=None
-        ):
+        async def _execute_user_action(self, ele, postcollection):
+            import ofscraper.utils.settings as _settings
+            # Extract data from the 3.14.3 PostCollection object
+            media = postcollection.get_media_for_processing()
+            like_posts = postcollection.get_posts_to_like()
+            posts = postcollection.get_posts_for_text_download()
+
             username = ele.name if ele else "unknown"
             media_count = len(media) if media else 0
             log.info(
@@ -885,7 +925,7 @@ def _make_gui_scraper_manager():
                         log.debug(f"Failed to emit table data: {e}")
 
             # Run the actual actions (download/like/unlike)
-            actions = read_args.retriveArgs().action
+            actions = _settings.get_settings().actions
             model_id = ele.id
             out = []
             log.info(f"[GUI] Running actions {actions} for {username}")
@@ -905,13 +945,13 @@ def _make_gui_scraper_manager():
                             "INFO",
                             f"Starting download of {len(media)} items for {username}...",
                         )
-                        result, _ = await downloader(
+                        await downloader(
                             posts=posts,
                             media=media,
                             model_id=model_id,
                             username=username,
                         )
-                        out.append(result)
+                        out.append([])
                         app_signals.log_message.emit(
                             "INFO",
                             f"Download complete for {username}",
@@ -985,9 +1025,12 @@ class GUIWorkflow:
         self._selected_areas = []
         self._selected_mediatypes = []
         self._scrape_paid = False
-        self._discord_enabled = False
+        self._discord_level = "OFF"
         self._advanced = {}
         self._did_purge = False
+        self._manual_urls = []
+        # Date range filter from area_selector_page
+        self._date_range = {}
         # Snapshot specific args so GUI toggles don't permanently clobber CLI intent.
         self._baseline_args = None
         self._scraper_thread = None
@@ -997,7 +1040,13 @@ class GUIWorkflow:
         self._daemon_notify = True
         self._daemon_sound = True
         self._daemon_stop = threading.Event()
+        self._msg_check_filter = "paid_only"  # "paid_only" | "free_only" | "all"
         self._connect_signals()
+        # Mute Discord at startup — the handler is initialized from the config
+        # file which may have a non-OFF level, causing every WARNING+ message
+        # during model loading, API calls, etc. to be sent to Discord.
+        # We re-enable it only when the user explicitly starts a scrape.
+        self._mute_discord_handler()
 
     def _connect_signals(self):
         app_signals.action_selected.connect(self._on_action_selected)
@@ -1009,27 +1058,67 @@ class GUIWorkflow:
         app_signals.daemon_configured.connect(self._on_daemon_configured)
         app_signals.stop_daemon_requested.connect(self._on_stop_daemon)
         app_signals.advanced_scrape_configured.connect(self._on_advanced)
+        app_signals.date_range_configured.connect(self._on_date_range_configured)
         app_signals.cancel_scrape_requested.connect(self._on_cancel_scrape)
+        app_signals.downloads_queued.connect(self._on_downloads_queued)
+        app_signals.msg_check_include_free_toggled.connect(self._on_msg_check_include_free)
+        app_signals.manual_urls_confirmed.connect(self._on_manual_urls_confirmed)
 
     def _on_action_selected(self, actions):
         self._selected_actions = actions
         log.info(f"[GUI Workflow] Actions set: {actions}")
 
+    def _on_manual_urls_confirmed(self, urls):
+        self._manual_urls = list(urls)
+        self._selected_actions = {"manual_url"}
+        log.info(f"[GUI Workflow] Manual URL mode: {len(urls)} URL(s)")
+        self._daemon_stop.clear()
+        self._start_scraping()
+
     def _on_models_selected(self, models):
         self._selected_models = models
         log.info(f"[GUI Workflow] Models set: {len(models)} models")
+        # Check modes auto-start as soon as models are confirmed —
+        # no separate "Start Scraping" click required.
+        if bool(self._selected_actions & self._CHECK_MODES):
+            self._daemon_stop.clear()
+            self._start_scraping()
 
     def _on_scrape_paid(self, enabled):
         self._scrape_paid = enabled
 
-    def _on_discord_configured(self, enabled: bool):
-        self._discord_enabled = bool(enabled)
+    def _on_msg_check_include_free(self, filter_value):
+        self._msg_check_filter = filter_value  # "paid_only", "free_only", or "all"
+
+    def _on_discord_configured(self, level: str):
+        self._discord_level = level if level in ("OFF", "LOW", "NORMAL") else "OFF"
+
+    @staticmethod
+    def _mute_discord_handler():
+        """Set the Discord log handler to level 100 (effectively OFF)."""
+        try:
+            import logging as _lg
+            from ofscraper.utils.logs.classes.handlers.discord import (
+                DiscordHandler as _DH,
+            )
+            for _h in _lg.getLogger("shared").handlers:
+                if isinstance(_h, _DH):
+                    _h.setLevel(100)
+                    break
+        except Exception:
+            pass
 
     def _on_advanced(self, config):
         try:
             self._advanced = dict(config or {})
         except Exception:
             self._advanced = {}
+
+    def _on_date_range_configured(self, config):
+        try:
+            self._date_range = dict(config or {})
+        except Exception:
+            self._date_range = {}
 
     def _on_daemon_configured(self, enabled, interval, notify, sound):
         self._daemon_enabled = enabled
@@ -1080,6 +1169,15 @@ class GUIWorkflow:
     def _on_areas_selected(self, areas):
         self._selected_areas = areas
         log.info(f"[GUI Workflow] Areas set: {areas}")
+        if bool(self._selected_actions & self._CHECK_MODES):
+            # areas_selected is emitted early from the area selector (before model
+            # selection).  If models are already known (e.g. user clicked "Start
+            # Scraping" again to re-run), start immediately.  Otherwise wait —
+            # _on_models_selected will fire the run once models are confirmed.
+            if self._selected_models:
+                self._daemon_stop.clear()
+                self._start_scraping()
+            return
         # Clear any previous stop request
         self._daemon_stop.clear()
         # This is the trigger to start the pipeline
@@ -1107,14 +1205,69 @@ class GUIWorkflow:
         self._scraper_thread = thread
         thread.start()
 
+    _CHECK_MODES = {"post_check", "msg_check", "paid_check", "story_check"}
+
+    def _set_manual_url_args(self, args, write_args, _settings):
+        """Set CLI args for manual URL / post-ID scraping."""
+        args.command = "manual"
+        args.url = list(self._manual_urls)
+        args.action = ["download"]
+        args.actions = ["download"]
+        write_args.setArgs(args)
+        try:
+            _settings.update_settings()
+        except Exception:
+            pass
+        log.info(
+            f"[GUI Manual URL] Args: command=manual, {len(self._manual_urls)} URL(s)"
+        )
+
+    def _set_check_args(self, args, write_args, _settings):
+        """Set CLI args for a check-mode operation."""
+        check_mode = (self._selected_actions & self._CHECK_MODES).pop()
+        args.command = check_mode
+        usernames = [m.name for m in self._selected_models]
+        if check_mode in ("post_check", "msg_check"):
+            args.url = usernames
+            args.check_usernames = []
+        else:
+            args.check_usernames = usernames
+            args.url = []
+        if check_mode == "post_check":
+            args.check_area = list(self._selected_areas)
+        args.force_all = True
+        args.after = 0
+        args.action = ["download"]
+        args.actions = ["download"]
+        write_args.setArgs(args)
+        try:
+            _settings.update_settings()
+        except Exception:
+            pass
+        log.info(
+            f"[GUI Check] Args: command={check_mode}, "
+            f"users={usernames}, areas={getattr(args, 'check_area', [])}"
+        )
+
     def _set_args(self):
         """Programmatically set the CLI args based on GUI selections."""
         import ofscraper.utils.args.accessors.read as read_args
         import ofscraper.utils.args.mutators.write as write_args
         import ofscraper.utils.config.data as config_data
+        import ofscraper.utils.settings as _settings
         import sys
 
         args = read_args.retriveArgs()
+
+        # Manual URL / post-ID mode — set command=manual and skip everything else
+        if self._selected_actions == {"manual_url"}:
+            self._set_manual_url_args(args, write_args, _settings)
+            return
+
+        # Check mode: configure separately and return early
+        if bool(self._selected_actions & self._CHECK_MODES):
+            self._set_check_args(args, write_args, _settings)
+            return
 
         # Record baseline once (first GUI-driven run) so we can restore values when
         # GUI options (like "rescrape") are toggled off on later runs.
@@ -1124,18 +1277,19 @@ class GUIWorkflow:
                     "after": getattr(args, "after", None),
                     "no_cache": bool(getattr(args, "no_cache", False)),
                     "no_api_cache": bool(getattr(args, "no_api_cache", False)),
-                    "discord": getattr(args, "discord", "OFF"),
+                    "discord_level": getattr(args, "discord_level", "OFF"),
                 }
             except Exception:
                 self._baseline_args = {
                     "after": None,
                     "no_cache": False,
                     "no_api_cache": False,
-                    "discord": "OFF",
+                    "discord_level": "OFF",
                 }
 
-        # Set actions
+        # Set actions (3.14.3 scraper checks args.actions; keep args.action for compat)
         args.action = list(self._selected_actions)
+        args.actions = list(self._selected_actions)
 
         # Set areas — these must be set BEFORE the scraper calls select_areas()
         # so that get_download_area() / get_like_area() find them and skip prompts.
@@ -1154,23 +1308,19 @@ class GUIWorkflow:
         args.scrape_paid = self._scrape_paid
 
         # Set media types — use GUI selection so it overrides the config filter.
-        # settings.get_mediatypes() uses: args.mediatype or config_data.get_filter()
-        # An explicit non-empty list takes precedence over the config value.
+        # An explicit non-empty list takes precedence over config_data.get_filter()
+        # in settings.py (merged.mediatypes = args.mediatypes or config_data.get_filter()).
         if self._selected_mediatypes:
-            args.mediatype = list(self._selected_mediatypes)
+            args.mediatypes = list(self._selected_mediatypes)
 
-        # Discord webhook updates: emulate `--discord NORMAL` when enabled AND
-        # a webhook URL exists in config.
-        try:
-            has_webhook = bool((config_data.get_discord() or "").strip())
-        except Exception:
-            has_webhook = False
+        # Discord webhook updates: set discord_level from GUI selection.
+        # The CLI arg --discord maps to args.discord_level (not args.discord).
         argv = [str(a) for a in (getattr(sys, "argv", None) or [])]
         cli_sets_discord = any(
             a in {"-dc", "--discord"} or a.startswith("--discord=") for a in argv
         )
         if not cli_sets_discord:
-            args.discord = "NORMAL" if (self._discord_enabled and has_webhook) else "OFF"
+            args.discord_level = self._discord_level
 
         # Advanced flags
         allow_dupes = bool(self._advanced.get("allow_dupe_downloads"))
@@ -1191,11 +1341,40 @@ class GUIWorkflow:
             except Exception:
                 pass
 
+            # Apply GUI date range filter (overrides baseline after/before)
+            try:
+                import arrow as _arrow
+                dr = self._date_range or {}
+                if dr.get("enabled"):
+                    from_date = dr.get("from_date")
+                    to_date = dr.get("to_date")
+                    if from_date:
+                        args.after = _arrow.get(from_date, "YYYY-MM-DD")
+                    if to_date:
+                        # include the full to_date day
+                        args.before = _arrow.get(to_date, "YYYY-MM-DD").ceil("day")
+                    else:
+                        args.before = None
+                else:
+                    args.before = None
+            except Exception:
+                pass
+
         write_args.setArgs(args)
+        # Invalidate the settings cache so settings.get_settings() picks up the new
+        # actions, after, before, etc. that we just wrote.  Without this,
+        # scraperManager.run_action returns False (using the stale startup cache)
+        # and runner() skips all download/like work.
+        try:
+            _settings.update_settings()
+        except Exception:
+            pass
         log.info(
-            f"[GUI] Args configured: actions={args.action}, "
+            f"[GUI] Args configured: actions={args.actions}, "
             f"areas={getattr(args, 'download_area', set())}, "
-            f"users={args.usernames}"
+            f"users={args.usernames}, "
+            f"after={getattr(args, 'after', None)}, "
+            f"before={getattr(args, 'before', None)}"
         )
         app_signals.log_message.emit(
             "INFO",
@@ -1239,6 +1418,120 @@ class GUIWorkflow:
             time.sleep(1)
         return True
 
+    def _run_check_mode(self):
+        """Run a check mode (post_check / msg_check / paid_check / story_check).
+
+        Calls ``check.gui_checker()`` which fetches API data and emits
+        ``data_replace`` with the resulting rows.  Downloads are handled later
+        via the ``downloads_queued`` signal when the user sends cart items.
+        """
+        import ofscraper.commands.check as check_mod
+
+        check_mode = (self._selected_actions & self._CHECK_MODES).pop()
+        app_signals.status_message.emit(f"Running {check_mode}...")
+        app_signals.log_message.emit("INFO", f"Starting check mode: {check_mode}")
+        try:
+            check_mod.gui_checker(
+                check_mode,
+                msg_filter=self._msg_check_filter,
+            )
+            app_signals.log_message.emit("INFO", f"Check mode {check_mode} complete")
+            app_signals.status_message.emit(
+                "Check mode complete — select items in the table and click 'Send Downloads'"
+            )
+        except Exception as e:
+            log.error(f"Check mode error: {e}")
+            log.debug(traceback.format_exc())
+            app_signals.log_message.emit("ERROR", f"Check mode failed: {e}")
+            app_signals.error_occurred.emit("Check Mode Error", str(e))
+            app_signals.scraping_finished.emit()
+
+    def _on_downloads_queued(self, row_data_list):
+        """Handle download requests from the check-mode table.
+
+        Only acts when the current action is a check mode; regular scrapes
+        handle their own downloads via the downloader pipeline.
+        """
+        if not bool(self._selected_actions & self._CHECK_MODES):
+            return
+        if not row_data_list:
+            return
+        t = threading.Thread(
+            target=self._run_check_downloads,
+            args=(row_data_list,),
+            daemon=True,
+            name="gui-check-downloads",
+        )
+        t.start()
+
+    def _run_check_downloads(self, row_data_list):
+        """Process download requests from the check-mode cart in a background thread."""
+        from collections import defaultdict
+        import ofscraper.commands.check as check_mod
+
+        app_signals.status_message.emit("Downloading selected check items...")
+        app_signals.log_message.emit(
+            "INFO", f"Processing {len(row_data_list)} check-mode download(s)"
+        )
+
+        _install_gui_log_handler()
+        _install_gui_live_stubs()
+        _install_gui_progress_hooks()
+
+        # Pre-set the total BEFORE any add_overall_task calls so the progress bar
+        # shows X/N instead of resetting to 1/1 per item (process_dicts calls
+        # add_overall_task with total=1 for each individual item in check mode).
+        total_items = len(row_data_list)
+        _gui_state.locked_total = total_items
+        _gui_state.total_media = total_items
+        _gui_state.check_completed = 0
+        try:
+            import ofscraper.commands.scraper.actions.utils.globals as _cg
+            _cg.photo_count = 0
+            _cg.video_count = 0
+            _cg.audio_count = 0
+            _cg.skipped = 0
+            _cg.forced_skipped = 0
+            _cg.total_bytes_downloaded = 0
+        except Exception:
+            pass
+        try:
+            app_signals.overall_progress_updated.emit(0, total_items)
+            app_signals.total_bytes_updated.emit(0)
+        except Exception:
+            pass
+
+        try:
+            user_cart = defaultdict(lambda: {"posts": [], "media": [], "rows": []})
+            for row_data in row_data_list:
+                try:
+                    media_item, post_item, username, model_id = check_mod._get_data_from_row(row_data)
+                    user_cart[model_id]["posts"].append(post_item)
+                    user_cart[model_id]["media"].append(media_item)
+                    key = str(row_data.get("media_id", ""))
+                    user_cart[model_id]["rows"].append((key, row_data))
+                    user_cart[model_id]["username"] = username
+                except Exception as e:
+                    log.error(f"Check download row error: {e}")
+
+            for model_id, data in user_cart.items():
+                username = data.get("username", "")
+                try:
+                    check_mod._process_user_batch(
+                        username, model_id, data["media"], data["posts"], data["rows"]
+                    )
+                except Exception as e:
+                    log.error(f"Check download batch error for {username}: {e}")
+                    log.debug(traceback.format_exc())
+        finally:
+            _gui_state.locked_total = 0
+            _uninstall_gui_progress_hooks()
+            _uninstall_gui_live_stubs()
+            _uninstall_gui_log_handler()
+
+        app_signals.status_message.emit("Check mode downloads complete")
+        app_signals.log_message.emit("INFO", "Check mode download processing complete")
+
     def _run_scraper_thread(self):
         """Run the scraper pipeline in a background thread.
         If daemon mode is enabled, loops with the configured interval."""
@@ -1248,6 +1541,11 @@ class GUIWorkflow:
             _install_gui_live_stubs()
             _install_gui_progress_hooks()
 
+            # Check mode: one-shot run — no daemon loop
+            if bool(self._selected_actions & self._CHECK_MODES):
+                self._run_check_mode()
+                return
+
             while True:
                 if _gui_cancel_event.is_set():
                     raise KeyboardInterrupt()
@@ -1256,7 +1554,7 @@ class GUIWorkflow:
                 # Reset GUI progress counters/state each run so the overall progress bar
                 # doesn't get stuck using previous run totals (especially after purge).
                 try:
-                    import ofscraper.actions.utils.globals as common_globals
+                    import ofscraper.commands.scraper.actions.utils.globals as common_globals
 
                     common_globals.photo_count = 0
                     common_globals.video_count = 0
@@ -1304,22 +1602,63 @@ class GUIWorkflow:
                 try:
                     # Reset the like tracker for this run so results from
                     # previous daemon runs don't bleed into the new one.
-                    import ofscraper.actions.actions.like.like as _like_mod
+                    import ofscraper.commands.scraper.actions.like.like as _like_mod
                     _like_mod._GUI_LIKE_TRACKER = {}
 
                     GUIScraperManager = _make_gui_scraper_manager()
                     scraping_manager = GUIScraperManager()
-                    app_signals.log_message.emit(
-                        "INFO",
-                        f"Running scraper for {len(self._selected_models)} model(s): "
-                        f"{', '.join(m.name for m in self._selected_models)}",
-                    )
-                    app_signals.log_message.emit(
-                        "INFO",
-                        f"Actions: {list(self._selected_actions)}, "
-                        f"Areas: {list(self._selected_areas)}",
-                    )
-                    scraping_manager.runner()
+                    if self._selected_actions == {"manual_url"}:
+                        app_signals.log_message.emit(
+                            "INFO",
+                            f"Running manual URL scrape: {len(self._manual_urls)} URL(s)",
+                        )
+                    else:
+                        app_signals.log_message.emit(
+                            "INFO",
+                            f"Running scraper for {len(self._selected_models)} model(s): "
+                            f"{', '.join(m.name for m in self._selected_models)}",
+                        )
+                        app_signals.log_message.emit(
+                            "INFO",
+                            f"Actions: {list(self._selected_actions)}, "
+                            f"Areas: {list(self._selected_areas)}",
+                        )
+
+                    # Sync the Discord handler's level to the current discord_level.
+                    # The handler is created at startup before the GUI sets discord_level,
+                    # so it defaults to "OFF" (level 100) and must be updated here.
+                    try:
+                        import logging as _logging
+                        import ofscraper.utils.logs.utils.level as _log_level
+                        import ofscraper.utils.settings as _settings
+                        from ofscraper.utils.logs.classes.handlers.discord import (
+                            DiscordHandler as _DiscordHandler,
+                        )
+                        _level_str = (
+                            getattr(_settings.get_settings(), "discord_level", None)
+                            or "OFF"
+                        )
+                        _level = _log_level.getLevel(_level_str)
+                        for _h in _logging.getLogger("shared").handlers:
+                            if isinstance(_h, _DiscordHandler):
+                                _h.setLevel(_level)
+                                break
+                    except Exception:
+                        pass
+
+                    if self._selected_actions == {"manual_url"}:
+                        import ofscraper.commands.manual as _manual_cmd
+                        _manual_cmd.manual_download()
+                    else:
+                        scraping_manager.runner()
+
+                    # Mute Discord immediately after runner() — the handler
+                    # was enabled for scrape notifications and must be silenced
+                    # before the DB load to avoid spam.  The actual summary is
+                    # sent AFTER _load_models_from_db (which uses FileLock and
+                    # is guaranteed to see fully committed DB data).
+                    self._mute_discord_handler()
+
                     app_signals.log_message.emit(
                         "INFO", "Scraper pipeline completed successfully"
                     )
@@ -1336,11 +1675,56 @@ class GUIWorkflow:
                 if _gui_cancel_event.is_set():
                     raise KeyboardInterrupt()
 
-                # Load previously scraped content from DB
+                # Load previously scraped content from DB.
+                # _load_models_from_db acquires FileLock so it always sees
+                # fully committed data.  It returns per-model media counts
+                # which we use for the Discord summary.
                 app_signals.log_message.emit(
                     "INFO", "Loading content from database..."
                 )
-                _load_models_from_db(self._selected_models)
+                _db_stats = _load_models_from_db(self._selected_models)
+
+                # Post per-model stats to Discord now that we have accurate
+                # counts from the FileLock-protected DB read above.
+                if self._discord_level != "OFF":
+                    try:
+                        import logging as _dlog
+                        # Briefly re-enable Discord just for this summary.
+                        import ofscraper.utils.logs.utils.level as _ll
+                        from ofscraper.utils.logs.classes.handlers.discord import (
+                            DiscordHandler as _DH,
+                        )
+                        _lvl = _ll.getLevel(self._discord_level)
+                        for _h in _dlog.getLogger("shared").handlers:
+                            if isinstance(_h, _DH):
+                                _h.setLevel(_lvl)
+                                break
+                        _lines = ["\n\n--- Scrape Results ---"]
+                        for _m in self._selected_models:
+                            _un = _m.name
+                            _st = _db_stats.get(_un, {})
+                            _photos = _st.get("photos", 0)
+                            _videos = _st.get("videos", 0)
+                            _audios = _st.get("audios", 0)
+                            _dl_photos = _st.get("dl_photos", 0)
+                            _dl_videos = _st.get("dl_videos", 0)
+                            _dl_audios = _st.get("dl_audios", 0)
+                            _total = _photos + _videos + _audios
+                            _dl_total = _dl_photos + _dl_videos + _dl_audios
+                            _lines.append(
+                                # Use \[ to escape brackets so Rich's markup
+                                # parser (inside DiscordFormatter) doesn't
+                                # strip [username] as a style tag.
+                                f"\\[{_un}] {_dl_total}/{_total} media downloaded"
+                                f" [{_dl_videos} videos,"
+                                f" {_dl_audios} audios,"
+                                f" {_dl_photos} photos]"
+                            )
+                        _dlog.getLogger("shared").warning("\n".join(_lines))
+                    except Exception:
+                        pass
+                    finally:
+                        self._mute_discord_handler()
 
                 # Emit like/unlike status AFTER table rows are loaded from DB
                 # so the signal handler can find the matching rows to update.
