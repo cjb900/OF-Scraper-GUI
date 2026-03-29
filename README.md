@@ -39,7 +39,8 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Scrape individual posts by URL or Post ID](#scrape-individual-posts-by-url-or-post-id-3145)
   - [Discord webhook integration](#discord-webhook-integration)
 - [Plugin system](#plugin-system)
-  - [Included plugins](#included-plugins)
+  - [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger)
+  - [LLM Assistant](#llm-assistant-llm_assistant)
 - [Docker](#docker)
   - [Running the GUI in Docker](#running-the-gui-in-docker)
   - [Auto-starting a scrape on container startup](#auto-starting-a-scrape-on-container-startup)
@@ -100,7 +101,7 @@ A visual walkthrough of each page in the GUI.
 
 ### Scraper — Select Action
 
-<img src="https://github.com/user-attachments/assets/7532a143-b492-4898-996e-c4d4f84f8c40" width="600" alt="Main Window — Select Action">
+<img src="https://github.com/user-attachments/assets/1c83ce37-e1b3-4e9f-bdc1-8dfedbbffc5d" width="600" alt="Main Window — Select Action">
 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
@@ -116,7 +117,7 @@ After selecting an action, click **Next** to move on.
 
 ### Select Content Areas & Filters
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Select%20Content%20Areas%20and%20Filters.jpg" width="600" alt="Select Content Areas & Filters">
+<img src="https://github.com/user-attachments/assets/fba80d4a-4e5b-40f1-86bc-73453a63c3bc" width="600" alt="Select Content Areas & Filters">
 
 Choose which types of posts to scrape and apply filters before the scrape begins:
 
@@ -388,7 +389,7 @@ After each completed scrape run, a summary is automatically posted to your Disco
 
 ## Plugin system
 
-OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your ofscraper config directory and are loaded automatically on startup — in both GUI and headless CLI mode.
+OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your ofscraper config directory and are loaded automatically on startup.
 
 **Plugin directory:**
 - **Windows:** `C:\Users\<YourUser>\.config\ofscraper\plugins\`
@@ -408,7 +409,7 @@ For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOP
 
 > **⚠️ Note:** The plugin system itself is stable, but the included plugins are experimental and a work in progress — they may not function perfectly in all environments.
 
-### Included plugins
+### Available plugins
 
 > **⚠️ Work in progress:** The included plugins are experimental and a work in progress. They may not work 100% reliably. Use them at your own risk and report any issues you encounter.
 
@@ -416,9 +417,32 @@ Two ready-to-use plugins are included. Both are **disabled by default** — enab
 
 #### JoyCaption Tagger (`joycaption_tagger`)
 
-<!-- Screenshot placeholder: JoyCaption settings panel showing caption type/length options -->
+Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. Caption style and length are configurable per the plugin settings panel. A built-in image gallery lets you browse and search tagged images by caption content.
 
-Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. Caption style and length are configurable per the plugin settings panel.
+> **Performance note:** JoyCaption sends each image to ComfyUI for AI inference, which is compute-intensive. Captioning a single image can take anywhere from a few seconds to several minutes depending on your hardware (CPU vs. GPU, available RAM, etc.).
+>
+> When **Auto-tag images on download** is enabled, every downloaded image is sent to ComfyUI during the scrape — this can significantly slow down large scraping sessions. For better performance, consider leaving auto-tagging **disabled** and using the **Scan Folder** tool from the plugin page to tag images after your scrape finishes.
+
+**Screenshots**
+
+<table>
+<tr>
+<td align="center"><img src="https://github.com/user-attachments/assets/c9230326-0161-4728-a17c-a87bf0b3a300" width="380"><br><em>Missing dependencies prompt</em></td>
+<td align="center"><img src="https://github.com/user-attachments/assets/c8eff70c-c70b-4784-bb36-7091a8d9baf9" width="380"><br><em>Dependency install dialog</em></td>
+</tr>
+<tr>
+<td align="center"><img src="https://github.com/user-attachments/assets/f1451662-2409-48ab-ae6c-a34502be3b41" width="380"><br><em>Plugin page — no images tagged yet</em></td>
+<td align="center"><img src="https://github.com/user-attachments/assets/2ef20d8f-da26-493e-b02f-8d3337cf5753" width="380"><br><em>Scanning folder</em></td>
+</tr>
+<tr>
+<td align="center"><img src="https://github.com/user-attachments/assets/531b93ec-953b-4770-a91e-380ee43947b4" width="380"><br><em>Image gallery with captions</em></td>
+<td align="center"><img src="https://github.com/user-attachments/assets/b6063b08-d4ed-43f8-8322-1f47e5631ba4" width="380"><br><em>Searching by caption content</em></td>
+</tr>
+<tr>
+<td align="center"><img src="https://github.com/user-attachments/assets/18c7f8ee-ef12-45b0-8308-282177518162" width="380"><br><em>Settings dialog</em></td>
+<td align="center"><img src="https://github.com/user-attachments/assets/cc174331-628e-4cf2-b697-91bfd7f9ecc8" width="380"><br><em>Full image view with caption/tags</em></td>
+</tr>
+</table>
 
 **System requirements**
 
@@ -465,19 +489,46 @@ If you already have ComfyUI running locally, install the JoyCaption custom node 
 
 | Setting | Description |
 | :--- | :--- |
-| ComfyUI URL | URL of your ComfyUI server (default: `http://localhost:8188`) |
-| Caption Type | Style of caption: Descriptive, Stable Diffusion Prompt, Danbooru tag list, etc. |
+| ComfyUI URL | URL of your ComfyUI server (default: `http://localhost:8188`). Click **Test** to verify the connection. |
+| Caption Type | Style of caption: Descriptive, Stable Diffusion Prompt, Danbooru tag list, e621 tags, etc. |
 | Caption Length | `any`, `very short`, `short`, `medium-length`, `long`, `very long` |
-| Timeout | Seconds to wait for a caption response before giving up (default: 600) |
-| Auto-tag images | Automatically caption images as they are downloaded |
+| Extra Options | Free-text modifiers appended to the caption prompt (e.g. `Do not include low quality, Do not use vague language`) |
+| Subject Name | Optional name hint passed to the model — useful if you want captions to reference the creator or subject by name |
+| Timeout | Seconds to wait for a ComfyUI response before giving up (default: 600) |
+| Max stored parts | Maximum number of tag/caption parts stored per image (default: 20) |
+| Auto-tag images | Automatically caption each image as it is downloaded. See performance note above. |
+| Enable Smart Folders | When enabled, copies each tagged image into a named subfolder based on its primary tag (see below) |
+| Smart Folder Path | Root folder where Smart Folder subfolders are created (default: `Smart_Tags/` in the plugin directory) |
+| Workflow | ComfyUI workflow JSON file to use (default: `joycaption.json`) — must be in the plugin's `workflows/` folder |
+
+**Smart Folders**
+
+When **Enable Smart Folders** is turned on, every image that gets tagged is automatically **copied** (not moved — your originals are untouched) into a subfolder under the Smart Folder Path, named after its primary tag:
+
+- For **tag-list caption types** (Danbooru, e621, Rule34, etc.): the top-ranked tag becomes the folder name
+- For **descriptive caption types**: the first comma-separated phrase from the caption becomes the folder name
+
+This builds a browsable folder structure organized by image content automatically as you tag images. For example, an image captioned `"woman, outdoor, sunset, ..."` would be copied to `Smart_Tags/woman/filename.jpg`.
+
+> Smart Folders only copies images that have been tagged. Images that fail tagging or are skipped will not appear in the Smart Folders output.
 
 ---
 
 #### LLM Assistant (`llm_assistant`)
 
-<!-- Screenshot placeholder: AI Assistant chat panel showing a natural-language command being interpreted -->
-
 Adds a **🤖 AI Assistant** chat panel to the sidebar. Type plain English commands — the assistant translates them into GUI actions such as setting usernames, selecting content areas, and starting downloads.
+
+**Screenshots**
+
+<table>
+<tr>
+<td align="center"><img src="https://github.com/user-attachments/assets/f465046f-d6a8-4282-9839-9e459a2e8e1f" width="380"><br><em>AI model selection (first launch)</em></td>
+<td align="center"><img src="https://github.com/user-attachments/assets/996a3d4d-be3a-478e-85fd-e61242f62409" width="380"><br><em>Dependency install dialog</em></td>
+</tr>
+<tr>
+<td align="center" colspan="2"><img src="https://github.com/user-attachments/assets/0a9df78b-054e-4b6b-9e0b-61d6d3f4af5d" width="500"><br><em>AI Assistant chat panel</em></td>
+</tr>
+</table>
 
 **System requirements**
 
