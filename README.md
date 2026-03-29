@@ -2,7 +2,7 @@
 
 A self-contained Python script that patches an installed (non-binary) copy of [OF-Scraper](https://github.com/datawhores/OF-Scraper) to add a full **PyQt6 GUI** accessible via the `--gui` flag.
 
-**Supported versions:** `3.12.9` and `3.14.3`
+**Supported versions:** `3.12.9`, `3.14.3`, and `3.14.5`
 
 > **Python version requirement**
 > Python **3.11.x** or **3.12.x** is required. Python 3.13+ and versions below 3.11 are **not supported** and may cause issues with OF-Scraper or this patch.
@@ -36,6 +36,14 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Check mode](#check-mode-1)
   - [Progress bar](#progress-bar)
   - [CLI auto-start](#cli-auto-start)
+  - [Scrape individual posts by URL or Post ID](#scrape-individual-posts-by-url-or-post-id-3145)
+  - [Discord webhook integration](#discord-webhook-integration)
+- [Plugin system](#plugin-system)
+  - [Included plugins](#included-plugins)
+- [Docker](#docker)
+  - [Running the GUI in Docker](#running-the-gui-in-docker)
+  - [Auto-starting a scrape on container startup](#auto-starting-a-scrape-on-container-startup)
+  - [Selecting the patch version at build time](#selecting-the-patch-version-at-build-time)
 - [Supported versions](#supported-versions)
 - [Supported platforms and install methods](#supported-platforms-and-install-methods)
   - [Platform notes](#platform-notes)
@@ -49,26 +57,26 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 ## Usage
 
 ```bash
-# Basic usage — auto-detect and patch (replace with 3.14.3 for the newer version)
-python patch_ofscraper_3.12.9_gui.py
+# Basic usage — auto-detect and patch (replace version number as needed)
+python patch_ofscraper_3.14.5_gui.py
 
 # Skip confirmation prompt
-python patch_ofscraper_3.12.9_gui.py -y
+python patch_ofscraper_3.14.5_gui.py -y
 
 # Dry run — see what would happen without making changes
-python patch_ofscraper_3.12.9_gui.py --dry-run
+python patch_ofscraper_3.14.5_gui.py --dry-run
 
 # Specify install path manually
-python patch_ofscraper_3.12.9_gui.py --target /path/to/site-packages/ofscraper
+python patch_ofscraper_3.14.5_gui.py --target /path/to/site-packages/ofscraper
 
 # Skip PyQt6 installation (if already installed)
-python patch_ofscraper_3.12.9_gui.py --skip-pyqt6
+python patch_ofscraper_3.14.5_gui.py --skip-pyqt6
 
 # Restore original files from backup
-python patch_ofscraper_3.12.9_gui.py --restore /path/to/backup
+python patch_ofscraper_3.14.5_gui.py --restore /path/to/backup
 ```
 
-The same flags apply to `patch_ofscraper_3.14.3_gui.py`.
+The same flags apply to `patch_ofscraper_3.14.3_gui.py` and `patch_ofscraper_3.12.9_gui.py`.
 
 ## After patching
 
@@ -80,7 +88,7 @@ ofscraper --gui
 
 The patch script will also offer to launch the GUI for you immediately after a successful patch.
 
-> **Note:** If you run the patch script from inside the `OF-Scraper-3.12.9/` or `OF-Scraper-3.14.3/` source directory, use `python -m ofscraper --gui` from a different directory (e.g. your home directory) to ensure the installed version is used rather than the local source files.
+> **Note:** If you run the patch script from inside a source directory (e.g. `OF-Scraper-3.14.5/`), use `python -m ofscraper --gui` from a different directory (e.g. your home directory) to ensure the installed version is used rather than the local source files.
 
 ---
 
@@ -100,8 +108,9 @@ The starting point of every scrape. Choose what you want OF-Scraper to do:
 - **Like/Unlike** — automate liking or unliking posts
 - **Metadata** — update your local database without downloading files
 - **Check modes** (Post Check, Message Check, Paid Check, Story Check) — browse all content for a creator in a table view and selectively download individual items
+- **Scrape individual posts by URL or Post ID** *(3.14.5 only)* — download specific posts by pasting OnlyFans post URLs or post IDs directly, bypassing model and area selection entirely
 
-After selecting an action, click **Next** to move on to selecting content areas and filters.
+After selecting an action, click **Next** to move on.
 
 ---
 
@@ -321,15 +330,191 @@ Built-in documentation available at any time without leaving the app:
 
 ### CLI auto-start
 - If launched with `ofscraper --gui` together with action, area, and username flags, the GUI wizard is skipped and scraping begins automatically — matching the TUI behavior for scripted/automated workflows
+- This is also how the Docker container starts a scrape automatically via the `GUI_ARGS` environment variable (see [Docker](#docker))
+
+---
+
+### Scrape individual posts by URL or Post ID *(3.14.5)*
+
+<!-- Screenshot placeholder: Action page showing "Scrape individual posts by URL or Post ID" selected -->
+<!-- Screenshot placeholder: URL input page showing the text box with example URLs/IDs -->
+
+A dedicated action for downloading specific posts without going through model or area selection.
+
+**How to use:**
+1. On the **Select Action** page, choose **Scrape individual posts by URL or Post ID** and click **Next**
+2. On the URL input page, paste one or more post URLs or post IDs — one per line, or comma-separated
+3. Click **▶ Start Scraping**
+
+**Accepted formats:**
+- Full post URL: `https://onlyfans.com/123456789/username`
+- Post ID only: `123456789`
+- Profile URL: `https://onlyfans.com/username` (scrapes all accessible posts for that creator)
+
+**Notes:**
+- Model selection and area selection pages are skipped entirely
+- Multiple URLs/IDs can be entered at once — separate by newlines or commas
+- Lines starting with `#` are treated as comments and ignored
+- Equivalent to the TUI command `ofscraper manual --url <url>`
+
+---
+
+### Discord webhook integration
+
+The GUI includes a Discord webhook toggle that controls whether scraping activity is posted to your configured Discord channel.
+
+**Discord toggle (GUI)**
+- A Discord enable/disable toggle is available on the scrape settings pages
+- When enabled and a webhook URL is set in Configuration → General, Discord notifications fire at the `NORMAL` level for all standard log messages during the scrape
+- When the `--discord` flag is also passed on the command line, the CLI value takes precedence
+
+**Per-run scrape summary** *(3.14.5)*
+
+<!-- Screenshot placeholder: Discord message showing the "--- Scrape Results ---" summary -->
+
+After each completed scrape run, a summary is automatically posted to your Discord webhook showing only what was downloaded in **that run** (not cumulative totals from the database):
+
+```
+--- Scrape Results ---
+[creator_username] 12 new downloads [8 videos, 0 audios, 4 photos] | 3 skipped
+```
+
+- Shows each creator's name, total new files downloaded, breakdown by type, and skipped count
+- Counts reset to zero at the start of each run — if nothing new was downloaded, the summary shows `0 new downloads`
+- Works with any Discord level (`--discord low` or higher)
+- Requires a webhook URL configured in Configuration → General
+
+---
+
+## Plugin system
+
+OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your ofscraper config directory and are loaded automatically on startup — in both GUI and headless CLI mode.
+
+**Plugin directory:**
+- **Windows:** `C:\Users\<YourUser>\.config\ofscraper\plugins\`
+- **Linux/macOS:** `/home/<YourUser>/.config/ofscraper/plugins/`
+
+Each plugin is a subfolder containing at minimum a `main.py` with a `Plugin` class that inherits from `BasePlugin`. Plugins can hook into the following events:
+
+| Hook | When it fires |
+| :--- | :--- |
+| `on_load()` | When the plugin is first loaded at startup |
+| `on_ui_setup(main_window)` | After the GUI window is built *(GUI mode only)* |
+| `on_item_downloaded(item_data, file_path)` | Every time a file is saved to disk |
+
+Plugins that declare a `requirements.txt` will trigger a one-click dependency install dialog if their packages are missing.
+
+For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOPMENT.md`](OF-Scraper-3.14.5/ofscraper/plugins/PLUGIN_DEVELOPMENT.md).
+
+### Included plugins
+
+Three ready-to-use plugins are included. All are **disabled by default** — enable them by setting `plugin_enabled = 1` in their `main.py`.
+
+#### Intelligent AI Tagger (`ai_tagger`)
+
+<!-- Screenshot placeholder: Smart Gallery sidebar page showing tagged images with tag chips -->
+
+Automatically tags every downloaded image using a local computer-vision model — no cloud API or internet connection required at inference time.
+
+- **Supported models:** WD14 (Danbooru tags), OpenCLIP ViT-B-32 (zero-shot label matching), Florence-2 (generative captions), custom `.safetensors` checkpoints
+- **Smart Gallery** sidebar page — browse tagged images, search by tag, and run semantic similarity search
+- **Smart Folders** — automatically copy images into subfolders named after their top predicted tag
+- Auto-tags images as they are downloaded; can also batch-scan existing folders
+- Dependencies: `torch`, `open_clip_torch`, `transformers`, `peewee`, `Pillow` (prompted automatically on first enable)
+
+#### JoyCaption Tagger (`joycaption_tagger`)
+
+<!-- Screenshot placeholder: JoyCaption settings panel showing caption type/length options -->
+
+Sends downloaded images to a [JoyCaption](https://github.com/fpgaminer/joycaption) node running inside ComfyUI (local or Docker) and stores the captions in a local database.
+
+- Configure caption style (Descriptive, Danbooru tag list, Stable Diffusion Prompt, etc.) and length in the plugin settings panel
+- Requires a running ComfyUI server with JoyCaption custom nodes — see `docker/comfyui-joycaption/` for a ready-made Docker setup
+- No additional Python packages required beyond the base ofscraper environment
+
+#### LLM Assistant (`llm_assistant`)
+
+<!-- Screenshot placeholder: AI Assistant chat panel showing a natural-language command being interpreted -->
+
+Adds a **🤖 AI Assistant** chat panel to the sidebar. Type plain English commands — the assistant translates them into GUI actions such as setting usernames, selecting content areas, and starting downloads.
+
+- Runs a GGUF model locally via `llama-cpp-python` — no Ollama, no cloud API, no internet required at runtime
+- Also injects a compact command bar directly into the Action and Area Selector pages
+- First launch walks you through model selection and automatic download
+- Dependency: `llama-cpp-python` (prompted automatically on first enable)
+
+---
+
+## Docker
+
+A Docker setup is included for running the GUI in a headless environment, accessible from any browser or VNC client — no display required on the host machine.
+
+### Running the GUI in Docker
+
+```bash
+# Build the image
+docker compose build ofscraper-gui
+
+# Start the container
+docker compose up ofscraper-gui
+```
+
+Once running, open **[http://localhost:6969/?autoconnect=true&resize=scale](http://localhost:6969/?autoconnect=true&resize=scale)** in your browser to access the GUI via noVNC. You can also connect with any VNC client on port `5900`.
+
+<!-- Screenshot placeholder: noVNC browser view showing the OF-Scraper GUI -->
+
+The `GUI_PATCH_VERSION` build argument and `GUI_ARGS` environment variable in `docker-compose.yml` control which version is used and whether a scrape starts automatically:
+
+```yaml
+# docker-compose.yml (key sections)
+build:
+  args:
+    GUI_PATCH_VERSION: "3.14.5"   # which patch to apply at build time
+environment:
+  - GUI_ARGS=                     # leave blank to just open the GUI
+```
+
+### Auto-starting a scrape on container startup
+
+Set `GUI_ARGS` to pass any `ofscraper --gui` arguments. The container will open the GUI and immediately begin scraping with those options — no manual interaction required:
+
+```yaml
+environment:
+  - GUI_ARGS=--daemon 120 --username ALL --sub-status active --posts all --discord low
+```
+
+This is equivalent to running `ofscraper --gui --daemon 120 --username ALL ...` on the command line. The GUI wizard pages are skipped and the scrape starts automatically.
+
+Volumes in `docker-compose.yml` map your host config and download directories into the container so all settings, auth tokens, and downloaded files are stored on the host:
+
+```yaml
+volumes:
+  - /home/cjb900/.config/ofscraper:/root/.config/ofscraper
+  - /home/cjb900/Photos/OnlyFans:/home/cjb900/Photos/OnlyFans
+  - /usr/bin/ffmpeg:/usr/bin/ffmpeg:ro
+```
+
+### Selecting the patch version at build time
+
+Change `GUI_PATCH_VERSION` in `docker-compose.yml` (or pass it as a build arg) to build a container for a different supported version:
+
+```bash
+docker compose build --build-arg GUI_PATCH_VERSION=3.14.3 ofscraper-gui
+```
+
+Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`.
+
+---
 
 ## Supported versions
 
-| Patch script | OF-Scraper version |
-|---|---|
-| `patch_ofscraper_3.12.9_gui.py` | 3.12.9 |
-| `patch_ofscraper_3.14.3_gui.py` | 3.14.3 |
+| Patch script | OF-Scraper version | Notes |
+|---|---|---|
+| `patch_ofscraper_3.12.9_gui.py` | 3.12.9 | |
+| `patch_ofscraper_3.14.3_gui.py` | 3.14.3 | |
+| `patch_ofscraper_3.14.5_gui.py` | 3.14.5 | Adds scrape-by-URL, Discord summary, plugin system improvements |
 
-Both patch scripts include identical GUI features.
+All patch scripts include the same core GUI features. Version-specific additions are noted throughout this document.
 
 ## Supported platforms and install methods
 
@@ -338,7 +523,7 @@ Both patch scripts include identical GUI features.
 | Windows  | ✅  | ✅   | ✅ |
 | Linux (Debian-based) | ❌  | ✅   | ✅ |
 | Mac OS   | ❌ | ❌  | ❌ |
-| Docker   | ❌ | ❌  | ❌ |
+| Docker   | ✅ | — | — |
 * ❌ not tested
 
 ### Platform notes
@@ -346,7 +531,7 @@ Both patch scripts include identical GUI features.
 - **Windows**: Tested on **Windows 11** but should work on Windows 10 and other versions
 - **Linux**: Only **Debian-based** distributions are supported (Ubuntu, Debian, Linux Mint, KDE Neon, Pop!_OS, etc.). Other distributions (Arch, Fedora, etc.) have not been tested and may require additional setup
 - **Mac**: Mac OS has not been tested with this GUI patch
-- **Docker**: Not tested
+- **Docker**: Runs on any host that supports Docker. The container uses Ubuntu 24.04 with Xvfb and noVNC — no display required on the host. See [Docker](#docker)
 
 ### Python version
 
