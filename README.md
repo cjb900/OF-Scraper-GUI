@@ -100,7 +100,7 @@ A visual walkthrough of each page in the GUI.
 
 ### Scraper — Select Action
 
-<img src="https://github.com/user-attachments/assets/e8fdf3d6-5cb0-4b1b-b968-78ab0070a937" width="600" alt="Main Window — Select Action">
+<img src="https://github.com/user-attachments/assets/7532a143-b492-4898-996e-c4d4f84f8c40" width="600" alt="Main Window — Select Action">
 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
@@ -406,31 +406,72 @@ Plugins that declare a `requirements.txt` will trigger a one-click dependency in
 
 For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOPMENT.md`](OF-Scraper-3.14.5/ofscraper/plugins/PLUGIN_DEVELOPMENT.md).
 
+> **⚠️ Note:** The plugin system itself is stable, but the included plugins are experimental and a work in progress — they may not function perfectly in all environments.
+
 ### Included plugins
 
-Three ready-to-use plugins are included. All are **disabled by default** — enable them by setting `plugin_enabled = 1` in their `main.py`.
+> **⚠️ Work in progress:** The included plugins are experimental and a work in progress. They may not work 100% reliably. Use them at your own risk and report any issues you encounter.
 
-#### Intelligent AI Tagger (`ai_tagger`)
-
-<!-- Screenshot placeholder: Smart Gallery sidebar page showing tagged images with tag chips -->
-
-Automatically tags every downloaded image using a local computer-vision model — no cloud API or internet connection required at inference time.
-
-- **Supported models:** WD14 (Danbooru tags), OpenCLIP ViT-B-32 (zero-shot label matching), Florence-2 (generative captions), custom `.safetensors` checkpoints
-- **Smart Gallery** sidebar page — browse tagged images, search by tag, and run semantic similarity search
-- **Smart Folders** — automatically copy images into subfolders named after their top predicted tag
-- Auto-tags images as they are downloaded; can also batch-scan existing folders
-- Dependencies: `torch`, `open_clip_torch`, `transformers`, `peewee`, `Pillow` (prompted automatically on first enable)
+Two ready-to-use plugins are included. Both are **disabled by default** — enable them by setting `plugin_enabled = 1` in their `main.py`.
 
 #### JoyCaption Tagger (`joycaption_tagger`)
 
 <!-- Screenshot placeholder: JoyCaption settings panel showing caption type/length options -->
 
-Sends downloaded images to a [JoyCaption](https://github.com/fpgaminer/joycaption) node running inside ComfyUI (local or Docker) and stores the captions in a local database.
+Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. Caption style and length are configurable per the plugin settings panel.
 
-- Configure caption style (Descriptive, Danbooru tag list, Stable Diffusion Prompt, etc.) and length in the plugin settings panel
-- Requires a running ComfyUI server with JoyCaption custom nodes — see `docker/comfyui-joycaption/` for a ready-made Docker setup
-- No additional Python packages required beyond the base ofscraper environment
+**System requirements**
+
+| | Minimum | Recommended |
+| :--- | :--- | :--- |
+| RAM | 8 GB | 16 GB+ |
+| Disk | 20 GB free | 30 GB+ free |
+| GPU | Not required | NVIDIA GPU with 8 GB+ VRAM for faster inference |
+| OS | Any Docker host | Linux preferred |
+
+> The JoyCaption model (`llama-joycaption-alpha-two-hf-llava`) is approximately **15 GB**. The included Docker setup runs in **CPU-only mode** — captioning will be noticeably slower than GPU inference but works on any machine with enough RAM.
+
+**Setup with Docker (recommended)**
+
+A ready-made Docker Compose setup is included in `docker/comfyui-joycaption/`.
+
+1. **Download the model weights** (~15 GB, resumes if interrupted):
+   ```bash
+   cd docker/comfyui-joycaption
+   pip install huggingface_hub
+   python download_models.py
+   ```
+
+2. **Build and start the container:**
+   ```bash
+   docker compose build
+   docker compose up -d
+   ```
+
+3. **Verify ComfyUI is running** by opening `http://localhost:8188` in your browser.
+
+4. **Install the JoyCaption custom node** inside ComfyUI:
+   - Open ComfyUI Manager (top menu → Manager)
+   - Search for **JoyCaption** and install the node
+   - Restart the container after installing
+
+5. **Configure the plugin** by opening the JoyCaption Tagger settings in the OF-Scraper GUI and setting the ComfyUI URL to `http://localhost:8188` (or your server's IP if running remotely).
+
+**Setup without Docker**
+
+If you already have ComfyUI running locally, install the JoyCaption custom node via ComfyUI Manager, ensure the `llama-joycaption-alpha-two-hf-llava` model is in your ComfyUI `models/LLM/` folder, then point the plugin at your existing ComfyUI URL.
+
+**Plugin settings**
+
+| Setting | Description |
+| :--- | :--- |
+| ComfyUI URL | URL of your ComfyUI server (default: `http://localhost:8188`) |
+| Caption Type | Style of caption: Descriptive, Stable Diffusion Prompt, Danbooru tag list, etc. |
+| Caption Length | `any`, `very short`, `short`, `medium-length`, `long`, `very long` |
+| Timeout | Seconds to wait for a caption response before giving up (default: 600) |
+| Auto-tag images | Automatically caption images as they are downloaded |
+
+---
 
 #### LLM Assistant (`llm_assistant`)
 
@@ -438,10 +479,42 @@ Sends downloaded images to a [JoyCaption](https://github.com/fpgaminer/joycaptio
 
 Adds a **🤖 AI Assistant** chat panel to the sidebar. Type plain English commands — the assistant translates them into GUI actions such as setting usernames, selecting content areas, and starting downloads.
 
-- Runs a GGUF model locally via `llama-cpp-python` — no Ollama, no cloud API, no internet required at runtime
-- Also injects a compact command bar directly into the Action and Area Selector pages
-- First launch walks you through model selection and automatic download
-- Dependency: `llama-cpp-python` (prompted automatically on first enable)
+**System requirements**
+
+| | Minimum | Recommended |
+| :--- | :--- | :--- |
+| RAM | 1 GB free | 2 GB+ free |
+| Disk | 600 MB free | 2 GB free (for larger model) |
+| GPU | Not required | Not required — CPU inference only |
+| Internet | Required once (model download) | — |
+
+**Available models**
+
+Three GGUF models are available to choose from at first launch. All run on CPU with no GPU required:
+
+| Model | Size | RAM needed | Notes |
+| :--- | :--- | :--- | :--- |
+| Qwen2.5 0.5B Q8_0 | ~530 MB | ~530 MB | Fastest, lowest accuracy |
+| Qwen2.5 1.5B Q4_K_M | ~1.1 GB | ~1.1 GB | **Recommended** — good balance |
+| Qwen2.5 3B Q4_K_M | ~2.0 GB | ~2.0 GB | Best accuracy, needs 2+ GB free RAM |
+
+**Setup**
+
+The plugin handles its own setup on first enable:
+
+1. Set `plugin_enabled = 1` in `llm_assistant/main.py` and restart the GUI.
+2. A **model selection dialog** appears automatically — pick the model that fits your available RAM.
+3. The plugin checks for and installs missing dependencies (`llama-cpp-python`, `huggingface-hub`) with a one-click dialog.
+4. The selected model is downloaded from HuggingFace (~530 MB – 2 GB depending on choice).
+5. On subsequent launches the model loads automatically in the background.
+
+> **Manual dependency install** (if the GUI dialog fails):
+> ```bash
+> # pip
+> pip install llama-cpp-python huggingface-hub
+> # pipx
+> pipx inject ofscraper llama-cpp-python huggingface-hub
+> ```
 
 ---
 
