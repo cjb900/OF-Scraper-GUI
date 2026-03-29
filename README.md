@@ -337,7 +337,7 @@ Built-in documentation available at any time without leaving the app:
 
 ### Scrape individual posts by URL or Post ID *(3.14.5)*
 
-<img src="https://github.com/cjb900/user-attachments/assets/0e803391-ebfd-44e4-a7bd-9ea0e843b736" width="600" alt="Scrape by Post ID or URL">
+<img src="https://github.com/user-attachments/assets/0e803391-ebfd-44e4-a7bd-9ea0e843b736" width="600" alt="Scrape by Post ID or URL">
 
 <!-- Screenshot placeholder: URL input page showing the text box with example URLs/IDs -->
 
