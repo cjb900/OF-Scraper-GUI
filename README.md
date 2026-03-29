@@ -405,7 +405,7 @@ Each plugin is a subfolder containing at minimum a `main.py` with a `Plugin` cla
 
 Plugins that declare a `requirements.txt` will trigger a one-click dependency install dialog if their packages are missing.
 
-For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOPMENT.md`](OF-Scraper-3.14.5/ofscraper/plugins/PLUGIN_DEVELOPMENT.md).
+For full documentation on writing plugins see [`PLUGIN_DEVELOPMENT.md`](https://github.com/cjb900/OF-Scraper-GUI/blob/main/PLUGIN_DEVELOPMENT.md).
 
 > **⚠️ Note:** The plugin system itself is stable, but the included plugins are experimental and a work in progress — they may not function perfectly in all environments.
 
