@@ -33,7 +33,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Scraper workflow](#scraper-workflow)
   - [Daemon mode](#daemon-mode-auto-repeat-scraping)
   - [Table page](#table-page)
-  - [Check mode](#check-mode-1)
+  - [Check mode](#check-mode-3143-and-3145)
   - [Progress bar](#progress-bar)
   - [CLI auto-start](#cli-auto-start)
   - [Scrape individual posts by URL or Post ID](#scrape-individual-posts-by-url-or-post-id-3145)
@@ -104,6 +104,8 @@ A visual walkthrough of each page in the GUI.
 ### Scraper — Select Action
 
 <img src="https://github.com/user-attachments/assets/1c83ce37-e1b3-4e9f-bdc1-8dfedbbffc5d" width="600" alt="Main Window — Select Action">
+<img src="https://github.com/user-attachments/assets/7633c9ce-70e6-41c4-9171-c0a81c55dbf4" width="600" alt="Main Window — User List">
+
 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
