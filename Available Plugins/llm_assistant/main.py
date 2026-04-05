@@ -2,12 +2,9 @@
 plugin_enabled = 1
 
 import json
-import logging
 from pathlib import Path
 
 from ofscraper.plugins.base import BasePlugin
-
-log = logging.getLogger("ofscraper_plugin.llm_assistant")
 
 _SETTINGS_FILE = "settings.json"
 
@@ -24,7 +21,7 @@ class Plugin(BasePlugin):
     """
 
     def on_load(self):
-        log.info("LLM Assistant plugin loaded")
+        self.log.info("LLM Assistant plugin loaded")
         self.data_dir = (
             Path(self.plugin_dir) if self.plugin_dir else Path(__file__).parent
         )
@@ -85,17 +82,17 @@ class Plugin(BasePlugin):
             data.update(updates)
             p.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except Exception as e:
-            log.warning("Could not write settings: %s", e)
+            self.log.warning("Could not write settings: %s", e)
 
     def _save_model_choice(self, model_id: str, model_filename: str):
         self._write_settings({"model_id": model_id, "model_filename": model_filename})
         self._saved_model_id       = model_id
         self._saved_model_filename = model_filename
-        log.info("Saved model preference: %s / %s", model_id, model_filename)
+        self.log.info("Saved model preference: %s / %s", model_id, model_filename)
 
     def _mark_model_downloaded(self):
         self._write_settings({"model_downloaded": True})
-        log.info("Model marked as downloaded")
+        self.log.info("Model marked as downloaded")
 
     # ------------------------------------------------------------------
     # GUI setup
@@ -124,36 +121,22 @@ class Plugin(BasePlugin):
             main_window._nav_buttons["llm_assistant"] = btn
 
             nav_layout = main_window._nav_frame.layout()
-            # Insert before the expanding stretch so plugin buttons appear
-            # with the main nav group. addSpacing() also creates QSpacerItems
-            # so we must check expandingDirections() to find the real stretch.
-            from PyQt6.QtCore import Qt as _Qt
-            stretch_idx = -1
-            for _i in range(nav_layout.count()):
-                _item = nav_layout.itemAt(_i)
-                if _item and _item.spacerItem() is not None:
-                    if _item.expandingDirections() & _Qt.Orientation.Vertical:
-                        stretch_idx = _i
-                        break
-            if stretch_idx >= 0:
-                nav_layout.insertWidget(stretch_idx, btn)
+            theme_idx  = nav_layout.indexOf(main_window._theme_btn)
+            if theme_idx >= 0:
+                nav_layout.insertWidget(theme_idx, btn)
             else:
-                theme_idx = nav_layout.indexOf(main_window._theme_btn)
-                if theme_idx >= 0:
-                    nav_layout.insertWidget(theme_idx, btn)
-                else:
-                    nav_layout.addWidget(btn)
+                nav_layout.addWidget(btn)
 
             btn.clicked.connect(
                 lambda checked: main_window._navigate("llm_assistant")
             )
-            log.info("LLM Assistant tab attached to sidebar")
+            self.log.info("LLM Assistant tab attached to sidebar")
 
             # ── Inject compact command bars ──────────────────────────────
             def _inject_bar(page, attr_name: str):
                 layout = page.layout() if page else None
                 if layout is None:
-                    log.warning(
+                    self.log.warning(
                         "LLM Assistant: could not inject bar into %s (no layout)",
                         attr_name,
                     )
@@ -163,7 +146,7 @@ class Plugin(BasePlugin):
                 sep.setFrameShape(QFrame.Shape.HLine)
                 layout.insertWidget(0, sep)
                 layout.insertWidget(0, bar)
-                log.info("LLM Assistant bar injected into %s", attr_name)
+                self.log.info("LLM Assistant bar injected into %s", attr_name)
 
             action_page = getattr(main_window, "action_page", None)
             area_page   = getattr(main_window, "area_page",   None)
@@ -171,12 +154,12 @@ class Plugin(BasePlugin):
             if action_page:
                 _inject_bar(action_page, "action_page")
             else:
-                log.warning("LLM Assistant: action_page not found, bar not injected")
+                self.log.warning("LLM Assistant: action_page not found, bar not injected")
 
             if area_page:
                 _inject_bar(area_page, "area_page")
             else:
-                log.warning("LLM Assistant: area_page not found, bar not injected")
+                self.log.warning("LLM Assistant: area_page not found, bar not injected")
 
             # ── Auto-load model if previously downloaded ─────────────────
             if self._settings_existed and self._saved_model_id:
@@ -185,12 +168,12 @@ class Plugin(BasePlugin):
                         if self._tab and not getattr(
                             getattr(self, "engine", None), "is_loaded", False
                         ):
-                            log.info(
+                            self.log.info(
                                 "Auto-loading cached model: %s", self._saved_model_id
                             )
                             self._tab._on_load_model()
                     except Exception as exc:
-                        log.error("Auto-load failed: %s", exc)
+                        self.log.error("Auto-load failed: %s", exc)
 
                 QTimer.singleShot(1500, _auto_load)
 
@@ -218,7 +201,7 @@ class Plugin(BasePlugin):
                                     combo.setCurrentIndex(i)
                                     break
 
-                        log.info(
+                        self.log.info(
                             "Model preference saved from first-run dialog: %s / %s",
                             chosen_id, chosen_filename,
                         )
@@ -226,26 +209,26 @@ class Plugin(BasePlugin):
                         # ── Step 2: check / install Python deps ──────────
                         missing = _check_missing_deps()
                         if missing:
-                            log.info("Missing deps: %s — showing install dialog", missing)
+                            self.log.info("Missing deps: %s — showing install dialog", missing)
                             deps_dlg = DepsInstallDialog(
                                 missing_packages=missing,
                                 parent=main_window,
                             )
                             accepted = deps_dlg.exec()
-                            log.info("Deps dialog closed: accepted=%s success=%s",
+                            self.log.info("Deps dialog closed: accepted=%s success=%s",
                                      accepted, deps_dlg.was_successful())
                             if not accepted:
                                 # User cancelled — settings already saved so
                                 # the first-run dialog won't re-appear, but
                                 # model_downloaded stays False so on next launch
                                 # it will proceed straight to deps+download.
-                                log.info(
+                                self.log.info(
                                     "Deps install skipped; will retry on next launch"
                                 )
                                 return
 
                         # ── Step 3: download / load the model ────────────
-                        log.info(
+                        self.log.info(
                             "Launching model download dialog: %s / %s",
                             chosen_id, chosen_filename,
                         )
@@ -268,15 +251,15 @@ class Plugin(BasePlugin):
                             self._download_dialog.show()
                             self._download_dialog.start()
                         except Exception as dl_exc:
-                            log.error("Could not launch model download dialog: %s", dl_exc)
+                            self.log.error("Could not launch model download dialog: %s", dl_exc)
 
                     except Exception as exc:
-                        log.error("First-run dialog error: %s", exc, exc_info=True)
+                        self.log.error("First-run dialog error: %s", exc, exc_info=True)
 
                 QTimer.singleShot(800, _show_model_dialog)
 
         except Exception as e:
-            log.error("Failed to attach LLM Assistant GUI: %s", e)
+            self.log.error("Failed to attach LLM Assistant GUI: %s", e)
 
     def on_unload(self):
         if self._tab:

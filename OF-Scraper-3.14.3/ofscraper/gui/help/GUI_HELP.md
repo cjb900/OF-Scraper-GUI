@@ -14,6 +14,7 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
   - [Content Areas](#sca-content-areas)
   - [Media Types to Download](#sca-media-types)
   - [Additional Options](#sca-additional-options)
+    - [Include Post Text](#sca-include-post-text)
   - [Advanced Scrape Options](#sca-advanced-options)
   - [Daemon Mode](#sca-daemon-mode)
   - [Filters (embedded)](#sca-filters)
@@ -121,6 +122,13 @@ Pulls content via labels when available.
 
 When to use:
 - If you organize creators by labels and want label-based coverage.
+
+<a id="sca-include-post-text"></a>
+#### Include Post Text
+When enabled, the text body of each post is included alongside the downloaded media.
+
+When to use:
+- If you want to keep the post's caption or description alongside the downloaded files.
 
 <a id="sca-discord-updates"></a>
 #### Send updates to Discord (requires webhook URL in Config → General)

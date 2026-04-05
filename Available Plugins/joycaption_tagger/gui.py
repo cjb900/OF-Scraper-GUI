@@ -4,8 +4,8 @@ import os
 import shutil
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, Qt, QSize, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QIcon, QKeySequence, QPixmap, QShortcut
+from PyQt6.QtCore import QEvent, Qt, QSize, QThread, QTimer, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices, QIcon, QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -36,28 +36,28 @@ _TAGS_ROLE = Qt.ItemDataRole.UserRole + 1
 _PATH_ROLE = Qt.ItemDataRole.UserRole + 2
 
 # ---------------------------------------------------------------------------
-# Synonym groups — searching any term matches all terms in the same group.
-# Add your own groups here; all comparisons are case-insensitive.
+# Synonym groups — loaded from synonyms.json next to this file.
+# Searching any term in a group matches all terms in the same group.
+# Multi-word phrases (e.g. "blow job", "on all fours") are fully supported.
 # ---------------------------------------------------------------------------
-_SYNONYM_GROUPS: list[set[str]] = [
-    {"blow job", "blowjob", "oral sex", "fellatio", "oral", "performing oral"},
-    {"pussy", "vulva", "vagina", "genitals", "genitalia"},
-    {"boobs", "tits", "breasts", "breast", "nipples", "topless", "bare breasts"},
-    {"dick", "cock", "penis", "erect penis", "erection", "phallus"},
-    {"ass", "butt", "buttocks", "rear", "anus", "behind"},
-    {"anal", "anal sex", "anal penetration"},
-    {"cum", "cumshot", "ejaculation", "semen", "ejaculate", "facial"},
-    {"sex", "intercourse", "penetration", "fucking", "sexual intercourse"},
-    {"nude", "naked", "nudity", "undressed", "bare"},
-    {"handjob", "hand job", "stroking", "masturbation"},
-    {"fingering", "finger penetration", "fingers"},
-    {"lesbian", "girl on girl", "two women", "two girls"},
-    {"threesome", "three people", "group sex", "mmf", "ffm"},
-    {"tattoo", "tattooed", "tattoos"},
-    {"piercing", "nose ring", "nipple ring", "belly ring"},
-    {"stockings", "thigh highs", "fishnet", "pantyhose"},
-    {"lingerie", "bra", "underwear", "panties", "thong"},
-]
+
+def _load_synonym_groups() -> list[set[str]]:
+    """Load synonym groups from synonyms.json (same directory as this file)."""
+    try:
+        syn_path = Path(__file__).parent / "synonyms.json"
+        with open(syn_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            # Dict format: {category: [terms, ...]} — skip the _comment key
+            return [set(v) for k, v in data.items() if k != "_comment" and isinstance(v, list)]
+        if isinstance(data, list):
+            return [set(group) for group in data if isinstance(group, list)]
+    except Exception:
+        pass
+    return []
+
+
+_SYNONYM_GROUPS: list[set[str]] = _load_synonym_groups()
 
 
 def _expand_search(keyword: str) -> set[str]:
@@ -69,6 +69,41 @@ def _expand_search(keyword: str) -> set[str]:
         if kw in group:
             return group
     return {kw}
+
+
+def _parse_search_tokens(keyword: str) -> list[set[str]]:
+    """
+    Parse a search string into synonym-expanded term groups for AND matching.
+
+    Greedily matches the longest known synonym phrase at each position before
+    falling back to single-word literal tokens.  This ensures multi-word
+    phrases like 'blow job' or 'on all fours' are treated as one unit and
+    expanded to their full synonym group.
+    """
+    words = keyword.strip().lower().split()
+    result: list[set[str]] = []
+    i = 0
+    while i < len(words):
+        best_length = 0
+        best_group: set[str] | None = None
+        # Try longest phrase first (greedy match)
+        for length in range(len(words) - i, 0, -1):
+            phrase = " ".join(words[i:i + length])
+            for grp in _SYNONYM_GROUPS:
+                if phrase in grp:
+                    best_length = length
+                    best_group = grp
+                    break
+            if best_group is not None:
+                break
+        if best_group is not None:
+            result.append(best_group)
+            i += best_length
+        else:
+            # No synonym match — use the word as a literal search term
+            result.append({words[i]})
+            i += 1
+    return result
 
 
 def _gallery_scan_progress_qss():
@@ -307,6 +342,7 @@ class JoyCaptionTab(QWidget):
         self._scan_thread: ScanFolderThread | None = None
         self._preview_full_pixmap = None
         self._full_view_row = 0
+        self._active_model_filter: str | None = None
 
         root = QVBoxLayout(self)
         root.setContentsMargins(8, 8, 8, 8)
@@ -327,6 +363,11 @@ class JoyCaptionTab(QWidget):
         self.scan_btn.clicked.connect(self._start_scan)
         top_bar.addWidget(self.scan_btn)
 
+        self._btn_models = QPushButton("👤 Models")
+        self._btn_models.setToolTip("Browse images by model")
+        self._btn_models.clicked.connect(self._show_models_page)
+        top_bar.addWidget(self._btn_models)
+
         btn_settings = QPushButton("⚙️ Settings")
         btn_settings.clicked.connect(self._open_settings)
         top_bar.addWidget(btn_settings)
@@ -334,6 +375,22 @@ class JoyCaptionTab(QWidget):
         btn_refresh = QPushButton("Refresh")
         btn_refresh.clicked.connect(self._load_gallery)
         top_bar.addWidget(btn_refresh)
+
+        # Active model filter indicator (hidden until a model is selected)
+        self._model_filter_widget = QWidget()
+        _mfw = QHBoxLayout(self._model_filter_widget)
+        _mfw.setContentsMargins(4, 0, 0, 0)
+        _mfw.setSpacing(2)
+        self._model_filter_label = QLabel("")
+        self._model_filter_label.setStyleSheet("font-weight: bold;")
+        _mfw_clear = QPushButton("✕ All Images")
+        _mfw_clear.setToolTip("Clear model filter — return to full gallery")
+        _mfw_clear.clicked.connect(self._clear_model_filter)
+        _mfw.addWidget(self._model_filter_label)
+        _mfw.addWidget(_mfw_clear)
+        self._model_filter_widget.setVisible(False)
+        top_bar.addWidget(self._model_filter_widget)
+
         root.addLayout(top_bar)
 
         # Selected-file label
@@ -372,11 +429,15 @@ class JoyCaptionTab(QWidget):
         self._btn_prev.clicked.connect(self._full_view_prev)
         self._btn_next = QPushButton("Next →")
         self._btn_next.clicked.connect(self._full_view_next)
+        self._btn_open_viewer = QPushButton("🖼 Open in Viewer")
+        self._btn_open_viewer.setToolTip("Open this image in the system default image viewer")
+        self._btn_open_viewer.clicked.connect(self._open_in_viewer)
         self._pos_label = QLabel("")
         full_nav.addWidget(self._btn_back)
         full_nav.addWidget(self._btn_prev)
         full_nav.addWidget(self._btn_next)
         full_nav.addStretch()
+        full_nav.addWidget(self._btn_open_viewer)
         full_nav.addWidget(self._pos_label)
 
         full_page = QWidget()
@@ -389,10 +450,40 @@ class JoyCaptionTab(QWidget):
         full_layout.addWidget(QLabel("Caption / Tags"))
         full_layout.addWidget(self._preview_tags_label)
 
+        # ── Models page ───────────────────────────────────────────────
+        models_page = QWidget()
+        models_layout = QVBoxLayout(models_page)
+        models_layout.setContentsMargins(0, 0, 0, 0)
+        models_layout.setSpacing(6)
+        models_top = QHBoxLayout()
+        btn_models_back = QPushButton("← Back to Gallery")
+        btn_models_back.clicked.connect(lambda: self._gallery_stack.setCurrentIndex(0))
+        models_top.addWidget(btn_models_back)
+        models_top.addStretch()
+        btn_redetect = QPushButton("🔍 Re-detect model names")
+        btn_redetect.setToolTip(
+            "Update model names for all gallery entries where none was detected.\n"
+            "Run this after scanning folders if the Models list appears empty."
+        )
+        btn_redetect.clicked.connect(self._redetect_model_names)
+        models_top.addWidget(btn_redetect)
+        models_layout.addLayout(models_top)
+        self._models_list = QListWidget()
+        self._models_list.setViewMode(QListWidget.ViewMode.IconMode)
+        self._models_list.setIconSize(QSize(80, 80))
+        self._models_list.setGridSize(QSize(120, 130))
+        self._models_list.setResizeMode(QListWidget.ResizeMode.Adjust)
+        self._models_list.setSpacing(12)
+        self._models_list.setWordWrap(True)
+        self._models_list.setMovement(QListWidget.Movement.Static)
+        self._models_list.itemClicked.connect(self._on_model_selected)
+        models_layout.addWidget(self._models_list, stretch=1)
+
         # ── Stacked widget ────────────────────────────────────────────
         self._gallery_stack = QStackedWidget()
         self._gallery_stack.addWidget(self.gallery)   # index 0
         self._gallery_stack.addWidget(full_page)      # index 1
+        self._gallery_stack.addWidget(models_page)    # index 2
         root.addWidget(self._gallery_stack, stretch=1)
 
         # Keyboard shortcuts
@@ -467,18 +558,18 @@ class JoyCaptionTab(QWidget):
     def _filter_gallery(self, keyword: str = ""):
         self.gallery.clear()
         try:
-            items = list(
-                MediaItem.select().order_by(MediaItem.created_at.desc()).limit(2000)
-            )
+            query = MediaItem.select().order_by(MediaItem.created_at.desc())
+            if self._active_model_filter:
+                query = query.where(MediaItem.model_username == self._active_model_filter)
+            items = list(query.limit(2000))
         except Exception as e:
             self.status_label.setText(f"DB error: {e}")
             return
 
         kw = keyword.strip().lower()
-        # Split into individual tokens; each token is expanded with synonyms.
-        # ALL tokens must match (AND logic).
-        tokens = kw.split() if kw else []
-        term_groups = [_expand_search(t) for t in tokens]
+        # Parse into synonym-expanded term groups; ALL groups must match (AND logic).
+        # Multi-word phrases like "blow job" are handled as a single unit.
+        term_groups = _parse_search_tokens(kw) if kw else []
         shown = 0
         for item in items:
             tags = item.get_tags()
@@ -504,10 +595,11 @@ class JoyCaptionTab(QWidget):
             shown += 1
 
         total = len(items)
-        if tokens:
-            self.status_label.setText(f"{shown} / {total} images match")
+        prefix = f"👤 {self._active_model_filter} — " if self._active_model_filter else ""
+        if term_groups:
+            self.status_label.setText(f"{prefix}{shown} / {total} images match")
         else:
-            self.status_label.setText(f"{total} images")
+            self.status_label.setText(f"{prefix}{total} images")
 
     # ------------------------------------------------------------------
     # Gallery → full view
@@ -550,6 +642,17 @@ class JoyCaptionTab(QWidget):
         self._btn_prev.setEnabled(n > 0 and r > 0)
         self._btn_next.setEnabled(n > 0 and r < n - 1)
         self._pos_label.setText(f"{r + 1} / {n}" if n else "")
+        item = self.gallery.item(r) if 0 <= r < n else None
+        path = item.data(_PATH_ROLE) if item else None
+        self._btn_open_viewer.setEnabled(bool(path and os.path.isfile(path)))
+
+    def _open_in_viewer(self):
+        item = self.gallery.item(self._full_view_row)
+        if not item:
+            return
+        path = item.data(_PATH_ROLE) or ""
+        if path and os.path.isfile(path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _fit_preview_image(self):
         if self._preview_full_pixmap is None or self._preview_full_pixmap.isNull():
@@ -602,6 +705,116 @@ class JoyCaptionTab(QWidget):
             self._preview_tags_label.setText("\n".join(lines))
         else:
             self._preview_tags_label.setText("(no caption)")
+
+    # ------------------------------------------------------------------
+    # Models page
+    # ------------------------------------------------------------------
+
+    def _show_models_page(self):
+        self._load_models_page()
+        self._gallery_stack.setCurrentIndex(2)
+
+    def _load_models_page(self):
+        self._models_list.clear()
+        try:
+            from peewee import fn
+            rows = (
+                MediaItem
+                .select(MediaItem.model_username, fn.COUNT(MediaItem.id).alias("cnt"))
+                .where(MediaItem.model_username != "")
+                .group_by(MediaItem.model_username)
+                .order_by(MediaItem.model_username)
+            )
+            for row in rows:
+                lw_item = QListWidgetItem(f"{row.model_username}\n({row.cnt} images)")
+                lw_item.setData(Qt.ItemDataRole.UserRole, row.model_username)
+                lw_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter)
+                avatar_path = self._find_model_avatar(row.model_username)
+                if avatar_path:
+                    pix = QPixmap(avatar_path)
+                    if not pix.isNull():
+                        size = 80
+                        scaled = pix.scaled(
+                            size, size,
+                            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                            Qt.TransformationMode.SmoothTransformation,
+                        )
+                        x = (scaled.width() - size) // 2
+                        y = (scaled.height() - size) // 2
+                        lw_item.setIcon(QIcon(scaled.copy(x, y, size, size)))
+                self._models_list.addItem(lw_item)
+            if self._models_list.count() == 0:
+                self._models_list.addItem(QListWidgetItem("No models found — scan a folder to populate"))
+        except Exception as e:
+            self._models_list.addItem(QListWidgetItem(f"Error loading models: {e}"))
+
+    def _find_model_dir(self, file_path: str, username: str) -> str | None:
+        """Find the model's base directory from a stored file path."""
+        parts = Path(str(file_path)).parts
+        for i, part in enumerate(parts):
+            if part == username and i > 0:
+                return str(Path(*parts[:i + 1]))
+        return None
+
+    def _find_model_avatar(self, username: str) -> str | None:
+        """Find the avatar image for a model from their Profile/Images folder."""
+        try:
+            record = MediaItem.select().where(MediaItem.model_username == username).first()
+            if not record:
+                return None
+            model_dir = self._find_model_dir(record.file_path, username)
+            if not model_dir:
+                return None
+            profile_imgs = Path(model_dir) / "Profile" / "Images"
+            if not profile_imgs.is_dir():
+                return None
+            # Prefer exact non-dated avatar first
+            for name in ("avatar.jpeg", "avatar.jpg", "avatar.png", "avatar.webp"):
+                p = profile_imgs / name
+                if p.is_file():
+                    return str(p)
+            # Fall back to any avatar* file (undated sorts before dated)
+            candidates = sorted(profile_imgs.glob("avatar*"))
+            if candidates:
+                return str(candidates[0])
+        except Exception:
+            pass
+        return None
+
+    def _on_model_selected(self, item: QListWidgetItem):
+        username = item.data(Qt.ItemDataRole.UserRole)
+        if not username:
+            return
+        self._active_model_filter = username
+        self._model_filter_label.setText(f"👤 {username}")
+        self._model_filter_widget.setVisible(True)
+        self._gallery_stack.setCurrentIndex(0)
+        self._load_gallery()
+
+    def _clear_model_filter(self):
+        self._active_model_filter = None
+        self._model_filter_widget.setVisible(False)
+        self._load_gallery()
+
+    def _redetect_model_names(self):
+        """Backfill model_username for all existing records that have an empty value."""
+        from .database import extract_model_username
+        try:
+            records = list(MediaItem.select().where(MediaItem.model_username == ""))
+            updated = 0
+            for record in records:
+                username = extract_model_username(record.file_path)
+                if username:
+                    record.model_username = username
+                    record.save()
+                    updated += 1
+        except Exception as e:
+            self.status_label.setText(f"Re-detect error: {e}")
+            return
+        self._load_models_page()
+        self.status_label.setText(
+            f"Re-detected {updated} model name(s) from {len(records)} untagged record(s)."
+        )
 
     # ------------------------------------------------------------------
     # Settings

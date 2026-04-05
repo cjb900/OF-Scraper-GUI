@@ -84,7 +84,7 @@ WHERE media_id=(?) and model_id=(?) and post_id=(?);"""
 mediaUpdateDownload = """Update 'medias'
 SET
 directory=?,filename=?,size=?,downloaded=?,hash=?
-WHERE media_id=(?) and model_id=(?);"""
+WHERE media_id=(?) and model_id=(?) and post_id=(?);"""
 
 
 mediaDupeHashesMedia = """
@@ -705,7 +705,7 @@ def update_media_table_download_helper(
         downloaded,
         hashdata,
     ]
-    insertData.extend([media.id, model_id])
+    insertData.extend([media.id, model_id, getattr(media, "post_id", None)])
     curr.execute(mediaUpdateDownload, insertData)
     conn.commit()
 

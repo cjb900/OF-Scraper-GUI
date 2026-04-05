@@ -74,7 +74,7 @@ async def process_dicts(username, model_id, medialist):
             await asyncio.get_event_loop().run_in_executor(
                 common_globals.thread, cache.close
             )
-            common_globals.thread.shutdown()
+            common_globals.thread.shutdown(wait=False)
 
         setDirectoriesDate()
         download_log_clear_helper()

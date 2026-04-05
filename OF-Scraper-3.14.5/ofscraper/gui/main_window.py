@@ -105,7 +105,7 @@ class MainWindow(QMainWindow):
         if not bool(getattr(args, "gui", False)):
             return
 
-        # Require usernames and areas to auto-start; action defaults to 'download'.
+        # Require usernames (or a userlist) and areas to auto-start; action defaults to 'download'.
         # Check both 'actions' (Click dest) and legacy 'action' attribute.
         raw_actions = (
             getattr(args, "actions", None) or getattr(args, "action", None) or []
@@ -114,6 +114,7 @@ class MainWindow(QMainWindow):
         raw_posts = getattr(args, "posts", None) or []
         raw_da = getattr(args, "download_area", None) or []
         raw_la = getattr(args, "like_area", None) or []
+        raw_userlist = getattr(args, "userlist", None) or []
 
         def _flatten_strs(v):
             out = []
@@ -131,15 +132,32 @@ class MainWindow(QMainWindow):
                 out.append(str(v))
             return out
 
+        # Detect a user-specified list filter (excluding ofscraper's reserved names)
+        try:
+            import ofscraper.utils.of_env.of_env as _of_env
+            _reserved = {
+                (_of_env.getattr("OFSCRAPER_RESERVED_LIST") or "").lower(),
+                (_of_env.getattr("OFSCRAPER_RESERVED_LIST_ALT") or "").lower(),
+            }
+        except Exception:
+            _reserved = {"ofscraper.main", "main"}
+        active_userlist = [
+            u.lower() for u in _flatten_strs(raw_userlist)
+            if u.strip() and u.strip().lower() not in _reserved
+        ]
+
         actions = {a.strip().lower() for a in _flatten_strs(raw_actions) if str(a).strip()}
         usernames = {u.strip().lower() for u in _flatten_strs(raw_users) if str(u).strip()}
         has_download_areas = bool(_flatten_strs(raw_posts) or _flatten_strs(raw_da))
         has_like_areas = bool(_flatten_strs(raw_la))
         has_areas = has_download_areas or has_like_areas
 
-        # No usernames or areas → nothing to auto-start
-        if not usernames or not has_areas:
+        # Need either usernames or a userlist (and areas) to auto-start.
+        # --ul without -u means "all models from that list".
+        if (not usernames and not active_userlist) or not has_areas:
             return
+        if not usernames and active_userlist:
+            usernames = {"all"}
 
         # Infer action when --action/--actions not explicitly passed:
         # if only like_area is set → like; otherwise → download.
@@ -152,7 +170,16 @@ class MainWindow(QMainWindow):
         log.info(
             f"[GUI] Auto-start detected from CLI args: actions={sorted(actions)}, "
             f"usernames={('ALL' if 'all' in usernames else sorted(usernames))}"
+            + (f", userlist={active_userlist}" if active_userlist else "")
         )
+
+        # Apply the userlist to settings so the model fetch uses the correct filter.
+        if active_userlist:
+            try:
+                import ofscraper.utils.settings as _autostart_settings
+                _autostart_settings.update_settings()
+            except Exception:
+                pass
 
         # Compute final areas using the area accessors directly (bypasses
         # get_final_posts_area() which needs settings.actions to already be set).
@@ -219,8 +246,32 @@ class MainWindow(QMainWindow):
             return
 
         def _fetch_models():
-            self.manager.model_manager.all_subs_retriver()
-            return getattr(self.manager.model_manager, "all_subs_obj", None) or []
+            if active_userlist:
+                # Bypass the additive get_models() path; fetch ONLY members of
+                # the named list(s) by calling get_otherlist() directly.
+                import asyncio
+                import ofscraper.data.api.subscriptions.lists as _lists_mod
+                import ofscraper.classes.of.models as _models_cls
+
+                async def _do_fetch():
+                    raw = _lists_mod.get_otherlist()
+                    if asyncio.iscoroutine(raw):
+                        raw = await raw
+                    return [_models_cls.Model(m) for m in (raw or [])]
+
+                loop = asyncio.new_event_loop()
+                try:
+                    asyncio.set_event_loop(loop)
+                    data = loop.run_until_complete(_do_fetch())
+                finally:
+                    loop.close()
+                    asyncio.set_event_loop(None)
+                # Store on manager so the rest of the auto-start flow works normally
+                self.manager.model_manager.all_subs_dict = data
+                return data
+            else:
+                self.manager.model_manager.all_subs_retriver()
+                return getattr(self.manager.model_manager, "all_subs_obj", None) or []
 
         def _on_models(models):
             try:
@@ -764,19 +815,19 @@ class MainWindow(QMainWindow):
                 missing_ffmpeg = not p.is_file()
             except Exception:
                 missing_ffmpeg = True
-        # Manual keys: only check if key-mode-default is "manual"; other modes don't need them.
+        # CDM key check: warn whenever manual key files are not configured/valid,
+        # regardless of the current key mode.  Users on cdrm/cdrm2/keydb should
+        # still be prompted to set up manual keys as a fallback.
         cdm_opts = cfg.get("cdm_options") if isinstance(cfg.get("cdm_options"), dict) else {}
         key_mode = str(cdm_opts.get("key-mode-default") or "cdrm").lower().strip() or "cdrm"
-        missing_manual_cdm = False
-        if key_mode == "manual":
-            client_raw = str(cdm_client).strip() if cdm_client is not None else ""
-            priv_raw = str(cdm_private).strip() if cdm_private is not None else ""
-            missing_manual_cdm = True
-            if client_raw and priv_raw:
-                try:
-                    missing_manual_cdm = not (Path(client_raw).is_file() and Path(priv_raw).is_file())
-                except Exception:
-                    missing_manual_cdm = True
+        client_raw = str(cdm_client).strip() if cdm_client is not None else ""
+        priv_raw = str(cdm_private).strip() if cdm_private is not None else ""
+        missing_manual_cdm = True
+        if client_raw and priv_raw:
+            try:
+                missing_manual_cdm = not (Path(client_raw).is_file() and Path(priv_raw).is_file())
+            except Exception:
+                missing_manual_cdm = True
 
         if not (missing_ffmpeg or missing_manual_cdm):
             return
@@ -796,8 +847,8 @@ class MainWindow(QMainWindow):
                 page = self._pages.get("config")
                 if page and hasattr(page, "go_to_config_field"):
                     # Focus first missing field; prefer client-id
-                    key = "client-id" if not bool(client_raw) else "private-key"
-                    page.go_to_config_field("CDM", key)
+                    field = "client-id" if not bool(client_raw) else "private-key"
+                    page.go_to_config_field("CDM", field)
             except Exception:
                 pass
 
@@ -813,6 +864,7 @@ class MainWindow(QMainWindow):
             dlg = MissingDepsDialog(
                 missing_ffmpeg=missing_ffmpeg,
                 missing_manual_cdm=missing_manual_cdm,
+                key_mode=key_mode,
                 on_open_ffmpeg=open_ffmpeg,
                 on_open_cdm=open_cdm,
                 on_open_drm=open_drm,

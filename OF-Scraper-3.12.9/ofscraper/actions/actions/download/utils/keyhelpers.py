@@ -65,18 +65,23 @@ async def un_encrypt(item, c, ele, input_=None):
         log.debug(
             f"{get_medialog(ele)}  renaming {pathlib.Path(item['path']).absolute()} -> {newpath}"
         )
-        r = run(
-            [
-                settings.get_ffmpeg(),
-                "-decryption_key",
-                ffmpeg_key,
-                "-i",
-                str(item["path"]),
-                "-codec",
-                "copy",
-                str(newpath),
-                "-y",
-            ]
+        r = await asyncio.get_event_loop().run_in_executor(
+            common_globals.thread,
+            partial(
+                run,
+                [
+                    settings.get_ffmpeg(),
+                    "-decryption_key",
+                    ffmpeg_key,
+                    "-i",
+                    str(item["path"]),
+                    "-codec",
+                    "copy",
+                    str(newpath),
+                    "-y",
+                ],
+                timeout=300,
+            ),
         )
         if not pathlib.Path(newpath).exists():
             log.debug(f"{get_medialog(ele)} ffmpeg {r.stderr.decode()}")

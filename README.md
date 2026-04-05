@@ -38,6 +38,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [CLI auto-start](#cli-auto-start)
   - [Scrape individual posts by URL or Post ID](#scrape-individual-posts-by-url-or-post-id-3145)
   - [Discord webhook integration](#discord-webhook-integration)
+  - [User Lists](#user-lists)
 - [Plugin system](#plugin-system)
   - [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger)
   - [LLM Assistant](#llm-assistant-llm_assistant)
@@ -52,6 +53,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 - [How it detects your installation](#how-it-detects-your-installation)
   - [Broken installation detection](#broken-installation-detection)
 - [If OF-Scraper is not detected](#if-of-scraper-is-not-detected)
+- [Removal / Uninstall Tool](#removal--uninstall-tool)
 - [Notes](#notes)
 - [Disclaimer](#disclaimer)
 
@@ -106,6 +108,10 @@ A visual walkthrough of each page in the GUI.
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
 - **Download** — download media files from your subscribed creators
+  - **User Lists** *(optional sub-option)* — filter which models are loaded by entering one or more OnlyFans list names (comma-separated). Leave blank to load all subscribed models. Equivalent to `--ul` on the command line.
+
+<!-- Screenshot placeholder: Select Action page showing the User Lists field under "Download content from a user" -->
+
 - **Like/Unlike** — automate liking or unliking posts
 - **Metadata** — update your local database without downloading files
 - **Check modes** (Post Check, Message Check, Paid Check, Story Check) — browse all content for a creator in a table view and selectively download individual items
@@ -123,6 +129,7 @@ Choose which types of posts to scrape and apply filters before the scrape begins
 
 - **Content areas** — Timeline, Messages, Archived, Paid, Stories, Highlights, Pinned, Streams
 - **Filters** — narrow by date range, limit post count, skip already-downloaded content, and more
+- **Include Post Text** — when enabled, the text body of each post is included alongside the downloaded media
 - **Daemon Mode** — set a repeat interval (1–1440 minutes) so the scraper runs automatically on a schedule
 - **Username filter** — pre-filter the model list to only show specific creators
 
@@ -142,6 +149,7 @@ A searchable, filterable table of all creators you are subscribed to. From here 
 - **Select** individual creators or use Select All / Select None
 - **Show Avatars** — toggle to display each creator's profile picture alongside their name in the table. Clicking an avatar opens that creator's OnlyFans page in your browser
 - The footer shows how many rows are displayed vs the total (e.g. `42 / 1200 rows (filtered)`)
+- **Reload Models** — a **Reload Models** button appears in the navigation bar after models load, letting you re-fetch the model list without going back to the Select Action page
 
 Click **Start Scrape** when you have selected the creators you want to download from.
 
@@ -222,6 +230,8 @@ Each tab has a **?** button that jumps to the matching section in the built-in H
 
 A built-in tool for generating the DRM decryption keys required to download protected (DRM-locked) content. You need these keys if you want to download videos that are encrypted with Widevine DRM.
 
+> **Note:** DRM key generation is **not supported in Docker**. Use the GUI on a normal host system (Windows/Linux desktop) instead of a container when generating `client_id.bin` and `private_key.pem`.
+
 - **Fully automated** — downloads the Android SDK, sets up an emulator, and extracts the keys without any manual steps
 - **Streams output** directly into the app so you can follow progress in real time
 - **Auto-configures** — once keys are generated, the CDM key paths in your config are updated automatically. No need to edit `config.json` manually
@@ -296,6 +306,13 @@ Built-in documentation available at any time without leaving the app:
   - **Help / README** — navigate to the Auth Issues section of the built-in help
 - A **Retry** button also appears inline in the navigation bar
 
+### User Lists
+- On the **Select Action** page, a **User Lists** field appears under "Download content from a user"
+- Enter one or more OnlyFans list names (comma-separated) to load only models who are members of those lists
+- Leave blank to load all subscribed models (default behavior)
+- Equivalent to the `--ul` / `--userlist` CLI flag — also supported for CLI auto-start
+- After models load, a **Reload Models** button appears in the navigation bar so you can re-fetch without going back to the start
+
 ### Scraper workflow
 - **Area Selector page**: models are loaded from the API in the background while you configure options; an inline progress indicator shows loading state
 - Filters configured on the Area Selector page are automatically carried over to the Table page sidebar when models are confirmed
@@ -330,7 +347,8 @@ Built-in documentation available at any time without leaving the app:
 - Resets automatically when a new scrape is started
 
 ### CLI auto-start
-- If launched with `ofscraper --gui` together with action, area, and username flags, the GUI wizard is skipped and scraping begins automatically — matching the TUI behavior for scripted/automated workflows
+- If launched with `ofscraper --gui` together with action, area, and username flags (or a `--ul` user list in place of `--username`), the GUI wizard is skipped and scraping begins automatically — matching the TUI behavior for scripted/automated workflows
+- Example with user list: `ofscraper --gui --ul testing -a download -o all`
 - This is also how the Docker container starts a scrape automatically via the `GUI_ARGS` environment variable (see [Docker](#docker))
 
 ---
@@ -367,8 +385,9 @@ The GUI includes a Discord webhook toggle that controls whether scraping activit
 
 **Discord toggle (GUI)**
 - A Discord enable/disable toggle is available on the scrape settings pages
-- When enabled and a webhook URL is set in Configuration → General, Discord notifications fire at the `NORMAL` level for all standard log messages during the scrape
+- When enabled and a webhook URL is set in Configuration → General, Discord notifications fire at the `LOW` level by default — only important messages, warnings, errors, and run summaries. The level can be changed on the Select Content Areas & Filters page
 - When the `--discord` flag is also passed on the command line, the CLI value takes precedence
+- On first enable, a one-time prompt asks if you want to save `LOW` as the permanent default in `gui_settings.json`
 
 **Per-run scrape summary** *(3.14.5)*
 
@@ -406,7 +425,7 @@ Each plugin is a subfolder containing at minimum a `main.py` with a `Plugin` cla
 
 Plugins that declare a `requirements.txt` will trigger a one-click dependency install dialog if their packages are missing.
 
-For full documentation on writing plugins see [`PLUGIN_DEVELOPMENT.md`](https://github.com/cjb900/OF-Scraper-GUI/blob/main/PLUGIN_DEVELOPMENT.md).
+For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOPMENT.md`](OF-Scraper-3.14.5/ofscraper/plugins/PLUGIN_DEVELOPMENT.md).
 
 > **⚠️ Note:** The plugin system itself is stable, but the included plugins are experimental and a work in progress — they may not function perfectly in all environments.
 
@@ -418,7 +437,7 @@ Two ready-to-use plugins are included. Both are **disabled by default** — enab
 
 #### JoyCaption Tagger (`joycaption_tagger`)
 
-Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. Caption style and length are configurable per the plugin settings panel. A built-in image gallery lets you browse and search tagged images by caption content.
+Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. JoyCaption Alpha Two natively supports adult/explicit content captioning, making it well-suited for OF-Scraper content. Caption style and length are configurable per the plugin settings panel. A built-in image gallery lets you browse and search tagged images by caption content, browse by model (click a model to see all their tagged images), and open any image in your system's external image viewer.
 
 > **Performance note:** JoyCaption sends each image to ComfyUI for AI inference, which is compute-intensive. Captioning a single image can take anywhere from a few seconds to several minutes depending on your hardware (CPU vs. GPU, available RAM, etc.).
 >
@@ -438,6 +457,10 @@ Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancy
 <tr>
 <td align="center"><img src="https://github.com/user-attachments/assets/531b93ec-953b-4770-a91e-380ee43947b4" width="380"><br><em>Image gallery with captions</em></td>
 <td align="center"><img src="https://github.com/user-attachments/assets/b6063b08-d4ed-43f8-8322-1f47e5631ba4" width="380"><br><em>Searching by caption content</em></td>
+</tr>
+<tr>
+<td align="center"><!-- Screenshot placeholder: Gallery browse-by-model view showing model list --><br><em>Browse by model</em></td>
+<td align="center"><!-- Screenshot placeholder: Image opened in external image viewer --><br><em>Open in external image viewer</em></td>
 </tr>
 <tr>
 <td align="center"><img src="https://github.com/user-attachments/assets/18c7f8ee-ef12-45b0-8308-282177518162" width="380"><br><em>Settings dialog</em></td>
@@ -698,6 +721,25 @@ Enter choice (1-5):
 - **Options 1-3** install OF-Scraper using your chosen package manager, then continue with patching
 - **Option 4** lets you provide the path to your ofscraper package directory manually (e.g. `/path/to/site-packages/ofscraper`). The script validates the path contains `__main__.py` before proceeding
 - You can also use `--target /path/to/ofscraper` to skip detection entirely
+
+## Removal / Uninstall Tool
+
+A standalone removal tool (`uninstall_ofscraper.py`) is included for cleanly removing ofscraper. It detects your install method automatically (uv / pipx / pip) and presents four options:
+
+1. **Just uninstall ofscraper** — removes the package only; config and downloaded content are kept
+2. **Just remove the GUI patch** — uninstalls the patched version and reinstalls stock ofscraper from PyPI; your config is kept
+3. **Remove ofscraper + all config files** — uninstalls ofscraper and deletes `~/.config/ofscraper/` (includes settings, auth, logs, and databases — everything ofscraper stores outside your download folder)
+4. **Purge everything** — uninstalls ofscraper, deletes config, and deletes your downloaded content. The download path is read from `file_options.save_location` in `config.json` **before** the config is deleted, so the correct path is always used regardless of where you saved content
+
+**Run it with:**
+
+```bash
+python uninstall_ofscraper.py
+```
+
+All destructive options require explicit confirmation before proceeding. The purge option requires two confirmations.
+
+---
 
 ## Notes
 

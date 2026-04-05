@@ -1,5 +1,6 @@
 import logging
 import os
+import shutil
 import subprocess
 import sys
 
@@ -77,6 +78,7 @@ class _ScriptRunner(QThread):
         cmd = [sys.executable, self.script_path, "--out-dir", self.output_dir]
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
+        env["PYTHONUNBUFFERED"] = "1"
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -138,7 +140,8 @@ class DRMKeyPage(QWidget):
 
         subtitle = QLabel(
             "Generate Widevine L3 keys using an Android emulator. "
-            "Produces client_id.bin and private_key.pem for use with OF-Scraper."
+            "Produces client_id.bin and private_key.pem for use with OF-Scraper. "
+            "Docker is not supported for DRM key generation; use a normal host system instead."
         )
         subtitle.setProperty("subheading", True)
         subtitle.setWordWrap(True)
@@ -267,9 +270,13 @@ class DRMKeyPage(QWidget):
         self._last_output_dir = output_dir
 
         self.output_text.clear()
-        self.output_text.appendPlainText(
-            f"Starting DRM key extraction...\nOutput directory: {output_dir}\n"
-        )
+        start_msg = f"Starting DRM key extraction...\nOutput directory: {output_dir}\n"
+        self.output_text.appendPlainText(start_msg)
+        for line in start_msg.rstrip().splitlines():
+            try:
+                log.info("[DRM] %s", line)
+            except Exception:
+                pass
         self.generate_btn.setEnabled(False)
         app_signals.status_message.emit("DRM key extraction in progress...")
 
@@ -280,6 +287,11 @@ class DRMKeyPage(QWidget):
 
     def _on_line(self, line: str):
         self.output_text.appendPlainText(line)
+        if line:
+            try:
+                log.info("[DRM] %s", line)
+            except Exception:
+                pass
         sb = self.output_text.verticalScrollBar()
         sb.setValue(sb.maximum())
 
@@ -287,10 +299,19 @@ class DRMKeyPage(QWidget):
         self.generate_btn.setEnabled(True)
         if exit_code == 0:
             self.output_text.appendPlainText("\n✓ Key extraction completed successfully.")
+            try:
+                log.info("[DRM] Key extraction completed successfully")
+            except Exception:
+                pass
             app_signals.status_message.emit("DRM key extraction complete")
             self._offer_config_update()
+            self._offer_cleanup()
         else:
             self.output_text.appendPlainText(f"\n✗ Script exited with code {exit_code}.")
+            try:
+                log.error("[DRM] Script exited with code %s", exit_code)
+            except Exception:
+                pass
             app_signals.status_message.emit("DRM key extraction failed")
             QMessageBox.critical(
                 self,
@@ -345,6 +366,63 @@ class DRMKeyPage(QWidget):
         except Exception as e:
             log.debug(f"Config update failed: {e}", exc_info=True)
             QMessageBox.critical(self, "Config Update Failed", f"Could not update config.json:\n{e}")
+
+    def _offer_cleanup(self):
+        """Ask the user if they want to remove the directories created during key extraction."""
+        home = os.path.expanduser("~")
+        avd_name = "widevine_avd"
+        candidates = [
+            (os.path.join(home, "widevine-sdk"),
+             "Android SDK, JDK 17, and emulator binaries (~2–3 GB)"),
+            (os.path.join(home, "widevine-work"),
+             "KeyDive venv, Frida server, Kaltura APK, and work files"),
+            (os.path.join(home, ".android", "avd", f"{avd_name}.avd"),
+             "Android emulator image (~1–2 GB)"),
+            (os.path.join(home, ".android", "avd", f"{avd_name}.ini"),
+             "AVD registration file"),
+        ]
+
+        present = [(path, desc) for path, desc in candidates if os.path.exists(path)]
+        if not present:
+            return
+
+        lines = "\n".join(f"  • {path}\n    ({desc})" for path, desc in present)
+        reply = QMessageBox.question(
+            self,
+            "Remove Extracted Files?",
+            "The following directories/files were created during DRM key extraction.\n"
+            "Would you like to remove them to free up disk space?\n\n"
+            + lines +
+            "\n\nOnly click Yes if you no longer need these files.\n"
+            "If you plan to generate keys again in the future, clicking No will\n"
+            "allow the next run to skip downloading everything again.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        errors = []
+        for path, _ in present:
+            try:
+                if os.path.isdir(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
+            except Exception as e:
+                errors.append(f"{path}: {e}")
+
+        if errors:
+            QMessageBox.warning(
+                self,
+                "Cleanup Incomplete",
+                "Some items could not be removed:\n\n" + "\n".join(errors),
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "Cleanup Complete",
+                "All selected files and directories have been removed.",
+            )
 
     def _update_config(self, client_id: str, private_key: str):
         from ofscraper.utils.config.file import open_config, write_config

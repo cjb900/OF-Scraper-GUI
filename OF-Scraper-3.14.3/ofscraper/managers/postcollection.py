@@ -9,10 +9,28 @@ from ofscraper.classes.of.media import Media
 log = logging.getLogger("shared")
 
 
+def _format_length_display(value):
+    """Format duration into DD:HH:MM:SS for GUI display."""
+    if value in (None, '', 'N/A'):
+        return 'N/A'
+    try:
+        total_seconds = int(float(value))
+    except Exception:
+        return str(value)
+    days = total_seconds // 86400
+    hours = (total_seconds % 86400) // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    return f"{days:02d}:{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
 class PostCollection:
     """
-    Manages a de-duplicated collection of Post objects. It orchestrates
-    the filtering and preparation of posts and their media for various actions.
+    Manages a collection of Post objects for GUI/table building and downloads.
+
+    Important: when GUI "allow duplicates" is enabled, we preserve repeated
+    post instances for table/display purposes so reposts and paid/locked rows
+    remain visible the way older GUI builds exposed them.
     """
 
     def __init__(self, model_id=None, username=None, mode="download"):
@@ -27,8 +45,10 @@ class PostCollection:
         self.username = username
         self.model_id = model_id
         self.mode = mode
-        # Internal dictionary to store posts, using post_id as the key for de-duplication
+        # Map of canonical posts by post_id for download/like pipelines.
         self._posts_map = {}
+        # Ordered raw list preserving all added post instances for GUI/table use.
+        self._raw_posts = []
         log.info(f"Initialized PostCollection for {username}")
 
     @property
@@ -37,12 +57,109 @@ class PostCollection:
         return list(self._posts_map.values())
 
     @property
+    def raw_posts(self) -> list[Post]:
+        """Returns posts in insertion order, preserving duplicates/reposts."""
+        return list(self._raw_posts)
+
+    @property
     def all_media(self) -> list:
         """
-        Collects EVERY media item from EVERY post in the collection,
-        regardless of filtering. This is useful for creating a master list.
+        Collects EVERY media item from EVERY unique post in the collection.
+        This is the canonical list used by the core processing pipeline.
         """
         return [media for post in self.posts for media in post.all_media]
+
+    @property
+    def raw_all_media(self) -> list:
+        """Collects media from all inserted posts, preserving duplicates/reposts."""
+        return [media for post in self.raw_posts for media in post.all_media]
+
+
+    def get_rows_for_gui_table(self) -> list[dict]:
+        """Build GUI table rows directly from raw post/media payloads.
+
+        This avoids relying on partially-normalized Media objects for table display.
+        The GUI table is about *what was found*, not only the final download queue.
+        """
+        rows = []
+        candidate_posts = [post for post in self.raw_posts if post.is_download_candidate]
+        log.info(f"Found {len(candidate_posts)} raw posts marked as download candidates for GUI row building.")
+
+        for post in candidate_posts:
+            raw_post = getattr(post, '_post', {}) or {}
+            raw_media_list = raw_post.get('media') or []
+            responsetype = str(getattr(post, 'responsetype', '') or raw_post.get('responseType') or '')
+            post_id = getattr(post, 'id', None) or raw_post.get('id') or ''
+            text = getattr(post, 'db_sanitized_text', None) or getattr(post, 'text', None) or raw_post.get('text') or raw_post.get('rawText') or ''
+            price = getattr(post, 'price', 0) or float(raw_post.get('price') or 0)
+            preview = bool(getattr(post, 'preview', False) or raw_post.get('preview', False))
+            opened = bool(getattr(post, 'opened', True) if getattr(post, 'opened', None) is not None else raw_post.get('isOpened', True))
+            post_date = getattr(post, 'formatted_date', None) or raw_post.get('postedAt') or raw_post.get('createdAt') or ''
+            post_media_count = len(raw_media_list)
+
+            for raw_media in raw_media_list:
+                media_id = raw_media.get('id') or ''
+                canview = bool(raw_media.get('canView', True))
+                downloaded = bool(raw_media.get('downloaded', False))
+                media_type = str(raw_media.get('type') or raw_media.get('mediaType') or raw_media.get('mimetype') or 'unknown')
+                media_type_lower = media_type.lower()
+                source_url = str(
+                    raw_media.get('source')
+                    or raw_media.get('src')
+                    or raw_media.get('files', {}).get('full', {}).get('url')
+                    or raw_media.get('files', {}).get('preview', {}).get('url')
+                    or ''
+                )
+                if media_type_lower in ('photo', 'image'):
+                    media_type = 'Images'
+                elif media_type_lower in ('video',):
+                    media_type = 'Videos'
+                elif media_type_lower in ('audio',):
+                    media_type = 'Audios'
+                elif source_url.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')):
+                    media_type = 'Images'
+                elif source_url.lower().endswith(('.mp4', '.m4v', '.mov', '.mpd', '.m3u8')):
+                    media_type = 'Videos'
+                elif source_url.lower().endswith(('.mp3', '.m4a', '.wav', '.ogg')):
+                    media_type = 'Audios'
+                else:
+                    media_type = 'unknown'
+
+                duration = raw_media.get('duration') or raw_media.get('sourceDuration') or 'N/A'
+
+                if not canview:
+                    cart_status = 'Locked'
+                    dl_display = 'N/A'
+                    ul_display = 'Locked'
+                else:
+                    cart_status = '[downloaded]' if downloaded else '[]'
+                    dl_display = str(bool(downloaded))
+                    if price > 0 and responsetype.lower() in ('message', 'messages') and not opened:
+                        ul_display = 'Preview' if preview else 'Included'
+                    else:
+                        ul_display = 'Preview' if (preview and price > 0) else 'True'
+
+                rows.append({
+                    'index': len(rows),
+                    'number': str(len(rows) + 1),
+                    'download_cart': cart_status,
+                    'username': self.username,
+                    'downloaded': dl_display,
+                    'unlocked': ul_display,
+                    'other_posts_with_media': [],
+                    'post_media_count': post_media_count,
+                    'mediatype': media_type,
+                    'post_date': post_date,
+                    'length': _format_length_display(duration),
+                    'responsetype': responsetype,
+                    'price': 'Free' if price == 0 else '{:.2f}'.format(price),
+                    'post_id': post_id,
+                    'media_id': media_id,
+                    'text': text,
+                })
+
+        log.info(f"Returning {len(rows)} raw GUI table rows from post/media payloads.")
+        return rows
 
     @property
     def all_unique_media(self) -> list:
@@ -55,7 +172,8 @@ class PostCollection:
         """
         log.info("Filtering all media with specific download filter sequence...")
 
-        # Start with every piece of media in the collection
+        # Keep the actual download/filter pipeline canonical and close to stock
+        # 3.14.3 behavior. Raw-post handling is reserved for GUI table display.
         media_to_filter = self.all_media
 
         # Apply the exact filter sequence you requested
@@ -109,6 +227,67 @@ class PostCollection:
 
         if new_posts_added > 0:
             log.info(f"Added {new_posts_added} posts to the collection")
+
+    def get_media_for_gui_table(self) -> list:
+        """
+        Returns media for GUI table display using normalized/canonical media
+        objects so GUI columns keep rich metadata, while still preserving
+        reposts/duplicates when requested.
+        """
+        candidate_posts = [post for post in self.posts if post.is_download_candidate]
+        raw_candidate_posts = [post for post in self.raw_posts if post.is_download_candidate]
+        log.info(f"Found {len(raw_candidate_posts)} raw posts marked as download candidates for GUI table.")
+
+        for post in candidate_posts:
+            try:
+                post.prepare_media_for_download()
+            except Exception:
+                pass
+
+        canonical_media = []
+        for post in candidate_posts:
+            canonical_media.extend(getattr(post, "post_media", []) or [])
+        if not canonical_media:
+            for post in candidate_posts:
+                canonical_media.extend(getattr(post, "all_media", []) or [])
+
+        allow_dupes = bool(getattr(settings.get_settings(), "allow_dupe_downloads", False))
+        if allow_dupes:
+            # Build duplicate-preserving display rows by replaying canonical media per raw post
+            # using 3.14.x identifiers (`media.post_id`, `post.id`).
+            by_key = {}
+            for media in canonical_media:
+                key = (
+                    str(getattr(media, 'post_id', getattr(media, 'postid', ''))),
+                    str(getattr(media, 'id', '')),
+                    str(getattr(media, 'responsetype', '')),
+                )
+                by_key.setdefault(key, []).append(media)
+
+            ordered_media = []
+            for post in raw_candidate_posts:
+                post_id = str(getattr(post, 'id', getattr(post, 'postid', '')))
+                source_media = getattr(post, 'post_media', []) or getattr(post, 'all_media', []) or []
+                for raw_media in source_media:
+                    raw_post_id = str(getattr(raw_media, 'post_id', post_id))
+                    key = (
+                        raw_post_id,
+                        str(getattr(raw_media, 'id', '')),
+                        str(getattr(raw_media, 'responsetype', getattr(post, 'responsetype', ''))),
+                    )
+                    matches = by_key.get(key)
+                    if matches:
+                        ordered_media.append(matches[0])
+                    else:
+                        ordered_media.append(raw_media)
+            media = ordered_media
+        else:
+            media = helpers.dupefiltermedia(canonical_media)
+
+        media = helpers.ele_count_filter(media)
+        media = helpers.final_media_sort(media)
+        log.info(f"Returning {len(media)} media items for GUI table display.")
+        return media
 
     def get_media_to_download(self) -> list:
         """
@@ -299,14 +478,17 @@ class PostCollection:
             )
             return None
 
-        # Perform the core logic of adding/updating the post
+        # Materialize a Post object for raw insertion tracking.
+        incoming_post = (
+            post_to_process
+            if isinstance(post_to_process, Post)
+            else Post(post_to_process, self.model_id, self.username, mode=self.mode)
+        )
+        self._raw_posts.append(incoming_post)
+
+        # Perform the core logic of adding/updating the canonical post map.
         if post_id not in self._posts_map or overwrite:
-            post_object = (
-                post_to_process
-                if isinstance(post_to_process, Post)
-                else Post(post_to_process, self.model_id, self.username, mode=self.mode)
-            )
-            self._posts_map[post_id] = post_object
+            self._posts_map[post_id] = incoming_post
 
         existing_post = self._posts_map[post_id]
 

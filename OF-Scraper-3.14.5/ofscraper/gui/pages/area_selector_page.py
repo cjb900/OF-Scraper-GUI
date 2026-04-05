@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from ofscraper.gui.signals import app_signals
 from ofscraper.gui.styles import c
+from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
 from ofscraper.gui.utils.thread_worker import Worker
 from ofscraper.gui.widgets.sidebar import FilterSidebar
 from ofscraper.gui.widgets.styled_button import StyledButton
@@ -93,6 +94,7 @@ class AreaSelectorPage(QWidget):
         self._models_error = None
         self._loaded_model_count = 0
         self._separators = []
+        self._block_discord_prompt = False
         self._setup_ui()
         self._connect_signals()
         self._refresh_discord_option_state()
@@ -197,6 +199,20 @@ class AreaSelectorPage(QWidget):
         media_layout.addWidget(_make_help_btn("sca-media-types"))
         layout.addWidget(media_group)
 
+        # Include post text option
+        text_group = QGroupBox("Post Text")
+        text_layout = QHBoxLayout(text_group)
+        text_layout.setSpacing(16)
+        self.include_text_check = QCheckBox("Include Post Text")
+        self.include_text_check.setFont(QFont("Segoe UI", 11))
+        self.include_text_check.setChecked(False)
+        self.include_text_check.setToolTip(
+            "Download the text content of posts in addition to media files."
+        )
+        text_layout.addWidget(self.include_text_check)
+        text_layout.addStretch()
+        layout.addWidget(text_group)
+
         # Extra options
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -248,7 +264,7 @@ class AreaSelectorPage(QWidget):
         )
         self.discord_level_combo = QComboBox()
         self.discord_level_combo.addItems(["LOW", "NORMAL"])
-        self.discord_level_combo.setCurrentText("NORMAL")
+        self.discord_level_combo.setCurrentText("LOW")
         self.discord_level_combo.setToolTip(
             "LOW: only important messages (warnings, errors, completion)\n"
             "NORMAL: standard progress updates"
@@ -259,6 +275,7 @@ class AreaSelectorPage(QWidget):
                 checked and self.discord_updates_check.isEnabled()
             )
         )
+        self.discord_updates_check.toggled.connect(self._on_discord_check_toggled)
         row = QHBoxLayout()
         row.addWidget(self.discord_updates_check)
         row.addWidget(self.discord_level_combo)
@@ -481,11 +498,21 @@ class AreaSelectorPage(QWidget):
         self.retry_models_btn.clicked.connect(self._retry_model_load)
         self.retry_models_btn.hide()
 
+        self.reload_models_btn = StyledButton("Reload Models", nav_bar)
+        self.reload_models_btn.setToolTip(
+            "Re-fetch models from the OnlyFans API.\n"
+            "Use this if you changed the User List filter on the previous page."
+        )
+        self.reload_models_btn.clicked.connect(self._on_reload_models)
+        self.reload_models_btn.hide()
+
         nav_layout.addWidget(self.model_loading_bar)
         nav_layout.addSpacing(8)
         nav_layout.addWidget(self.model_loading_label)
         nav_layout.addSpacing(4)
         nav_layout.addWidget(self.retry_models_btn)
+        nav_layout.addSpacing(4)
+        nav_layout.addWidget(self.reload_models_btn)
         nav_layout.addSpacing(12)
         nav_layout.addWidget(self.next_btn)
 
@@ -514,6 +541,28 @@ class AreaSelectorPage(QWidget):
             if btn.text() == "?":
                 btn.setStyleSheet(_help_btn_qss())
 
+    def _get_active_userlist(self):
+        """Read the current userlist from settings, stripping reserved names."""
+        try:
+            import ofscraper.utils.settings as _s
+            import ofscraper.utils.of_env.of_env as _of_env
+            reserved = {
+                (_of_env.getattr("OFSCRAPER_RESERVED_LIST") or "").lower(),
+                (_of_env.getattr("OFSCRAPER_RESERVED_LIST_ALT") or "").lower(),
+            }
+            ul = getattr(_s.get_settings(), "userlist", None) or []
+            return [u.lower() for u in ul if u and u.lower() not in reserved]
+        except Exception:
+            return []
+
+    def _on_reload_models(self):
+        """Force a fresh model fetch (uses the userlist already set in args)."""
+        self._models_loaded = False
+        self._models_loading = False
+        self.retry_models_btn.hide()
+        self.reload_models_btn.hide()
+        self._start_model_load()
+
     def showEvent(self, event):
         super().showEvent(event)
         # If config changed, keep Discord checkbox state accurate.
@@ -537,11 +586,45 @@ class AreaSelectorPage(QWidget):
                     "Disabled because no Discord webhook URL is configured.\n\n"
                     "Set Config → General → Discord Webhook URL, then return here."
                 )
+            else:
+                # Apply saved "always on" preference
+                gs = load_gui_settings()
+                if gs.get("discord_always_on"):
+                    self._block_discord_prompt = True
+                    self.discord_updates_check.setChecked(True)
+                    saved_level = gs.get("discord_level", "LOW")
+                    if saved_level in ("LOW", "NORMAL"):
+                        self.discord_level_combo.setCurrentText(saved_level)
+                    self._block_discord_prompt = False
             self.discord_level_combo.setEnabled(
                 has_webhook and self.discord_updates_check.isChecked()
             )
         except Exception:
             pass
+
+    def _on_discord_check_toggled(self, checked: bool):
+        """Show a one-time prompt asking whether Discord should always be enabled."""
+        if not checked or self._block_discord_prompt:
+            return
+        gs = load_gui_settings()
+        if "discord_always_on" in gs:
+            return  # Already answered — don't ask again
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Discord Notifications")
+        msg.setText("Always enable Discord notifications by default?")
+        msg.setInformativeText(
+            "If you choose Yes, Discord updates will be pre-checked every time you "
+            "open this page. This preference is saved to gui_settings.json and can "
+            "be changed at any time."
+        )
+        msg.setIcon(QMessageBox.Icon.Question)
+        yes_btn = msg.addButton("Yes, always enable", QMessageBox.ButtonRole.YesRole)
+        msg.addButton("No, ask me each time", QMessageBox.ButtonRole.NoRole)
+        msg.exec()
+        always_on = msg.clickedButton() is yes_btn
+        gs["discord_always_on"] = always_on
+        gs["discord_level"] = self.discord_level_combo.currentText()
+        save_gui_settings(gs)
 
     def reset_to_defaults(self):
         """Reset all area selections and options to their initial defaults."""
@@ -552,7 +635,7 @@ class AreaSelectorPage(QWidget):
         self.scrape_paid_check.setChecked(False)
         self.scrape_labels_check.setChecked(False)
         self.discord_updates_check.setChecked(False)
-        self.discord_level_combo.setCurrentText("NORMAL")
+        self.discord_level_combo.setCurrentText("LOW")
         self.discord_level_combo.setEnabled(False)
         # Reset advanced options
         self.allow_dupes_check.setChecked(False)
@@ -570,6 +653,8 @@ class AreaSelectorPage(QWidget):
         config_filter_lower = {x.lower() for x in config_filter}
         for mt, cb in self._mediatype_checks.items():
             cb.setChecked(mt.lower() in config_filter_lower)
+        # Reset post text checkbox
+        self.include_text_check.setChecked(False)
         # Reset filter sidebar
         self.filter_sidebar.reset_all()
         # Reset model loading state so models reload on next visit
@@ -612,6 +697,7 @@ class AreaSelectorPage(QWidget):
         self._models_error = None
         self._loaded_model_count = 0
         self.retry_models_btn.hide()
+        self.reload_models_btn.hide()
 
         self.next_btn.setEnabled(False)
         self.model_loading_label.setText("Loading models from API...")
@@ -687,12 +773,46 @@ class AreaSelectorPage(QWidget):
         profile_data.currentData = None
         profile_data.currentProfile = None
 
+        # Read the userlist from settings (set by the action page before this
+        # fetch was triggered).  The settings cache was already refreshed there,
+        # but call update_settings() once more in case this is a Reload triggered
+        # from this page without going through the action page again.
+        try:
+            import ofscraper.utils.settings as _settings_mod
+            _settings_mod.update_settings()
+            _ul_for_fetch = self._get_active_userlist()
+            if _ul_for_fetch:
+                log.info(f"[GUI] Fetching models filtered to user lists: {_ul_for_fetch}")
+            else:
+                log.info("[GUI] Fetching all subscribed models (no user list filter)")
+        except Exception as _ule:
+            log.warning(f"[GUI] Could not read userlist from settings: {_ule}")
+            _ul_for_fetch = []
+
         # Run the async API call directly with a fresh event loop,
         # bypassing the @run decorator which can leave stale loop state.
         loop = asyncio.new_event_loop()
         try:
             asyncio.set_event_loop(loop)
-            data = loop.run_until_complete(retriver.get_models())
+            if _ul_for_fetch:
+                # Bypass get_models() (which always fetches ALL subscriptions) and
+                # call get_otherlist() directly so we only get members of the named
+                # list(s).  The @run decorator detects the running loop and returns
+                # the raw coroutine, which we can then await inside _do_fetch.
+                import ofscraper.data.api.subscriptions.lists as _lists_mod
+                import ofscraper.classes.of.models as _models_cls
+
+                async def _do_fetch_list():
+                    raw = _lists_mod.get_otherlist()
+                    if asyncio.iscoroutine(raw):
+                        raw = await raw
+                    raw = raw or []
+                    log.info(f"[GUI] User list fetch returned {len(raw)} member(s)")
+                    return [_models_cls.Model(m) for m in raw]
+
+                data = loop.run_until_complete(_do_fetch_list())
+            else:
+                data = loop.run_until_complete(retriver.get_models())
             self.manager.model_manager.all_subs_dict = data
         finally:
             loop.close()
@@ -710,6 +830,7 @@ class AreaSelectorPage(QWidget):
             return
         self._models_loaded = True
         self.retry_models_btn.hide()
+        self.reload_models_btn.show()
         self.model_loading_label.setText(f"Models loaded: {self._loaded_model_count}")
         self.model_loading_label.show()
         self.next_btn.setEnabled(True)
@@ -902,10 +1023,11 @@ class AreaSelectorPage(QWidget):
         tgt.ul_false.setChecked(src.ul_false.isChecked())
         tgt.ul_not_paid.setChecked(src.ul_not_paid.isChecked())
 
-        # Date
-        tgt.date_enabled.setChecked(src.date_enabled.isChecked())
+        # Date — set dates first so any dateChanged auto-check fires, then
+        # explicitly set the enabled state last so it always wins.
         tgt.min_date.setDate(src.min_date.date())
         tgt.max_date.setDate(src.max_date.date())
+        tgt.date_enabled.setChecked(src.date_enabled.isChecked())
 
         # Length
         tgt.length_enabled.setChecked(src.length_enabled.isChecked())
@@ -946,6 +1068,7 @@ class AreaSelectorPage(QWidget):
         log.info(f"Areas configured: {selected}")
         mediatypes = self.get_selected_mediatypes()
         app_signals.mediatypes_configured.emit(mediatypes)
+        app_signals.include_text_configured.emit(self.include_text_check.isChecked())
 
         # For check modes, emit areas immediately so the workflow stores them
         # before model selection triggers the auto-start.

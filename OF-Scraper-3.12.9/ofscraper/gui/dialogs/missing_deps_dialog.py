@@ -24,6 +24,7 @@ class MissingDepsDialog(QDialog):
         *,
         missing_ffmpeg: bool,
         missing_manual_cdm: bool,
+        key_mode: str = "cdrm",
         on_open_ffmpeg=None,
         on_open_cdm=None,
         on_open_drm=None,
@@ -32,6 +33,7 @@ class MissingDepsDialog(QDialog):
         super().__init__(parent)
         self._missing_ffmpeg = bool(missing_ffmpeg)
         self._missing_manual_cdm = bool(missing_manual_cdm)
+        self._key_mode = str(key_mode).lower().strip() or "cdrm"
         self._on_open_ffmpeg = on_open_ffmpeg
         self._on_open_cdm = on_open_cdm
         self._on_open_drm = on_open_drm
@@ -103,15 +105,28 @@ class MissingDepsDialog(QDialog):
             )
 
         if self._missing_manual_cdm:
+            if self._key_mode == "manual":
+                severity = (
+                    "<p><b>Key Mode is set to <code>manual</code> but the DRM key file paths "
+                    "are missing or invalid.</b> OF-Scraper cannot decrypt DRM-protected content "
+                    "until valid paths are configured.</p>"
+                )
+            else:
+                severity = (
+                    f"<p>Your current Key Mode is <code>{self._key_mode}</code>. "
+                    "Manual Widevine keys (<code>client_id.bin</code> / <code>private_key.pem</code>) "
+                    "are not configured. Setting up manual keys is recommended as a reliable "
+                    "fallback if the current key service is unavailable.</p>"
+                )
             parts.append(
-                """
-                <h3>Manual CDM keys</h3>
-                <p><b>Manual DRM key paths are not set in your config.</b>
-                These are required to scrape DRM-protected content.</p>
+                f"""
+                <h3>Manual DRM keys not configured</h3>
+                {severity}
                 <ul>
-                  <li><b>Already have keys?</b> Click <i>Open Config → CDM (Manual keys)</i>
+                  <li><b>Already have keys?</b> Click <i>Open Config → CDM</i>
                   to enter the paths to your <code>client_id.bin</code> and
-                  <code>private_key.pem</code> files.</li>
+                  <code>private_key.pem</code> files, then set Key Mode to
+                  <code>manual</code>.</li>
                   <li><b>Don't have keys yet?</b> Click <i>Generate DRM Keys</i> to use the
                   built-in extraction tool to create them automatically.</li>
                 </ul>

@@ -33,4 +33,3 @@ def seperate_by_self(data):
     my_id = me_util.get_id()
     if of_env.getattr("FILTER_SELF_MEDIA"):
         return list(filter(lambda x: x.post.fromuser != my_id, data))
-    return data

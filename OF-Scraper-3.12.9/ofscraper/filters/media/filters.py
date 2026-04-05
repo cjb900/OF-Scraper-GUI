@@ -172,6 +172,9 @@ def previous_download_filter(medialist, username=None, model_id=None):
         log.info("forcing all media to be downloaded")
     elif read_args.retriveArgs().force_model_unique:
         log.info("Downloading unique media for model")
+        profile_skip_db_ids = get_media_ids_downloaded_model(
+            model_id=model_id, username=username
+        )
         allow_dupe_downloads = bool(
             getattr(read_args.retriveArgs(), "allow_dupe_downloads", False)
         )
@@ -197,11 +200,22 @@ def previous_download_filter(medialist, username=None, model_id=None):
             )
             medialist = seperate.separate_by_id(medialist, media_ids)
         log.debug(f"Number of new mediaids with dupe ids removed: {len(medialist)}")
-        medialist = seperate.seperate_avatars(medialist)
-        log.debug("Removed previously downloaded avatars/headers")
+        _before_profile_skip = len(medialist)
+        medialist = seperate.seperate_avatars(
+            medialist, downloaded_media_ids=profile_skip_db_ids
+        )
+        log.debug(
+            "Profile/avatar cache removed %s item(s) from download queue (%s -> %s)",
+            _before_profile_skip - len(medialist),
+            _before_profile_skip,
+            len(medialist),
+        )
         log.debug(f"Final Number of media to download {len(medialist)}")
     else:
         log.info("Downloading unique media across all models")
+        profile_skip_db_ids = get_media_ids_downloaded(
+            model_id=model_id, username=username
+        )
         allow_dupe_downloads = bool(
             getattr(read_args.retriveArgs(), "allow_dupe_downloads", False)
         )
@@ -223,8 +237,16 @@ def previous_download_filter(medialist, username=None, model_id=None):
             log.debug("Number of unique media ids in database for all models")
             medialist = seperate.separate_by_id(medialist, media_ids)
         log.debug(f"Number of new mediaids with dupe ids removed: {len(medialist)}")
-        medialist = seperate.seperate_avatars(medialist)
-        log.debug("Removed previously downloaded avatars/headers")
+        _before_profile_skip = len(medialist)
+        medialist = seperate.seperate_avatars(
+            medialist, downloaded_media_ids=profile_skip_db_ids
+        )
+        log.debug(
+            "Profile/avatar cache removed %s item(s) from download queue (%s -> %s)",
+            _before_profile_skip - len(medialist),
+            _before_profile_skip,
+            len(medialist),
+        )
         log.debug(f"Final Number of media to download {len(medialist)} ")
     logging.getLogger().info(f"Final media count for download {len(medialist)}")
     return medialist

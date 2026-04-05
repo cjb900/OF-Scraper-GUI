@@ -177,8 +177,8 @@ class TablePage(QWidget):
         self.sidebar = FilterSidebar()
         # Give the sidebar enough width to show controls by default.
         # Users can still resize via the splitter handle.
-        self.sidebar.setMinimumWidth(320)
-        self.sidebar.setMaximumWidth(520)
+        self.sidebar.setMinimumWidth(400)
+        self.sidebar.setMaximumWidth(640)
         content_splitter.addWidget(self.sidebar)
 
         # Right side: table + bottom tabs
@@ -200,7 +200,7 @@ class TablePage(QWidget):
         content_splitter.setStretchFactor(0, 0)
         content_splitter.setStretchFactor(1, 1)
         # Default widths: sidebar fully visible without dragging.
-        content_splitter.setSizes([420, 780])
+        content_splitter.setSizes([520, 880])
 
         layout.addWidget(content_splitter)
 
@@ -362,6 +362,12 @@ class TablePage(QWidget):
         except Exception:
             # Don't block scraping if the UI reset fails
             pass
+        # Push the current filter state into the table so rows that arrive
+        # live during the scrape are already filtered as they come in.
+        try:
+            self.data_table.apply_filter(self.sidebar.collect_state())
+        except Exception:
+            pass
         try:
             self.progress_summary.clear_all()
         except Exception:
@@ -374,18 +380,24 @@ class TablePage(QWidget):
         self._scrape_active = True
 
         # Emit additional options from the area page
-        if area_page.scrape_paid_check.isChecked():
-            app_signals.scrape_paid_toggled.emit(True)
+        # Always emit current state (not just when checked) so workflow._scrape_paid
+        # resets to False when the checkbox is unchecked between runs.
+        app_signals.scrape_paid_toggled.emit(area_page.scrape_paid_check.isChecked())
         if area_page.scrape_labels_check.isChecked():
             app_signals.scrape_labels_toggled.emit(True)
         # Discord webhook updates (only if configured + user enabled)
         try:
-            enabled = bool(
+            discord_active = bool(
                 getattr(area_page, "discord_updates_check", None)
                 and area_page.discord_updates_check.isEnabled()
                 and area_page.discord_updates_check.isChecked()
             )
-            app_signals.discord_configured.emit(enabled)
+            if discord_active:
+                level = getattr(area_page, "discord_level_combo", None)
+                discord_level = level.currentText() if level else "NORMAL"
+            else:
+                discord_level = "OFF"
+            app_signals.discord_configured.emit(discord_level)
         except Exception:
             pass
 
@@ -429,7 +441,9 @@ class TablePage(QWidget):
         else:
             app_signals.daemon_configured.emit(False, 30.0, False, False)
 
-        # Emit date range from the filter sidebar
+        # Emit date range from the filter sidebar — but ONLY when the sidebar
+        # date filter is explicitly enabled.  If it is disabled, do NOT emit,
+        # so any date range already set (e.g. by the LLM assistant) is preserved.
         try:
             fs = getattr(area_page, "filter_sidebar", None)
             if fs is not None:
@@ -437,19 +451,22 @@ class TablePage(QWidget):
                     getattr(fs, "date_enabled", None)
                     and fs.date_enabled.isChecked()
                 )
-                from_date = (
-                    fs.min_date.date().toString("yyyy-MM-dd")
-                    if date_enabled and getattr(fs, "min_date", None)
-                    else None
-                )
-                to_date = (
-                    fs.max_date.date().toString("yyyy-MM-dd")
-                    if date_enabled and getattr(fs, "max_date", None)
-                    else None
-                )
-                app_signals.date_range_configured.emit(
-                    {"enabled": date_enabled, "from_date": from_date, "to_date": to_date}
-                )
+                if date_enabled:
+                    from_date = (
+                        fs.min_date.date().toString("yyyy-MM-dd")
+                        if getattr(fs, "min_date", None)
+                        else None
+                    )
+                    to_date = (
+                        fs.max_date.date().toString("yyyy-MM-dd")
+                        if getattr(fs, "max_date", None)
+                        else None
+                    )
+                    app_signals.date_range_configured.emit(
+                        {"enabled": True, "from_date": from_date, "to_date": to_date}
+                    )
+                # else: sidebar date filter is off — preserve any existing
+                # date range (e.g. set by the LLM assistant via set_date_filter)
         except Exception:
             pass
 
@@ -480,6 +497,9 @@ class TablePage(QWidget):
         self.start_scraping_btn.setEnabled(True)
         self.start_scraping_btn.setText("Start Scraping >>")
         self.daemon_status_label.hide()
+        # Auto-apply sidebar filters (e.g. date range) so the table reflects
+        # the same criteria used for downloading without requiring a manual click.
+        self._on_filter()
 
     @pyqtSlot(str)
     def _on_daemon_countdown(self, text):
@@ -494,6 +514,10 @@ class TablePage(QWidget):
         self._scrape_active = True
         try:
             self.data_table.clear_all()
+        except Exception:
+            pass
+        try:
+            self.data_table.apply_filter(self.sidebar.collect_state())
         except Exception:
             pass
         try:
@@ -536,7 +560,8 @@ class TablePage(QWidget):
         return reply == QMessageBox.StandardButton.Yes
 
     def _reset_all_pages(self):
-        """Reset action, area, and model pages to their defaults."""
+        """Reset action, area, and model pages to their defaults,
+        and clear the table/progress panel so the next scrape starts fresh."""
         main_window = self.window()
         for attr in ("action_page", "area_page", "model_page"):
             page = getattr(main_window, attr, None)
@@ -545,6 +570,27 @@ class TablePage(QWidget):
                     page.reset_to_defaults()
                 except Exception:
                     pass
+        # Clear the table and progress panel so old results don't linger
+        try:
+            self.data_table.clear_all()
+        except Exception:
+            pass
+        try:
+            self.progress_panel.clear_all()
+        except Exception:
+            pass
+        try:
+            self.console_widget.clear_log()
+        except Exception:
+            pass
+        try:
+            self.row_count_label.setText("0 rows")
+        except Exception:
+            pass
+        try:
+            self.dl_count_label.setText("Downloads: 0 / 0")
+        except Exception:
+            pass
 
     def _on_open_downloads_folder(self):
         """Open the configured save_location in the system file manager."""

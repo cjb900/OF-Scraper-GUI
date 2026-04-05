@@ -19,6 +19,56 @@ Plugins are loaded in both **GUI mode** (`ofscraper --gui`) and **headless/CLI m
 
 ## Plugin Structure
 
+## Logging
+
+Each plugin automatically gets its own dedicated logger via `self.log` from `BasePlugin`.
+
+- Logger name format: `ofscraper_plugin.<Plugin Name>`
+- Log files are written separately from the normal OF-Scraper logs
+- Plugin log location follows OF-Scraper's normal log naming convention, for example:
+  - rotated logs: `.../logging/<profile>_<YYYY-MM-DD>/plugins/plugin-<plugin-name>_<YYYY-MM-DD_HH.mm.ss>.log`
+  - daily logs: `.../logging/plugins/plugin-<plugin-name>_<YYYY-MM-DD>.log`
+
+Example usage inside your plugin:
+
+```python
+class Plugin(BasePlugin):
+    def on_load(self):
+        self.log.info("Plugin loaded")
+
+    def on_item_downloaded(self, item_data, file_path):
+        self.log.debug(f"Downloaded {file_path}")
+```
+
+Use `self.log.info(...)`, `self.log.warning(...)`, `self.log.error(...)`, and `self.log.debug(...)` freely — the plugin manager configures a per-plugin file handler automatically when the plugin is loaded.
+
+### What gets logged automatically
+
+The plugin manager now writes important plugin lifecycle events into the per-plugin log file automatically, including:
+
+- plugin load failures
+- missing dependency detection during plugin load
+- dependency installer start / finish / failure
+- full dependency installer output
+
+That means a plugin log file should contain both:
+- messages your plugin writes via `self.log`
+- manager-driven lifecycle/install events that happen before the plugin can fully load
+
+## Dependencies
+
+If your plugin requires third-party packages:
+
+1. list them in a `requirements.txt` file inside the plugin directory
+2. OF-Scraper can prompt to install missing dependencies automatically
+3. dependencies are installed into the plugin-local `deps/` folder
+4. the installer now prefers a plugin-local virtual environment at `.deps_venv/` to avoid polluting the main OF-Scraper environment
+
+This is especially important for pipx installs, where plugin dependencies should remain isolated from the main `ofscraper` application environment.
+
+Dependency installer output is also written to the plugin's dedicated log file, so plugin authors and users can troubleshoot failed installs more easily.
+
+
 Each plugin lives in its own subdirectory. The folder name is used as the plugin's internal ID.
 
 **Minimum required file:** `main.py`

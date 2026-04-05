@@ -389,6 +389,9 @@ class FilterSidebar(QWidget):
         date_layout.addWidget(self.date_enabled, 0, 4)
         date_layout.addWidget(date_help, 0, 5)
         layout.addWidget(date_group)
+        # Auto-enable date filter when the user picks a date
+        self.min_date.dateChanged.connect(lambda _: self.date_enabled.setChecked(True))
+        self.max_date.dateChanged.connect(lambda _: self.date_enabled.setChecked(True))
 
         # -- Duration / Length --
         length_group = QGroupBox("Duration (Length)")
@@ -599,6 +602,10 @@ class FilterSidebar(QWidget):
         self.ul_true.setChecked(True)
         self.ul_false.setChecked(True)
         self.ul_not_paid.setChecked(True)
+        for w in (self.min_date, self.max_date):
+            w.blockSignals(True)
+            w.setDate(w.minimumDate())
+            w.blockSignals(False)
         self.date_enabled.setChecked(False)
         self.length_enabled.setChecked(False)
         self.price_min.setValue(0)

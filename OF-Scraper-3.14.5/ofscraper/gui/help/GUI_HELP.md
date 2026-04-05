@@ -10,14 +10,18 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 
 - [Left navigation](#nav-left)
 - [Scraper workflow](#scraper-workflow)
+  - [Select Action](#action-select)
+    - [User Lists](#action-user-lists)
 - [Select Content Areas & Filters](#sca-root)
   - [Content Areas](#sca-content-areas)
   - [Media Types to Download](#sca-media-types)
   - [Additional Options](#sca-additional-options)
+    - [Include Post Text](#sca-include-post-text)
   - [Advanced Scrape Options](#sca-advanced-options)
   - [Daemon Mode](#sca-daemon-mode)
   - [Filters (embedded)](#sca-filters)
 - [Select Models](#models-root)
+  - [Reload Models](#models-reload)
   - [Model Filters (right sidebar)](#models-filters-root)
 - [Configuration (config.json)](#config-root)
 - [Table / Scraping page](#table-root)
@@ -58,6 +62,19 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 - **Download content from a user**: Scrape content and build the table.
 - **Like / Unlike**: Perform like/unlike actions (limited to supported areas).
 - **Download + Like / Unlike**: Do both.
+
+<a id="action-user-lists"></a>
+#### User Lists (sub-option under Download)
+
+When **Download content from a user** is selected, a **User Lists** field appears below it.
+
+- Enter one or more OnlyFans list name(s), comma-separated (e.g. `testing, vip`).
+- Only models who are members of those lists will be loaded — the full subscription list is not fetched.
+- Leave blank to load all subscribed models (default behavior).
+- Equivalent to the `--ul` / `--userlist` CLI flag.
+- Reserved internal names (`main`, `ofscraper.main`) are automatically ignored even if entered.
+
+After models load, a **Reload Models** button appears in the navigation bar — use it to re-fetch models without going all the way back to the Select Action page.
 
 ---
 
@@ -122,6 +139,13 @@ Pulls content via labels when available.
 When to use:
 - If you organize creators by labels and want label-based coverage.
 
+<a id="sca-include-post-text"></a>
+#### Include Post Text
+When enabled, the text body of each post is included alongside the downloaded media.
+
+When to use:
+- If you want to keep the post's caption or description alongside the downloaded files.
+
 <a id="sca-discord-updates"></a>
 #### Send updates to Discord (requires webhook URL in Config → General)
 If enabled, the GUI will post log updates to Discord using your configured webhook.
@@ -136,7 +160,7 @@ When Discord updates are enabled, choose how verbose the notifications are:
 - **LOW**: Only important messages — warnings, errors, and run completion summary. Reduces Discord noise.
 - **NORMAL**: Standard progress messages during the scrape (more verbose).
 
-Default: **NORMAL**. This option is disabled until Discord updates are enabled.
+Default: **LOW**. On first enable, a one-time prompt asks whether to save LOW as the permanent default. This option is disabled until Discord updates are enabled.
 
 <a id="sca-advanced-options"></a>
 ### Advanced Scrape Options
@@ -217,6 +241,11 @@ Select which creators/models to process. The list is populated from the API.
 Tips:
 - Search supports comma-separated terms (e.g. `alice, bob, charlie`).
 - Use **Select All / Deselect All / Toggle** for bulk selection.
+
+<a id="models-reload"></a>
+### Reload Models
+
+After the model list loads, a **Reload Models** button appears in the navigation bar. Click it to re-fetch the model list from the API without going back to the Select Action page. The button is hidden while loading is in progress and reappears once the list is ready.
 
 <a id="models-filters-root"></a>
 ### Model Filters (right sidebar)

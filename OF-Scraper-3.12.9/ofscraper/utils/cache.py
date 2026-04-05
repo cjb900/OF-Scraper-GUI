@@ -44,6 +44,23 @@ def set(*args, auto_close=True, **kwargs):
         close()
 
 
+def delete(key):
+    """Remove a key from the disk cache (no-op when cache is disabled)."""
+    global lock
+    lock.acquire()
+    try:
+        if settings.get_cache_disabled():
+            return
+        global cache
+        if cache is None:
+            cache = Cache(common_paths.getcachepath(), disk=data.get_cache_mode())
+        cache.delete(key)
+    except Exception as E:
+        raise E
+    finally:
+        lock.release()
+
+
 def close(*args, **kwargs):
     global lock
     lock.acquire()

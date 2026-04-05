@@ -764,19 +764,19 @@ class MainWindow(QMainWindow):
                 missing_ffmpeg = not p.is_file()
             except Exception:
                 missing_ffmpeg = True
-        # Manual keys: only check if key-mode-default is "manual"; other modes don't need them.
+        # CDM key check: warn whenever manual key files are not configured/valid,
+        # regardless of the current key mode.  Users on cdrm/cdrm2/keydb should
+        # still be prompted to set up manual keys as a fallback.
         cdm_opts = cfg.get("cdm_options") if isinstance(cfg.get("cdm_options"), dict) else {}
         key_mode = str(cdm_opts.get("key-mode-default") or "cdrm").lower().strip() or "cdrm"
-        missing_manual_cdm = False
-        if key_mode == "manual":
-            client_raw = str(cdm_client).strip() if cdm_client is not None else ""
-            priv_raw = str(cdm_private).strip() if cdm_private is not None else ""
-            missing_manual_cdm = True
-            if client_raw and priv_raw:
-                try:
-                    missing_manual_cdm = not (Path(client_raw).is_file() and Path(priv_raw).is_file())
-                except Exception:
-                    missing_manual_cdm = True
+        client_raw = str(cdm_client).strip() if cdm_client is not None else ""
+        priv_raw = str(cdm_private).strip() if cdm_private is not None else ""
+        missing_manual_cdm = True
+        if client_raw and priv_raw:
+            try:
+                missing_manual_cdm = not (Path(client_raw).is_file() and Path(priv_raw).is_file())
+            except Exception:
+                missing_manual_cdm = True
 
         if not (missing_ffmpeg or missing_manual_cdm):
             return
@@ -796,8 +796,8 @@ class MainWindow(QMainWindow):
                 page = self._pages.get("config")
                 if page and hasattr(page, "go_to_config_field"):
                     # Focus first missing field; prefer client-id
-                    key = "client-id" if not bool(client_raw) else "private-key"
-                    page.go_to_config_field("CDM", key)
+                    field = "client-id" if not bool(client_raw) else "private-key"
+                    page.go_to_config_field("CDM", field)
             except Exception:
                 pass
 
@@ -813,6 +813,7 @@ class MainWindow(QMainWindow):
             dlg = MissingDepsDialog(
                 missing_ffmpeg=missing_ffmpeg,
                 missing_manual_cdm=missing_manual_cdm,
+                key_mode=key_mode,
                 on_open_ffmpeg=open_ffmpeg,
                 on_open_cdm=open_cdm,
                 on_open_drm=open_drm,

@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 
 from ofscraper.gui.signals import app_signals
 from ofscraper.gui.styles import c
+from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
 from ofscraper.gui.utils.thread_worker import Worker
 from ofscraper.gui.widgets.sidebar import FilterSidebar
 from ofscraper.gui.widgets.styled_button import StyledButton
@@ -92,6 +93,7 @@ class AreaSelectorPage(QWidget):
         self._models_error = None
         self._loaded_model_count = 0
         self._separators = []
+        self._block_discord_prompt = False
         self._setup_ui()
         self._connect_signals()
         self._refresh_discord_option_state()
@@ -196,6 +198,20 @@ class AreaSelectorPage(QWidget):
         media_layout.addWidget(_make_help_btn("sca-media-types"))
         layout.addWidget(media_group)
 
+        # Include post text option
+        text_group = QGroupBox("Post Text")
+        text_layout = QHBoxLayout(text_group)
+        text_layout.setSpacing(16)
+        self.include_text_check = QCheckBox("Include Post Text")
+        self.include_text_check.setFont(QFont("Segoe UI", 11))
+        self.include_text_check.setChecked(False)
+        self.include_text_check.setToolTip(
+            "Download the text content of posts in addition to media files."
+        )
+        text_layout.addWidget(self.include_text_check)
+        text_layout.addStretch()
+        layout.addWidget(text_group)
+
         # Extra options
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -245,6 +261,7 @@ class AreaSelectorPage(QWidget):
             "When enabled, the GUI will run with the equivalent of --discord NORMAL\n"
             "so log updates are posted to your configured Discord webhook."
         )
+        self.discord_updates_check.toggled.connect(self._on_discord_check_toggled)
         row = QHBoxLayout()
         row.addWidget(self.discord_updates_check)
         row.addStretch()
@@ -522,8 +539,37 @@ class AreaSelectorPage(QWidget):
                     "Disabled because no Discord webhook URL is configured.\n\n"
                     "Set Config → General → Discord Webhook URL, then return here."
                 )
+            else:
+                gs = load_gui_settings()
+                if gs.get("discord_always_on"):
+                    self._block_discord_prompt = True
+                    self.discord_updates_check.setChecked(True)
+                    self._block_discord_prompt = False
         except Exception:
             pass
+
+    def _on_discord_check_toggled(self, checked: bool):
+        """Show a one-time prompt asking whether Discord should always be enabled."""
+        if not checked or self._block_discord_prompt:
+            return
+        gs = load_gui_settings()
+        if "discord_always_on" in gs:
+            return  # Already answered — don't ask again
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Discord Notifications")
+        msg.setText("Always enable Discord notifications by default?")
+        msg.setInformativeText(
+            "If you choose Yes, Discord updates will be pre-checked every time you "
+            "open this page. This preference is saved to gui_settings.json and can "
+            "be changed at any time."
+        )
+        msg.setIcon(QMessageBox.Icon.Question)
+        yes_btn = msg.addButton("Yes, always enable", QMessageBox.ButtonRole.YesRole)
+        msg.addButton("No, ask me each time", QMessageBox.ButtonRole.NoRole)
+        msg.exec()
+        always_on = msg.clickedButton() is yes_btn
+        gs["discord_always_on"] = always_on
+        save_gui_settings(gs)
 
     def reset_to_defaults(self):
         """Reset all area selections and options to their initial defaults."""
@@ -550,6 +596,8 @@ class AreaSelectorPage(QWidget):
         config_filter_lower = {x.lower() for x in config_filter}
         for mt, cb in self._mediatype_checks.items():
             cb.setChecked(mt.lower() in config_filter_lower)
+        # Reset post text checkbox
+        self.include_text_check.setChecked(False)
         # Reset filter sidebar
         self.filter_sidebar.reset_all()
         # Reset model loading state so models reload on next visit
@@ -882,10 +930,11 @@ class AreaSelectorPage(QWidget):
         tgt.ul_false.setChecked(src.ul_false.isChecked())
         tgt.ul_not_paid.setChecked(src.ul_not_paid.isChecked())
 
-        # Date
-        tgt.date_enabled.setChecked(src.date_enabled.isChecked())
+        # Date — set dates first so any dateChanged auto-check fires, then
+        # explicitly set the enabled state last so it always wins.
         tgt.min_date.setDate(src.min_date.date())
         tgt.max_date.setDate(src.max_date.date())
+        tgt.date_enabled.setChecked(src.date_enabled.isChecked())
 
         # Length
         tgt.length_enabled.setChecked(src.length_enabled.isChecked())
@@ -926,6 +975,7 @@ class AreaSelectorPage(QWidget):
         log.info(f"Areas configured: {selected}")
         mediatypes = self.get_selected_mediatypes()
         app_signals.mediatypes_configured.emit(mediatypes)
+        app_signals.include_text_configured.emit(self.include_text_check.isChecked())
 
         # For check modes, emit areas immediately so the workflow stores them
         # before model selection triggers the auto-start.

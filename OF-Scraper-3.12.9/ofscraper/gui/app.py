@@ -166,6 +166,10 @@ class _CloseLegacyModelLoadingPopup(QObject):
 
 def launch_gui(manager=None):
     """Launch the PyQt6 GUI application."""
+    # On Linux, force XCB (X11) backend to avoid Wayland segfaults with PyQt6.
+    # This is safe on both X11 and XWayland sessions.
+    if sys.platform.startswith("linux"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
     app = QApplication(sys.argv)
     app.setApplicationName("OF-Scraper")
     app.setStyle("Fusion")

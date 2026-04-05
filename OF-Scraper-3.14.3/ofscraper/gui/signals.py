@@ -49,6 +49,9 @@ class AppSignals(QObject):
     # Media type filter from area selector page
     mediatypes_configured = pyqtSignal(list)  # list of media type strings e.g. ["Images", "Videos"]
 
+    # Include post text flag from area selector page
+    include_text_configured = pyqtSignal(bool)
+
     # Date range filter from area selector page
     date_range_configured = pyqtSignal(object)  # dict: {enabled, from_date, to_date} (date strings "YYYY-MM-DD")
 

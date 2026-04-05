@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QRadioButton,
     QScrollArea,
     QSizePolicy,
@@ -115,6 +116,9 @@ class ActionPage(QWidget):
         self._button_group = QButtonGroup(self)
         self._button_group.setExclusive(True)
 
+        # Build userlist sub-widget — inserted after the Download radio
+        self._userlist_widget = self._build_userlist_widget()
+
         for i, (label, actions) in enumerate(ACTION_CHOICES):
             radio = QRadioButton(label)
             radio.setFont(QFont("Segoe UI", 13))
@@ -123,6 +127,8 @@ class ActionPage(QWidget):
             radio.setToolTip(_ACTION_TIPS.get(label, ""))
             self._button_group.addButton(radio, i)
             layout.addWidget(radio)
+            if i == 0:  # "Download content from a user"
+                layout.addWidget(self._userlist_widget)
 
         # Separator between action modes and check modes
         sep = QFrame()
@@ -171,6 +177,87 @@ class ActionPage(QWidget):
         btn_layout.addWidget(self.next_btn)
 
         layout.addLayout(btn_layout)
+
+    def _build_userlist_widget(self):
+        """Build the User List Filter sub-widget shown under Download."""
+        container = QWidget()
+        container.setVisible(True)  # visible by default (Download is default)
+
+        inner = QVBoxLayout(container)
+        inner.setContentsMargins(28, 0, 0, 4)
+        inner.setSpacing(4)
+
+        hint = QLabel(
+            "Filter which models are loaded from the OnlyFans API by your custom list(s).\n"
+            "Leave blank to load all subscribed models (default)."
+        )
+        hint.setFont(QFont("Segoe UI", 10))
+        hint.setProperty("muted", True)
+        hint.setWordWrap(True)
+        inner.addWidget(hint)
+
+        row = QHBoxLayout()
+        lbl = QLabel("User Lists:")
+        lbl.setFont(QFont("Segoe UI", 11))
+        row.addWidget(lbl)
+
+        self._userlist_input = QLineEdit()
+        self._userlist_input.setPlaceholderText("e.g.  testing, vip  (comma-separated list names)")
+        self._userlist_input.setToolTip(
+            "Enter one or more OnlyFans list names separated by commas.\n"
+            "Only models who are members of these lists will be loaded.\n"
+            "List names are case-insensitive.\n"
+            "Leave blank to load all subscribed models."
+        )
+        # Pre-populate from CLI args (e.g. --ul testing), stripping reserved names
+        try:
+            import ofscraper.utils.settings as _s_init
+            _ul_init = getattr(_s_init.get_settings(), "userlist", None) or []
+            _ul_init = self._strip_reserved_lists([u.lower() for u in _ul_init if u])
+            if _ul_init:
+                self._userlist_input.setText(", ".join(_ul_init))
+        except Exception:
+            pass
+        row.addWidget(self._userlist_input)
+        inner.addLayout(row)
+
+        return container
+
+    @staticmethod
+    def _strip_reserved_lists(names):
+        """Remove ofscraper's built-in reserved list names ('main', 'ofscraper.main')."""
+        try:
+            import ofscraper.utils.of_env.of_env as _of_env
+            reserved = {
+                (_of_env.getattr("OFSCRAPER_RESERVED_LIST") or "").lower(),
+                (_of_env.getattr("OFSCRAPER_RESERVED_LIST_ALT") or "").lower(),
+            }
+        except Exception:
+            reserved = {"ofscraper.main", "main"}
+        return [n for n in names if n.lower() not in reserved]
+
+    def get_userlist(self):
+        """Return the current userlist as a list of lowercase strings (empty = no filter)."""
+        text = self._userlist_input.text().strip()
+        if not text:
+            return []
+        raw = [u.strip().lower() for u in text.split(",") if u.strip()]
+        return self._strip_reserved_lists(raw)
+
+    def _apply_userlist_to_args(self):
+        """Write the current userlist into ofscraper args and refresh settings cache."""
+        try:
+            import ofscraper.utils.args.accessors.read as _ra
+            import ofscraper.utils.settings as _settings_mod
+            _ul = self.get_userlist()
+            _ra.retriveArgs().userlist = _ul
+            _settings_mod.update_settings()
+            if _ul:
+                log.info(f"[GUI] User list filter set: {_ul}")
+            else:
+                log.info("[GUI] No user list filter — loading all subscribed models")
+        except Exception as e:
+            log.warning(f"[GUI] Could not apply userlist to args: {e}")
 
     def _build_msg_filter_widget(self):
         """Build the three-option message filter sub-widget."""
@@ -222,11 +309,15 @@ class ActionPage(QWidget):
             self._selected_actions = ACTION_CHOICES[0][1]
         self._msg_filter_widget.setVisible(False)
         self._msg_filter_radios[MSG_FILTER_PAID_ONLY].setChecked(True)
+        self._userlist_input.clear()
+        self._userlist_widget.setVisible(True)
 
     def _on_action_changed(self, btn_id):
         if 0 <= btn_id < len(ALL_CHOICES):
             self._selected_actions = ALL_CHOICES[btn_id][1]
         self._msg_filter_widget.setVisible("msg_check" in self._selected_actions)
+        # Show userlist widget only for "Download content from a user" (btn_id 0)
+        self._userlist_widget.setVisible(btn_id == 0)
 
     def _on_msg_filter_changed(self, btn_id):
         checked = self._msg_filter_group.checkedButton()
@@ -236,6 +327,8 @@ class ActionPage(QWidget):
 
     def _on_next(self):
         if self._selected_actions:
+            # Apply userlist BEFORE emitting so model loading uses the correct filter
+            self._apply_userlist_to_args()
             log.info(f"Actions selected: {self._selected_actions}")
             app_signals.action_selected.emit(self._selected_actions)
         else:

@@ -1185,7 +1185,7 @@ class WidevineMasterAutomator:
         self.start_emulator()
         self.wait_for_boot()
         self.install_frida()
-        self.run_keydive()
+        success = self.run_keydive()
         self.cleanup()
 
 

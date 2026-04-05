@@ -59,11 +59,14 @@ class WidevineMasterAutomator:
             sys.exit(1)
         return result
 
-    def run_adb(self, args, check=True, capture=False):
-        return subprocess.run(
-            [self.adb, "-s", self.target] + args,
-            capture_output=capture, text=True,
-        )
+    def run_adb(self, args, check=True, capture=False, timeout=None):
+        try:
+            return subprocess.run(
+                [self.adb, "-s", self.target] + args,
+                capture_output=capture, text=True, timeout=timeout,
+            )
+        except subprocess.TimeoutExpired:
+            return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="")
 
     @staticmethod
     def _scrub_system_java(env, jdk_dir):
@@ -124,7 +127,9 @@ class WidevineMasterAutomator:
 
     def get_view_center(self, target_text_or_id):
         try:
-            self.run_adb(["shell", "uiautomator", "dump", "/data/local/tmp/ui.xml"])
+            # Use capture=True + timeout so a hung uiautomator dump doesn't block the whole budget.
+            self.run_adb(["shell", "uiautomator", "dump", "/data/local/tmp/ui.xml"],
+                         capture=True, timeout=45)
             xml_data = self.run_adb(["shell", "cat", "/data/local/tmp/ui.xml"], capture=True).stdout
             if not xml_data or "xml" not in xml_data:
                 return None
@@ -975,7 +980,7 @@ class WidevineMasterAutomator:
             bx, by = int(w * 0.31), int(h * 0.62)
             # Only tap if uiautomator dump hints at an ANR dialog
             r = self.run_adb(["shell", "uiautomator", "dump", "/data/local/tmp/ui.xml"],
-                             capture=True)
+                             capture=True, timeout=45)
             xml = self.run_adb(["shell", "cat", "/data/local/tmp/ui.xml"],
                                capture=True).stdout or ""
             if "isn't responding" in xml or "not responding" in xml.lower():
@@ -984,6 +989,238 @@ class WidevineMasterAutomator:
                 time.sleep(3)
             else:
                 break   # no ANR dialog found
+
+    def _adb_shell_text(self, args):
+        try:
+            result = self.run_adb(["shell"] + args, check=False, capture=True)
+            return ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+        except Exception:
+            return ""
+
+    def _is_package_installed(self, package_name, retries=3, delay=8):
+        """Check if a package is installed, retrying to handle slow package-manager indexing."""
+        for attempt in range(retries):
+            # pm path is fastest; pm list packages is more reliable under load
+            for check_args in (
+                ["pm", "path", package_name],
+                ["pm", "list", "packages", package_name],
+            ):
+                output = self._adb_shell_text(check_args)
+                if f"package:{package_name}" in output:
+                    return True
+            if attempt < retries - 1:
+                time.sleep(delay)
+        return False
+
+    def _foreground_package(self):
+        for args in (["dumpsys", "window", "windows"], ["dumpsys", "activity", "activities"]):
+            output = self._adb_shell_text(args)
+            for line in output.splitlines():
+                line = line.strip()
+                if "mCurrentFocus" in line or "mFocusedApp" in line or "topResumedActivity" in line or "ResumedActivity" in line:
+                    m = re.search(r'([a-zA-Z0-9_\.]+/[a-zA-Z0-9_\.$]+)', line)
+                    if m:
+                        return m.group(1).split('/')[0]
+        return None
+
+    def _wait_for_package_foreground(self, package_name, timeout=120):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            fg = self._foreground_package()
+            if fg == package_name:
+                return True
+            time.sleep(2)
+        return False
+
+    def _download_kaltura_apk(self):
+        """Download the Kaltura Device Info APK to work_dir/tmp.apk for fallback install."""
+        apk_path = os.path.join(self.work_dir, "tmp.apk")
+        if os.path.isfile(apk_path):
+            print("✅ Kaltura APK already present.")
+            return True
+
+        os.makedirs(self.work_dir, exist_ok=True)
+
+        # Check if KeyDive already downloaded the APK anywhere in work_dir.
+        # KeyDive saves it as com.kaltura.kalturadeviceinfo.apk (or similar) in cwd.
+        for candidate in (
+            os.path.join(self.work_dir, "com.kaltura.kalturadeviceinfo.apk"),
+            os.path.join(self.work_dir, "kalturadeviceinfo.apk"),
+        ):
+            if os.path.isfile(candidate):
+                print(f"   Found existing APK at {candidate}, using it.")
+                shutil.copy(candidate, apk_path)
+                return True
+        # Also scan work_dir for any .apk file KeyDive may have left behind
+        for fname in os.listdir(self.work_dir):
+            if fname.lower().endswith(".apk") and "kaltura" in fname.lower():
+                src = os.path.join(self.work_dir, fname)
+                print(f"   Found existing APK: {fname}, using it.")
+                shutil.copy(src, apk_path)
+                return True
+
+        print("📦 Downloading Kaltura Device Info APK...")
+
+        # Primary source: Kaltura's own GitHub releases for kaltura-device-info-android
+        urls_to_try = []
+        try:
+            release_info = requests.get(
+                "https://api.github.com/repos/kaltura/kaltura-device-info-android/releases/latest",
+                timeout=15,
+            ).json()
+            for asset in release_info.get("assets", []):
+                name = asset.get("name", "").lower()
+                if name.endswith(".apk"):
+                    urls_to_try.append(asset["browser_download_url"])
+        except Exception as e:
+            print(f"   ⚠️  Kaltura GitHub API lookup failed: {e}")
+
+        # Fallback: known versioned URLs from Kaltura's releases
+        urls_to_try += [
+            "https://github.com/kaltura/kaltura-device-info-android/releases/latest/download/KalturaDeviceInfo.apk",
+            "https://github.com/kaltura/kaltura-device-info-android/releases/latest/download/kalturadeviceinfo.apk",
+            "https://github.com/kaltura/kaltura-device-info-android/releases/latest/download/app-release.apk",
+        ]
+
+        for url in urls_to_try:
+            try:
+                print(f"   Trying: {url}")
+                r = requests.get(url, stream=True, timeout=60, allow_redirects=True)
+                if r.status_code == 200:
+                    with open(apk_path, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=1024 * 1024):
+                            f.write(chunk)
+                    print("✅ Kaltura APK downloaded.")
+                    return True
+                else:
+                    print(f"   HTTP {r.status_code}")
+            except Exception as e:
+                print(f"   Failed: {e}")
+
+        print("⚠️  Could not download Kaltura APK — KeyDive's built-in downloader will be used.")
+        return False
+
+    def _install_kaltura_apk_fallbacks(self):
+        package_name = "com.kaltura.kalturadeviceinfo"
+        apk_path = os.path.join(self.work_dir, "tmp.apk")
+        if not os.path.isfile(apk_path):
+            print(f"⚠️ Kaltura APK not found at {apk_path}, attempting download...")
+            self._download_kaltura_apk()
+        if not os.path.isfile(apk_path):
+            print(f"⚠️ Kaltura APK not found for adb fallback install: {apk_path}")
+            return False
+
+        cmds = [
+            [self.adb, "-s", self.target, "install", "-r", "-g", apk_path],
+            [self.adb, "-s", self.target, "install", "--no-streaming", "-r", "-g", apk_path],
+            [self.adb, "-s", self.target, "shell", "pm", "install", "-r", "/data/local/tmp/tmp.apk"],
+        ]
+
+        # Push first for pm install fallback
+        self.run_adb(["push", apk_path, "/data/local/tmp/tmp.apk"], check=False, capture=False)
+
+        for cmd in cmds:
+            print(f"🔄 Retrying APK install via: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            output = ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+            if output:
+                print(output)
+            if result.returncode == 0:
+                time.sleep(10)   # wait for slow package manager to finish indexing
+                if self._is_package_installed(package_name):
+                    print("✅ Kaltura APK install fallback succeeded.")
+                    return True
+
+        if self._is_package_installed(package_name):
+            print("✅ Kaltura APK already appears installed.")
+            return True
+
+        print("❌ Kaltura APK install fallback failed.")
+        return False
+
+    def _find_main_activity(self, package_name):
+        """Find the MAIN activity for a package via pm dump (works even without LAUNCHER category)."""
+        output = self._adb_shell_text(["pm", "dump", package_name])
+        in_main_section = False
+        for line in output.splitlines():
+            stripped = line.strip()
+            if "android.intent.action.MAIN:" in stripped:
+                in_main_section = True
+                continue
+            if in_main_section:
+                m = re.search(rf'{re.escape(package_name)}/([^\s:]+)', stripped)
+                if m:
+                    return m.group(1)
+                if stripped.startswith("android.intent.action"):
+                    break
+        return None
+
+    def _ensure_kaltura_ready(self):
+        package_name = "com.kaltura.kalturadeviceinfo"
+        if not self._is_package_installed(package_name):
+            print("⚠️ Kaltura app not detected after KeyDive preparation; trying adb install fallbacks...")
+            if not self._install_kaltura_apk_fallbacks():
+                return False
+
+        print("🚀 Launching Kaltura Device Info app...")
+
+        # Method 1: monkey with LAUNCHER (works on standard builds)
+        result = self.run_adb(
+            ["shell", "monkey", "-p", package_name, "-c", "android.intent.category.LAUNCHER", "1"],
+            check=False, capture=True,
+        )
+        output = (result.stdout or "") + (result.stderr or "") if result else ""
+        if result and result.returncode == 0 and "No activities found" not in output:
+            print("   Launch method 1 (monkey LAUNCHER) succeeded.")
+            time.sleep(8)
+            if self._wait_for_package_foreground(package_name, timeout=30):
+                print("✅ Kaltura app is in the foreground.")
+                return True
+
+        # Method 2: am start with MAIN action (no LAUNCHER category required)
+        print("   Trying launch method 2 (am start MAIN action)...")
+        result2 = self.run_adb(
+            ["shell", "am", "start", "-a", "android.intent.action.MAIN", "-p", package_name],
+            check=False, capture=True,
+        )
+        out2 = (result2.stdout or "") if result2 else ""
+        if result2 and "Error:" not in out2 and result2.returncode == 0:
+            time.sleep(8)
+            if self._wait_for_package_foreground(package_name, timeout=30):
+                print("✅ Kaltura app is in the foreground.")
+                return True
+        else:
+            print(f"   Method 2 failed: {out2.strip()[:120]}")
+
+        # Method 3: am start -n with explicit activity from pm dump
+        print("   Trying launch method 3 (explicit activity via pm dump)...")
+        activity = self._find_main_activity(package_name)
+        if activity:
+            print(f"   Found activity: {activity}")
+            self.run_adb(
+                ["shell", "am", "start", "-n", f"{package_name}/{activity}"],
+                check=False, capture=False,
+            )
+            time.sleep(8)
+            if self._wait_for_package_foreground(package_name, timeout=30):
+                print("✅ Kaltura app is in the foreground.")
+                return True
+        else:
+            print("   Could not resolve MAIN activity from pm dump.")
+
+        # Method 4: monkey without any category constraint
+        print("   Trying launch method 4 (monkey without category)...")
+        self.run_adb(
+            ["shell", "monkey", "-p", package_name, "1"],
+            check=False, capture=False,
+        )
+        time.sleep(8)
+        if self._wait_for_package_foreground(package_name, timeout=30):
+            print("✅ Kaltura app is in the foreground.")
+            return True
+
+        print("⚠️ Kaltura app did not reach foreground after all launch attempts.")
+        return False
 
     def run_keydive(self):
         print("\n🔑 Starting KeyDive...")
@@ -1035,19 +1272,24 @@ class WidevineMasterAutomator:
                 break
             if kd_proc.poll() is not None:
                 print("❌ KeyDive exited before attaching hook.")
-                return
+                return False
             elapsed = int(time.time() - (deadline_hook - hook_timeout))
             remaining = max(0, int(deadline_hook - time.time()))
             print(f"   Still waiting for hook... {elapsed}s elapsed, ~{remaining}s remaining")
             if time.time() >= deadline_hook:
                 print(f"❌ KeyDive failed to attach hook within {hook_timeout // 60} minutes.")
                 kd_proc.terminate()
-                return
+                return False
 
         print("   Hook attached. Dismissing any ANR dialogs and starting UI automation...")
-        time.sleep(5)
+        time.sleep(10)
         self._dismiss_anr_dialogs()
-        time.sleep(3)
+        time.sleep(20)   # give slow TCG emulator time to recover after ANR before checking packages
+
+        if not self._ensure_kaltura_ready():
+            print("❌ Kaltura app is not installed or did not become interactive. UI automation cannot continue.")
+            kd_proc.terminate()
+            return False
 
         # Resolve real screen dimensions (no wm size override — that crashes System UI on TCG).
         sw, sh = self._get_screen_size()
@@ -1076,7 +1318,7 @@ class WidevineMasterAutomator:
         drm_attempt      = 0   # which candidate coordinate we're on
         start            = time.time()
 
-        while time.time() - start < 600:
+        while time.time() - start < 1200:
             # ── Check for extracted key files ────────────────────────────────
             for root_dir, _, files in os.walk(device_dir):
                 if "client_id.bin" in files and \
@@ -1087,14 +1329,21 @@ class WidevineMasterAutomator:
                         shutil.copy(os.path.join(root_dir, f), self.out_dir)
                     kd_proc.terminate()
                     print(f"📦 Files saved to: {self.out_dir}")
-                    return
+                    return True
 
             if kd_proc.poll() is not None:
                 print("❌ KeyDive exited unexpectedly.")
-                return
+                return False
 
             # Dismiss any ANR that crept up (System UI can restart spontaneously on TCG)
             self._dismiss_anr_dialogs()
+
+            if self._foreground_package() != "com.kaltura.kalturadeviceinfo":
+                print("⚠️ Kaltura app is not in foreground; retrying launch...")
+                if not self._ensure_kaltura_ready():
+                    self._screencap("kaltura_not_ready")
+                    print(f"❌ Kaltura app never became interactive. Check {self.work_dir}/kaltura_not_ready.png for screen state.")
+                    break
 
             # ── Step 1: click FAB ─────────────────────────────────────────────
             if not fab_clicked:
@@ -1146,6 +1395,9 @@ class WidevineMasterAutomator:
                 print(f"🎬 Step 3: Tapping player center ({ply_x},{ply_y}), tap #{player_taps + 1}...")
                 self.run_adb(["shell", "input", "tap", str(ply_x), str(ply_y)])
                 player_taps += 1
+                if player_taps == 1:
+                    # Capture screen after first player tap so we can debug if DRM is not triggered
+                    self._screencap("after_first_player_tap")
                 time.sleep(5)
 
                 # If many player taps with no result, the TEST DRM tap likely missed.
@@ -1173,6 +1425,7 @@ class WidevineMasterAutomator:
 
         kd_proc.terminate()
         print("❌ KeyDive timed out without extracting keys.")
+        return False
 
     def cleanup(self):
         print("\n🧹 Cleaning up...")
@@ -1182,11 +1435,14 @@ class WidevineMasterAutomator:
     def run(self):
         self.setup_keydive()
         self.setup_android_sdk()
+        self._download_kaltura_apk()
         self.start_emulator()
         self.wait_for_boot()
         self.install_frida()
-        self.run_keydive()
+        success = self.run_keydive()
         self.cleanup()
+        if not success:
+            sys.exit(1)
 
 
 if __name__ == "__main__":

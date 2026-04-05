@@ -255,8 +255,12 @@ class AreaSelectorPage(QWidget):
         )
         self.allow_dupes_check.setFont(QFont("Segoe UI", 11))
         self.allow_dupes_check.setToolTip(
-            "Disables duplicate-skipping logic.\n"
-            "When enabled, reposted media will appear as separate entries in the table."
+            "Uses (media ID + post ID) for deduplication instead of media ID alone, so "
+            "reposts of the same file on different posts stay separate.\n"
+            "The database records downloads per post: another post with the same media "
+            "stays on the queue until that post's row is downloaded.\n"
+            "A post is skipped only if that exact media+post pair is already marked "
+            "downloaded. Other filters (locked, types, avatars, etc.) still apply."
         )
         row = QHBoxLayout()
         row.addWidget(self.allow_dupes_check)
@@ -856,10 +860,11 @@ class AreaSelectorPage(QWidget):
         tgt.ul_false.setChecked(src.ul_false.isChecked())
         tgt.ul_not_paid.setChecked(src.ul_not_paid.isChecked())
 
-        # Date
-        tgt.date_enabled.setChecked(src.date_enabled.isChecked())
+        # Date — set dates first so any dateChanged auto-check fires, then
+        # explicitly set the enabled state last so it always wins.
         tgt.min_date.setDate(src.min_date.date())
         tgt.max_date.setDate(src.max_date.date())
+        tgt.date_enabled.setChecked(src.date_enabled.isChecked())
 
         # Length
         tgt.length_enabled.setChecked(src.length_enabled.isChecked())

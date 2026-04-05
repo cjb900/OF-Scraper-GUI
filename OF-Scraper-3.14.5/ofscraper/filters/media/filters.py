@@ -5,12 +5,11 @@ from collections import defaultdict
 
 import arrow
 
-import ofscraper.utils.separate as separate
+import ofscraper.utils.separate as seperate
 import ofscraper.utils.settings as settings
-import ofscraper.utils.me as me_util
 from ofscraper.db.operations_.media import (
     get_media_ids_downloaded,
-    get_media_ids_downloaded_model_sync,
+    get_media_ids_downloaded_model,
 )
 import ofscraper.utils.of_env.of_env as of_env
 
@@ -35,9 +34,7 @@ def dupefiltermedia(media):
                 output[item.id] = item
             elif item.canview and not output[item.id].canview:
                 output[item.id] = item
-    log.debug(
-        f"Number of media after removing duplicated media_ids {len(output.values())}"
-    )
+    log.debug(f"Number of media after removing duplicated media_ids {len(output.values())}")
     return list(output.values())
 
 
@@ -139,58 +136,53 @@ def unviewable_media_filter(media):
 
 def final_media_sort(media):
     media_sort = settings.get_settings().mediasort
-    is_reversed = settings.get_settings().media_desc
+    reversed = settings.get_settings().media_desc
     log.debug(f"Using download sort {media_sort}")
     if media_sort == "random":
         random.shuffle(media)
-    if media_sort == "date" and is_reversed:
-        media = list(reversed(media))
+    if media_sort == "date" and reversed:
+        media = reversed(media)
     if media_sort == "text":
-        media = sorted(media, key=lambda x: x.text, reverse=is_reversed)
+        media = sorted(media, key=lambda x: x.text, reverse=reversed)
     elif media_sort == "filename":
-        media = sorted(media, key=lambda x: x.filename, reverse=is_reversed)
+        media = sorted(media, key=lambda x: x.filename, reverse=reversed)
     return media
 
 
 def previous_download_filter(medialist, username=None, model_id=None):
+    log = logging.getLogger("shared")
     log.info("reading database to retrive previous downloads")
-
+    medialist = seperate.seperate_by_self(medialist)
     # sort to key order same
     medialist = sorted(
         medialist, key=lambda item: (item.post.date, item.id, item.count)
     )
-
-    # Early Exit if forcing all
     if settings.get_settings().force_all:
         log.info("forcing all media to be downloaded")
-        return medialist
-
-    # Determine the pool of already downloaded media
-    if settings.get_settings().force_model_unique:
-        log.info(f"Downloading unique media for model: {username}")
+    elif settings.get_settings().force_model_unique:
+        log.info("Downloading unique media for model")
         media_ids = set(
-            get_media_ids_downloaded_model_sync(model_id=model_id, username=username)
+            get_media_ids_downloaded_model(model_id=model_id, username=username)
         )
         log.debug(
             f"Number of unique media ids in database for {username}: {len(media_ids)}"
         )
+        medialist = seperate.separate_by_id(medialist, media_ids)
+        log.debug(f"Number of new media_ids after dupe/previously downloaded ids removed: {len(medialist)}")
+        medialist = seperate.seperate_avatars(medialist)
+        log.debug("Removed previously downloaded avatars/headers")
+        log.debug(f"Final Number of media to download {len(medialist)}")
     else:
         log.info("Downloading unique media across all models")
         media_ids = set(get_media_ids_downloaded(model_id=model_id, username=username))
         log.debug(
             f"Number of unique media ids in database for all models: {len(media_ids)}"
         )
-
-    # Apply the filters to whichever pool we selected above
-    medialist = separate.separate_by_id(medialist, media_ids)
-    log.debug(
-        f"Number of new media_ids after dupe/previously downloaded ids removed: {len(medialist)}"
-    )
-
-    medialist = separate.seperate_avatars(medialist)
-    log.debug("Removed previously downloaded avatars/headers")
-
-    log.debug(f"Final Number of media to download {len(medialist)} ")
+        medialist = seperate.separate_by_id(medialist, media_ids)
+        log.debug(f"Number of new media_ids after dupe/previously downloaded ids removed: {len(medialist)}")
+        medialist = seperate.seperate_avatars(medialist)
+        log.debug("Removed previously downloaded avatars/headers")
+        log.debug(f"Final Number of media to download {len(medialist)} ")
     return medialist
 
 
@@ -321,32 +313,3 @@ def final_post_sort(post):
     elif post_sort == "random":
         random.shuffle(post)
     return post
-
-
-def seperate_self(media):
-    """
-    Filters out media that was posted by the user running the script.
-    """
-    if not of_env.getattr("FILTER_SELF_MEDIA"):
-        log.debug("FILTER_SELF_MEDIA is disabled. Skipping self-media filtering.")
-        return media
-
-    my_id = me_util.get_id()
-    initial_length = len(media)
-
-    log.info("Filtering out media created by your own account...")
-
-    # Keep only media where the poster's ID does not match your own ID
-    filtered_data = list(filter(lambda x: x.post.fromuser != my_id, media))
-
-    removed_count = initial_length - len(filtered_data)
-    if removed_count > 0:
-        log.debug(
-            f"Removed {removed_count} media items belonging to your own account (ID: {my_id})."
-        )
-
-    log.debug(
-        f"Number of media items remaining after self-filtering: {len(filtered_data)}"
-    )
-
-    return filtered_data

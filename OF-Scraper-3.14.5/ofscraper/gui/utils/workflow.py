@@ -56,7 +56,6 @@ class _NullLive:
     """
     is_started = False
     renderable = None
-    transient = False
 
     def start(self):
         self.is_started = True
@@ -500,62 +499,124 @@ def _uninstall_gui_progress_hooks():
 # ---------------------------------------------------------------------------
 # Media row builder
 # ---------------------------------------------------------------------------
-def _build_media_rows(media, username):
-    """Convert a list of Media objects into row dicts for the GUI data table."""
-    import arrow
-
-    rows = []
+def _format_length_display(value):
+    """Format duration into DD:HH:MM:SS for GUI display."""
+    if value in (None, '', 'N/A'):
+        return 'N/A'
     try:
-        sorted_media = sorted(
-            media, key=lambda x: arrow.get(x.date), reverse=True
-        )
+        total_seconds = int(float(value))
     except Exception:
-        sorted_media = list(media)
+        return str(value)
+    days = total_seconds // 86400
+    hours = (total_seconds % 86400) // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    return f"{days:02d}:{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-    for count, ele in enumerate(sorted_media):
+
+def _build_media_rows(media, username):
+    """Convert 3.14.x Media objects into row dicts for the GUI table.
+
+    The 3.14.x object model stores much of the useful display metadata on the
+    underlying post/raw media payload rather than as always-populated direct
+    Media attributes. Derive the visible columns from those richer sources so
+    the table reflects what was actually scraped.
+    """
+    rows = []
+    for count, ele in enumerate(media):
         try:
-            price = 0
-            if hasattr(ele, "_post") and hasattr(ele._post, "price"):
-                price = ele._post.price or 0
-            preview = bool(getattr(ele, "preview", False))
-            responsetype = str(getattr(ele, "responsetype", "") or "").lower()
-            post_opened = False
+            post = getattr(ele, "post", None)
+            raw_post = getattr(post, "_post", {}) or {}
+            raw_media = getattr(ele, "_media", {}) or {}
+
+            media_id = getattr(ele, "id", "") or raw_media.get("id") or ""
+            post_id = (
+                getattr(ele, "post_id", None)
+                or getattr(post, "id", None)
+                or raw_post.get("id")
+                or ""
+            )
+
+            text = (
+                getattr(post, "db_sanitized_text", None)
+                or getattr(post, "text", None)
+                or raw_post.get("text")
+                or raw_post.get("rawText")
+                or getattr(ele, "text", "")
+                or ""
+            )
+
+            price = (
+                getattr(post, "price", None)
+                if post is not None
+                else raw_post.get("price")
+            )
             try:
-                # For PPV messages, "opened" indicates purchase/unlock state of the message.
-                # Media.canview can still be True for included/preview media even when the
-                # overall message is not opened.
-                post_opened = bool(getattr(getattr(ele, "post", None), "opened", 0))
+                price = float(price or 0)
             except Exception:
-                post_opened = False
+                price = 0.0
 
-            post_media_count = 0
-            if hasattr(ele, "_post") and hasattr(ele._post, "post_media"):
-                post_media_count = len(ele._post.post_media)
+            responsetype = (
+                getattr(ele, "responsetype", None)
+                or raw_media.get("responseType")
+                or raw_post.get("responseType")
+                or raw_post.get("from")
+                or ""
+            )
+            responsetype = str(responsetype or "")
 
-            text = ""
-            if hasattr(ele, "post") and hasattr(ele.post, "db_sanitized_text"):
-                text = ele.post.db_sanitized_text or ""
+            post_media = getattr(post, "media", None)
+            if post_media is None:
+                post_media = raw_post.get("media") or []
+            try:
+                post_media_count = len(post_media or [])
+            except Exception:
+                post_media_count = 0
 
-            canview = getattr(ele, "canview", True)
+            media_type = getattr(ele, "mediatype", None) or raw_media.get("type") or raw_media.get("mediaType") or ""
+            media_type = str(media_type or "").strip()
+            media_type_lower = media_type.lower()
+            source_url = str(getattr(ele, "url", "") or raw_media.get("source") or raw_media.get("src") or "")
+            mimetype = str(raw_media.get("mimetype") or raw_media.get("mimeType") or "").lower()
+            if not media_type or media_type_lower == "unknown":
+                if getattr(ele, "mpd", None) or "video" in mimetype or source_url.lower().endswith((".mpd", ".mp4", ".m4v", ".mov")):
+                    media_type = "Videos"
+                elif "audio" in mimetype or source_url.lower().endswith((".mp3", ".m4a", ".wav", ".ogg")):
+                    media_type = "Audios"
+                elif "image" in mimetype or source_url.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
+                    media_type = "Images"
+                else:
+                    media_type = "unknown"
 
-            # Cart status based on viewability
-            if not canview and price > 0:
+            duration = (
+                getattr(ele, "numeric_duration", None)
+                or raw_media.get("duration")
+                or raw_media.get("sourceDuration")
+                or "N/A"
+            )
+
+            post_date = (
+                getattr(ele, "formatted_postdate", None)
+                or getattr(ele, "formatted_date", None)
+                or raw_post.get("postedAt")
+                or raw_post.get("createdAt")
+                or ""
+            )
+
+            downloaded = bool(getattr(ele, "downloaded", False))
+            canview = bool(getattr(ele, "canview", True))
+            unlocked = bool(getattr(ele, "unlocked", canview)) if hasattr(ele, 'unlocked') else canview
+            preview = bool(getattr(post, "preview", False) if post is not None else raw_post.get("preview", False))
+            post_opened = bool(getattr(post, "opened", True) if post is not None else raw_post.get("opened", True))
+
+            if not unlocked:
                 cart_status = "Locked"
-            elif not canview:
-                cart_status = "Locked"
-            else:
-                cart_status = "[]"
-
-            # Downloaded/Unlocked display based on canview
-            if not canview:
                 dl_display = "N/A"
                 ul_display = "Locked"
             else:
-                dl_display = str(False)
-                # For PPV messages, the message itself can be priced but not purchased ("opened"=False).
-                # In that case, media may still be viewable as Included/Preview, and should NOT show
-                # up as fully "Unlocked=True" which looks like purchased content.
-                if price > 0 and responsetype in ("message", "messages") and not post_opened:
+                cart_status = "[downloaded]" if downloaded else "[]"
+                dl_display = str(bool(downloaded))
+                if price > 0 and responsetype.lower() in ("message", "messages") and not post_opened:
                     ul_display = "Preview" if preview else "Included"
                 else:
                     ul_display = "Preview" if (preview and price > 0) else str(True)
@@ -570,13 +631,13 @@ def _build_media_rows(media, username):
                     "unlocked": ul_display,
                     "other_posts_with_media": [],
                     "post_media_count": post_media_count,
-                    "mediatype": getattr(ele, "mediatype", "unknown"),
-                    "post_date": getattr(ele, "formatted_postdate", "") or "",
-                    "length": getattr(ele, "numeric_duration", "N/A"),
-                    "responsetype": getattr(ele, "responsetype", ""),
+                    "mediatype": media_type,
+                    "post_date": post_date,
+                    "length": duration,
+                    "responsetype": responsetype,
                     "price": "Free" if price == 0 else "{:.2f}".format(price),
-                    "post_id": getattr(ele, "postid", ""),
-                    "media_id": getattr(ele, "id", ""),
+                    "post_id": post_id,
+                    "media_id": media_id,
                     "text": text,
                 }
             )
@@ -728,10 +789,15 @@ def _query_post_info(cur):
     return post_info
 
 
-def _load_models_from_db(selected_models):
+def _load_models_from_db(selected_models, date_range=None, media_ids=None):
     """Query the DB for all media records of each selected model and emit
     them to the GUI table.  Runs synchronously (called from the scraper
     background thread after the pipeline finishes).
+
+    date_range: optional dict {"enabled": bool, "from_date": "YYYY-MM-DD",
+                               "to_date": "YYYY-MM-DD"} — when enabled, only
+    rows whose posted_at falls within the range are emitted to the table so
+    the display matches what was actually scraped.
 
     Returns a dict: {username: {"photos": N, "videos": N, "audios": N,
                                 "dl_photos": N, "dl_videos": N, "dl_audios": N}}
@@ -740,10 +806,20 @@ def _load_models_from_db(selected_models):
     import pathlib
     import sqlite3
 
-    from filelock import FileLock
-
     import ofscraper.classes.placeholder as placeholder
-    import ofscraper.utils.paths.common as common_paths
+
+    # Pre-parse date bounds once for efficient per-row comparison
+    _dr_from = None
+    _dr_to = None
+    if date_range and date_range.get("enabled"):
+        try:
+            import arrow as _arrow
+            if date_range.get("from_date"):
+                _dr_from = _arrow.get(date_range["from_date"], "YYYY-MM-DD")
+            if date_range.get("to_date"):
+                _dr_to = _arrow.get(date_range["to_date"], "YYYY-MM-DD").ceil("day")
+        except Exception:
+            pass
 
     media_select_sql = """
     SELECT media_id, post_id, link, directory, filename, size, api_type,
@@ -764,23 +840,23 @@ def _load_models_from_db(selected_models):
     for model in selected_models:
         model_id = model.id
         username = model.name
-        lock = None
         conn = None
         try:
-            lock = FileLock(common_paths.getDB(), timeout=-1)
-            lock.acquire(timeout=-1)
-
             database_path = pathlib.Path(
                 placeholder.databasePlaceholder().databasePathHelper(
                     model_id, username
                 )
             )
+            log.warning(f"[DB Load] Checking DB path for {username}: {database_path}")
             if not database_path.exists():
-                log.debug(f"No DB file for {username}, skipping DB load")
+                log.warning(f"[DB Load] No DB file for {username} at {database_path} — skipping")
                 continue
 
+            # Read-only query after the scraper finishes — no FileLock needed.
+            # SQLite handles concurrent reads natively; the timeout parameter
+            # covers any brief write contention from in-flight commits.
             conn = sqlite3.connect(
-                database_path, check_same_thread=True, timeout=10
+                database_path, check_same_thread=False, timeout=30
             )
             conn.row_factory = sqlite3.Row
             cur = conn.cursor()
@@ -790,6 +866,51 @@ def _load_models_from_db(selected_models):
             # Also fetch price and text from post/message/story tables
             post_info = _query_post_info(cur)
             cur.close()
+
+            log.warning(f"[DB Load] Found {len(data)} media records in DB for {username}")
+
+            # Filter to specific media IDs when provided — ensures we only show
+            # the items that were actually scraped in this session, not all
+            # historical records accumulated across previous scrapes.
+            if media_ids:
+                _before = len(data)
+                data = [r for r in data if r.get("media_id") in media_ids]
+                log.warning(
+                    f"[DB Load] media_id filter: kept {len(data)} of {_before} records for {username}"
+                )
+
+            # Apply date range filter if active — keep only rows within the
+            # scraping window so the table reflects the scraped period.
+            if (_dr_from or _dr_to) and data:
+                try:
+                    import arrow as _arrow
+                    filtered = []
+                    skipped = 0
+                    for _r in data:
+                        _posted = _r.get("posted_at") or _r.get("created_at")
+                        if not _posted:
+                            # No date on record — include it rather than silently drop it.
+                            # Paid media sometimes lacks posted_at; skipping hides valid rows.
+                            filtered.append(_r)
+                            continue
+                        try:
+                            _dt = _arrow.get(_posted)
+                            if _dr_from and _dt < _dr_from:
+                                skipped += 1
+                                continue
+                            if _dr_to and _dt > _dr_to:
+                                skipped += 1
+                                continue
+                            filtered.append(_r)
+                        except Exception:
+                            filtered.append(_r)
+                    log.warning(
+                        f"[DB Load] Date filter: kept {len(filtered)}, "
+                        f"skipped {skipped} out-of-range records for {username}"
+                    )
+                    data = filtered
+                except Exception as _fe:
+                    log.warning(f"[DB Load] Date filter failed for {username}: {_fe}")
 
             if data:
                 # Compute per-model media counts for Discord summary
@@ -822,16 +943,13 @@ def _load_models_from_db(selected_models):
                         f"Loaded {len(rows)} items from DB for {username}"
                     )
         except Exception as e:
-            log.debug(f"Failed to load DB data for {username}: {e}")
+            log.warning(f"[DB Load] Failed to load DB data for {username}: {e}")
+            import traceback as _tb
+            log.warning(f"[DB Load] Traceback: {_tb.format_exc()}")
         finally:
             if conn:
                 try:
                     conn.close()
-                except Exception:
-                    pass
-            if lock:
-                try:
-                    lock.release(force=True)
                 except Exception:
                     pass
 
@@ -890,10 +1008,25 @@ def _make_gui_scraper_manager():
         """scraperManager subclass that emits media rows to the GUI table
         before executing download/like actions for each user."""
 
+        @property
+        def run_action(self):
+            """Skip the normal per-user action path when doing a paid-only scrape
+            with no content areas selected.  Without this, runner() falls through to
+            prepare() after scrape_paid_all() which shows the interactive TUI area
+            selector and blocks the thread indefinitely."""
+            import ofscraper.utils.settings as _s
+            _cfg = _s.get_settings()
+            if getattr(_cfg, "scrape_paid", False) and not getattr(_cfg, "download_area", None):
+                return False
+            return len(getattr(_cfg, "actions", [])) > 0
+
         async def _execute_user_action(self, ele, postcollection):
             import ofscraper.utils.settings as _settings
-            # Extract data from the 3.14.3 PostCollection object
+            # Use the fuller GUI table media set for display so duplicates/reposts
+            # and locked/paid rows remain visible, while downloads still use the
+            # normal processed queue.
             media = postcollection.get_media_for_processing()
+            table_rows = postcollection.get_rows_for_gui_table()
             like_posts = postcollection.get_posts_to_like()
             posts = postcollection.get_posts_for_text_download()
 
@@ -916,12 +1049,27 @@ def _make_gui_scraper_manager():
                     f"all items may be already downloaded or filtered out",
                 )
 
-            # Emit media data to GUI table before running actions
-            if media and ele:
-                rows = _build_media_rows(media, ele.name)
+            # Emit GUI table rows before running actions
+            if table_rows and ele:
+                rows = table_rows
                 if rows:
                     try:
-                        app_signals.data_loading_finished.emit(rows)
+                        workflow = getattr(self, "caller", None) or getattr(self, "workflow", None)
+                        emitted_via_replace = False
+                        try:
+                            if workflow is not None and not getattr(workflow, "_live_rows_emitted", False):
+                                app_signals.data_replace.emit(rows)
+                                workflow._live_rows_emitted = True
+                                emitted_via_replace = True
+                                log.info(f"[GUI] Emitted {len(rows)} live rows via data_replace")
+                        except Exception:
+                            emitted_via_replace = False
+
+                        if not emitted_via_replace:
+                            app_signals.data_loading_finished.emit(rows)
+                            if workflow is not None:
+                                workflow._live_rows_emitted = True
+                            log.info(f"[GUI] Emitted {len(rows)} live rows via data_loading_finished")
                     except Exception as e:
                         log.debug(f"Failed to emit table data: {e}")
 
@@ -1025,6 +1173,7 @@ class GUIWorkflow:
         self._selected_models = []
         self._selected_areas = []
         self._selected_mediatypes = []
+        self._include_text = False
         self._scrape_paid = False
         self._discord_level = "OFF"
         self._advanced = {}
@@ -1042,6 +1191,7 @@ class GUIWorkflow:
         self._daemon_sound = True
         self._daemon_stop = threading.Event()
         self._msg_check_filter = "paid_only"  # "paid_only" | "free_only" | "all"
+        self._live_rows_emitted = False
         self._connect_signals()
         # Mute Discord at startup — the handler is initialized from the config
         # file which may have a non-OFF level, causing every WARNING+ message
@@ -1054,6 +1204,7 @@ class GUIWorkflow:
         app_signals.models_selected.connect(self._on_models_selected)
         app_signals.areas_selected.connect(self._on_areas_selected)
         app_signals.mediatypes_configured.connect(self._on_mediatypes_configured)
+        app_signals.include_text_configured.connect(self._on_include_text_configured)
         app_signals.scrape_paid_toggled.connect(self._on_scrape_paid)
         app_signals.discord_configured.connect(self._on_discord_configured)
         app_signals.daemon_configured.connect(self._on_daemon_configured)
@@ -1167,6 +1318,10 @@ class GUIWorkflow:
         self._selected_mediatypes = mediatypes
         log.info(f"[GUI Workflow] Media types set: {mediatypes}")
 
+    def _on_include_text_configured(self, include: bool):
+        self._include_text = include
+        log.info(f"[GUI Workflow] Include post text: {include}")
+
     def _on_areas_selected(self, areas):
         self._selected_areas = areas
         log.info(f"[GUI Workflow] Areas set: {areas}")
@@ -1190,6 +1345,7 @@ class GUIWorkflow:
             _gui_cancel_event.clear()
         except Exception:
             pass
+        self._live_rows_emitted = False
         try:
             self._set_args()
         except Exception as e:
@@ -1314,17 +1470,17 @@ class GUIWorkflow:
         if self._selected_mediatypes:
             args.mediatypes = list(self._selected_mediatypes)
 
+        # Include post text
+        if self._include_text:
+            args.text = True
+
         # Discord webhook updates: set discord_level from GUI selection.
         # The CLI arg --discord maps to args.discord_level (not args.discord).
         argv = [str(a) for a in (getattr(sys, "argv", None) or [])]
         cli_sets_discord = any(
             a in {"-dc", "--discord"} or a.startswith("--discord=") for a in argv
         )
-        if cli_sets_discord:
-            # CLI provided --discord; keep args.discord_level as-is but sync
-            # self._discord_level so the post-run summary block fires.
-            self._discord_level = getattr(args, "discord_level", "OFF") or "OFF"
-        else:
+        if not cli_sets_discord:
             args.discord_level = self._discord_level
 
         # Advanced flags
@@ -1612,6 +1768,7 @@ class GUIWorkflow:
 
                     GUIScraperManager = _make_gui_scraper_manager()
                     scraping_manager = GUIScraperManager()
+                    scraping_manager.workflow = self
                     if self._selected_actions == {"manual_url"}:
                         app_signals.log_message.emit(
                             "INFO",
@@ -1655,13 +1812,226 @@ class GUIWorkflow:
                         import ofscraper.commands.manual as _manual_cmd
                         _manual_cmd.manual_download()
                     else:
-                        scraping_manager.runner()
+                        # Filter global paid scrape to only selected models.
+                        # scrape_paid_all() uses the global /posts/paid/all endpoint
+                        # which returns ALL purchased content across ALL subscriptions.
+                        # By patching process_paid_dict we let process_all_paid() write
+                        # metadata for every creator (unavoidable) but only DOWNLOAD
+                        # content for the models the user actually selected.
+                        _orig_process_paid_dict = None
+                        if self._scrape_paid and self._selected_models:
+                            try:
+                                import ofscraper.data.posts.scrape_paid as _spm
+                                import ofscraper.data.posts.post as _OF
+                                _orig_process_paid_dict = _spm.process_paid_dict
+                                _selected_usernames_lower = {
+                                    m.name.lower() for m in self._selected_models
+                                }
+                                log.warning(
+                                    f"[DIAG] Patching process_paid_dict for: {list(_selected_usernames_lower)}"
+                                )
+                                app_signals.log_message.emit(
+                                    "INFO",
+                                    f"Filtering paid scrape to selected models: {[m.name for m in self._selected_models]}",
+                                )
+
+                                # Capture selected_models and date_range for closure
+                                _patch_selected_models = list(self._selected_models)
+                                _patch_date_range = dict(self._date_range) if self._date_range else {}
+
+                                async def _filtered_process_paid_dict():
+                                    """
+                                    Optimised replacement for process_paid_dict.
+                                    Calls get_all_paid_posts() once (single API request) then
+                                    processes ONLY the selected models — skipping the 60+ extra
+                                    profile.scrape_profile() calls that process_all_paid() would make.
+                                    """
+                                    import ofscraper.data.api.paid as _paid_api
+                                    import ofscraper.db.operations as _db_ops
+                                    import ofscraper.classes.of.posts as _posts_cls
+                                    import ofscraper.db.operations_.media as _media_ops
+                                    from ofscraper.managers.postcollection import PostCollection as _PC
+
+                                    log.warning("[DIAG] Fetching all paid posts via single API call...")
+                                    try:
+                                        paid_content = await _paid_api.get_all_paid_posts()
+                                    except Exception as _e:
+                                        import traceback as _tb
+                                        log.warning(f"[DIAG] get_all_paid_posts() RAISED: {_e}\n{_tb.format_exc()}")
+                                        return
+
+                                    log.warning(
+                                        f"[DIAG] get_all_paid_posts() returned {len(paid_content)} entries. "
+                                        f"Processing only {len(_patch_selected_models)} selected model(s)."
+                                    )
+
+                                    output = {}
+                                    for _m in _patch_selected_models:
+                                        _mid = _m.id
+                                        _uname = _m.name
+                                        # paid_content keys may be int or str
+                                        _posts_data = (
+                                            paid_content.get(_mid)
+                                            or paid_content.get(str(_mid))
+                                            or paid_content.get(int(_mid) if isinstance(_mid, str) else _mid)
+                                        )
+                                        if not _posts_data:
+                                            log.warning(f"[DIAG] No paid content for {_uname} (id={_mid}) — skipping")
+                                            continue
+                                        log.warning(f"[DIAG] {_uname}: {len(_posts_data)} paid posts found")
+                                        try:
+                                            await _db_ops.table_init_create(model_id=_mid, username=_uname)
+                                            _pc = _PC(username=_uname, model_id=_mid)
+                                            _all_posts = [
+                                                _posts_cls.Post(x, _mid, _uname, responsetype="Paid")
+                                                for x in _posts_data
+                                            ]
+                                            _pc.add_posts(_all_posts, actions="scrape_paid_download")
+                                            await _db_ops.make_post_table_changes(
+                                                _pc.posts, model_id=_mid, username=_uname
+                                            )
+                                            await _media_ops.batch_mediainsert(
+                                                _pc.all_unique_media,
+                                                model_id=_mid,
+                                                username=_uname,
+                                                downloaded=False,
+                                            )
+                                            _final_medias = _pc.get_media_for_processing()
+                                            _text_posts = _pc.get_posts_for_text_download()
+                                            output[_mid] = dict(
+                                                model_id=_mid,
+                                                username=_uname,
+                                                posts=_text_posts,
+                                                medias=_final_medias,
+                                            )
+                                            log.warning(
+                                                f"[DIAG] {_uname}: {len(_final_medias)} media items to download"
+                                            )
+                                            # Track scraped media IDs so the post-scrape DB load
+                                            # shows only these items (not all historical records).
+                                            _final_media_ids = {
+                                                getattr(_mv, "id", None) for _mv in _final_medias
+                                            } - {None}
+                                            if not hasattr(self, "_scrape_paid_media_ids"):
+                                                self._scrape_paid_media_ids = set()
+                                            self._scrape_paid_media_ids.update(_final_media_ids)
+                                            # Emit rows to the GUI table immediately after DB insert
+                                            # so the table populates before (or during) downloads.
+                                            try:
+                                                # Pass media_ids so only the 40 scraped rows are shown,
+                                                # not all 206 historical records in the DB.
+                                                _load_models_from_db([_m], date_range={}, media_ids=_final_media_ids)
+                                                log.warning(f"[DIAG] Live table rows emitted for {_uname}")
+                                            except Exception as _emit_err:
+                                                log.warning(f"[DIAG] Live row emit failed: {_emit_err}")
+                                        except Exception as _e2:
+                                            import traceback as _tb2
+                                            log.warning(f"[DIAG] Error processing {_uname}: {_e2}\n{_tb2.format_exc()}")
+
+                                    length = len(output)
+                                    log.warning(f"[DIAG] Yielding {length} model(s) to download pipeline")
+                                    for count, value in enumerate(output.values()):
+                                        yield count, value, length
+
+                                _spm.process_paid_dict = _filtered_process_paid_dict
+                                log.warning("[DIAG] process_paid_dict patch applied successfully")
+                            except Exception as _patch_err:
+                                import traceback as _tb2
+                                log.warning(f"[DIAG] Could not patch process_paid_dict: {_patch_err}\n{_tb2.format_exc()}")
+                                _orig_process_paid_dict = None
+
+                        # Monkey-patch scrape_paid.process_user to start/stop DB polling
+                        # so the Downloaded column updates in real time while paid content
+                        # is downloading (mirrors what _execute_user_action does for normal scrapes).
+                        _orig_process_user = None
+                        if self._scrape_paid:
+                            try:
+                                import ofscraper.data.posts.scrape_paid as _spm_paid
+                                _orig_process_user = _spm_paid.process_user
+
+                                async def _polled_process_user(_pu_value, _pu_length):
+                                    _pu_medias = _pu_value.get("medias", [])
+                                    _pu_mid = _pu_value.get("model_id")
+                                    _pu_uname = _pu_value.get("username")
+                                    if _pu_medias:
+                                        _gui_state.start_polling(_pu_medias, _pu_mid, _pu_uname)
+                                    try:
+                                        return await _orig_process_user(_pu_value, _pu_length)
+                                    finally:
+                                        if _pu_medias:
+                                            _gui_state.stop_polling()
+                                            _emit_download_status(_pu_medias, _pu_mid, _pu_uname)
+
+                                _spm_paid.process_user = _polled_process_user
+                                log.warning("[DIAG] process_user polling patch applied successfully")
+                            except Exception as _pu_err:
+                                log.warning(f"[DIAG] Could not patch process_user: {_pu_err}")
+                                _orig_process_user = None
+
+                        if self._scrape_paid:
+                            app_signals.status_message.emit(
+                                "Fetching paid content from API — this may take several minutes..."
+                            )
+                            app_signals.log_message.emit(
+                                "INFO",
+                                "Paid scrape: retrieving metadata for all subscriptions from the API. "
+                                "Progress will appear at 0%% until data fetch completes. Please wait...",
+                            )
+
+                        # Wrap scrape_paid_all to diagnose where the hang is
+                        try:
+                            import ofscraper.data.posts.scrape_paid as _spm2
+                            _orig_spa = _spm2.scrape_paid_all
+                            def _diag_scrape_paid_all():
+                                log.warning("[DIAG] scrape_paid_all() STARTED")
+                                try:
+                                    result = _orig_spa()
+                                    log.warning("[DIAG] scrape_paid_all() FINISHED normally")
+                                    return result
+                                except Exception as _spa_err:
+                                    import traceback as _tb4
+                                    log.warning(f"[DIAG] scrape_paid_all() RAISED: {_spa_err}\n{_tb4.format_exc()}")
+                                    raise
+                            import ofscraper.commands.scraper.scraper as _scraper_mod
+                            _scraper_mod.scrape_paid_all = _diag_scrape_paid_all
+                        except Exception as _wrap_err:
+                            log.warning(f"[DIAG] Could not wrap scrape_paid_all: {_wrap_err}")
+                            _orig_spa = None
+                            _scraper_mod = None
+
+                        log.warning("[DIAG] About to call scraping_manager.runner()")
+                        try:
+                            scraping_manager.runner()
+                        except Exception as _runner_err:
+                            import traceback as _tb3
+                            log.warning(f"[DIAG] runner() RAISED: {_runner_err}\n{_tb3.format_exc()}")
+                            raise
+                        finally:
+                            log.warning("[DIAG] runner() exited (finally block)")
+                            if _orig_process_paid_dict is not None:
+                                try:
+                                    import ofscraper.data.posts.scrape_paid as _spm
+                                    _spm.process_paid_dict = _orig_process_paid_dict
+                                except Exception:
+                                    pass
+                            # Restore process_user polling patch
+                            if _orig_process_user is not None:
+                                try:
+                                    import ofscraper.data.posts.scrape_paid as _spm_paid2
+                                    _spm_paid2.process_user = _orig_process_user
+                                except Exception:
+                                    pass
+                            # Restore scrape_paid_all wrapper
+                            try:
+                                if _orig_spa is not None and _scraper_mod is not None:
+                                    _scraper_mod.scrape_paid_all = _orig_spa
+                            except Exception:
+                                pass
 
                     # Mute Discord immediately after runner() — the handler
                     # was enabled for scrape notifications and must be silenced
                     # before the DB load to avoid spam.  The actual summary is
-                    # sent AFTER _load_models_from_db (which uses FileLock and
-                    # is guaranteed to see fully committed DB data).
+                    # sent AFTER _load_models_from_db completes.
                     self._mute_discord_handler()
 
                     app_signals.log_message.emit(
@@ -1681,53 +2051,90 @@ class GUIWorkflow:
                     raise KeyboardInterrupt()
 
                 # Load previously scraped content from DB.
-                # _load_models_from_db acquires FileLock so it always sees
-                # fully committed data.  It returns per-model media counts
-                # which we use for the Discord summary.
-                app_signals.log_message.emit(
-                    "INFO", "Loading content from database..."
+                # _load_models_from_db reads via SQLite (no FileLock needed —
+                # SQLite handles concurrent reads natively).  It returns
+                # per-model media counts which we use for the Discord summary.
+                _db_stats = {}
+                # scrape_paid_all() bypasses _execute_user_action entirely, so
+                # live rows are never emitted for content fetched via the global
+                # paid endpoint. We must load from DB afterward to show those rows.
+                # Using self._scrape_paid (not "Purchased" in areas) because:
+                #   - scrape_paid=True  → scrape_paid_all() was called → no live rows → DB load needed
+                #   - scrape_paid=False + "Purchased" in areas → per-user endpoint → live rows emitted → DB load NOT needed
+                _used_global_paid = self._scrape_paid
+                is_normal_gui_download = (
+                    self._selected_actions == {"download"}
+                    and self._selected_models
+                    and self._live_rows_emitted
+                    and not _used_global_paid
+                    and not bool(self._selected_actions & self._CHECK_MODES)
                 )
-                _db_stats = _load_models_from_db(self._selected_models)
+                if is_normal_gui_download:
+                    app_signals.log_message.emit(
+                        "INFO", "Skipping DB table replacement for normal GUI download scrape; keeping live rows from this run..."
+                    )
+                elif self._live_rows_emitted and not _used_global_paid:
+                    app_signals.log_message.emit(
+                        "INFO", "Skipping DB table replacement because live rows were already emitted for this run..."
+                    )
+                else:
+                    log.warning(f"[DIAG] Calling _load_models_from_db for {[m.name for m in self._selected_models]}, date_range={self._date_range}")
+                    app_signals.log_message.emit(
+                        "INFO", "Loading content from database..."
+                    )
+                    _db_stats = _load_models_from_db(
+                        self._selected_models,
+                        # Skip date filter for paid scrapes — the API already filtered
+                        # to purchased content; DB posted_at may be the original creation
+                        # date (not purchase date), so date filtering drops valid rows.
+                        date_range={} if self._scrape_paid else (self._date_range or {}),
+                        # For paid scrapes, limit to only the media IDs we actually scraped
+                        # so we don't show all 200+ historical records in the DB.
+                        media_ids=getattr(self, "_scrape_paid_media_ids", None) if self._scrape_paid else None,
+                    )
+                    log.warning(f"[DIAG] _load_models_from_db returned stats: {_db_stats}")
 
-                # Post this-run download counts to Discord.
-                # Use common_globals counters (reset at the start of each run)
-                # so the summary reflects only what was downloaded in this run,
-                # not cumulative DB totals.
+                # Post per-model stats to Discord now that we have accurate
+                # counts from the FileLock-protected DB read above.
                 if self._discord_level != "OFF":
                     try:
                         import logging as _dlog
-                        import ofscraper.commands.scraper.actions.utils.globals as _cg
+                        # Briefly re-enable Discord just for this summary.
+                        import ofscraper.utils.logs.utils.level as _ll
                         from ofscraper.utils.logs.classes.handlers.discord import (
                             DiscordHandler as _DH,
                         )
-                        _discord_handler = next(
-                            (h for h in _dlog.getLogger("shared").handlers
-                             if isinstance(h, _DH)),
-                            None,
-                        )
-                        if _discord_handler and _discord_handler._url:
-                            _run_videos = int(getattr(_cg, "video_count", 0))
-                            _run_audios = int(getattr(_cg, "audio_count", 0))
-                            _run_photos = int(getattr(_cg, "photo_count", 0))
-                            _run_skipped = int(getattr(_cg, "skipped", 0))
-                            _run_total = _run_videos + _run_audios + _run_photos
-                            _usernames = ", ".join(
-                                m.name for m in self._selected_models
-                            ) or "unknown"
-                            _lines = [
-                                "\n\n--- Scrape Results ---",
-                                f"[{_usernames}] {_run_total} new downloads"
-                                f" [{_run_videos} videos,"
-                                f" {_run_audios} audios,"
-                                f" {_run_photos} photos]"
-                                f" | {_run_skipped} skipped",
-                            ]
-                            _discord_handler._send_to_discord("\n".join(_lines))
-                            log.info("Discord scrape summary posted")
-                        else:
-                            log.info("Discord summary skipped: no handler/URL found")
-                    except Exception as _e:
-                        log.error("Discord summary error: %s", _e)
+                        _lvl = _ll.getLevel(self._discord_level)
+                        for _h in _dlog.getLogger("shared").handlers:
+                            if isinstance(_h, _DH):
+                                _h.setLevel(_lvl)
+                                break
+                        _lines = ["\n\n--- Scrape Results ---"]
+                        for _m in self._selected_models:
+                            _un = _m.name
+                            _st = _db_stats.get(_un, {})
+                            _photos = _st.get("photos", 0)
+                            _videos = _st.get("videos", 0)
+                            _audios = _st.get("audios", 0)
+                            _dl_photos = _st.get("dl_photos", 0)
+                            _dl_videos = _st.get("dl_videos", 0)
+                            _dl_audios = _st.get("dl_audios", 0)
+                            _total = _photos + _videos + _audios
+                            _dl_total = _dl_photos + _dl_videos + _dl_audios
+                            _lines.append(
+                                # Use \[ to escape brackets so Rich's markup
+                                # parser (inside DiscordFormatter) doesn't
+                                # strip [username] as a style tag.
+                                f"\\[{_un}] {_dl_total}/{_total} media downloaded"
+                                f" [{_dl_videos} videos,"
+                                f" {_dl_audios} audios,"
+                                f" {_dl_photos} photos]"
+                            )
+                        _dlog.getLogger("shared").warning("\n".join(_lines))
+                    except Exception:
+                        pass
+                    finally:
+                        self._mute_discord_handler()
 
                 # Emit like/unlike status AFTER table rows are loaded from DB
                 # so the signal handler can find the matching rows to update.
@@ -1743,6 +2150,20 @@ class GUIWorkflow:
 
                 if not self._daemon_enabled:
                     app_signals.status_message.emit("Scraping complete")
+                    # Build a per-model summary from DB stats
+                    if _db_stats:
+                        _summary_lines = ["--- Scrape Summary ---"]
+                        for _m in self._selected_models:
+                            _st = _db_stats.get(_m.name, {})
+                            _total = _st.get("photos", 0) + _st.get("videos", 0) + _st.get("audios", 0)
+                            _dl = _st.get("dl_photos", 0) + _st.get("dl_videos", 0) + _st.get("dl_audios", 0)
+                            _summary_lines.append(
+                                f"  {_m.name}: {_dl} downloaded / {_total} total"
+                                f" ({_st.get('dl_videos',0)} videos,"
+                                f" {_st.get('dl_photos',0)} photos,"
+                                f" {_st.get('dl_audios',0)} audios)"
+                            )
+                        app_signals.log_message.emit("INFO", "\n".join(_summary_lines))
                     app_signals.log_message.emit(
                         "INFO", "Scraping pipeline finished"
                     )

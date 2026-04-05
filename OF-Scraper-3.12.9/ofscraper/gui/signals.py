@@ -48,6 +48,12 @@ class AppSignals(QObject):
     # Media type filter from area selector page
     mediatypes_configured = pyqtSignal(list)  # list of media type strings e.g. ["Images", "Videos"]
 
+    # Date range filter from area selector page
+    date_range_configured = pyqtSignal(object)  # dict: {enabled, from_date, to_date} (date strings "YYYY-MM-DD")
+
+    # Message check free/paid filter
+    msg_check_include_free_toggled = pyqtSignal(str)  # "paid_only" | "free_only" | "all"
+
     # Daemon mode
     daemon_configured = pyqtSignal(bool, float, bool, bool)  # enabled, interval_min, notify, sound
     daemon_next_run = pyqtSignal(str)  # countdown text like "Next scrape in 12:34"

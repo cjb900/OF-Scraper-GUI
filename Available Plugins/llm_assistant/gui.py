@@ -9,6 +9,7 @@ Classes:
   LLMAssistantTab     — full-page chat panel in the main sidebar stack
 """
 
+import calendar
 import html
 import logging
 import re
@@ -141,6 +142,73 @@ def _ensure_start_scraping(tool_calls: list, user_text: str) -> list:
     return result
 
 
+_MONTH_MAP: dict[str, int] = {
+    "january": 1, "jan": 1,
+    "february": 2, "feb": 2,
+    "march": 3, "mar": 3,
+    "april": 4, "apr": 4,
+    "may": 5,
+    "june": 6, "jun": 6,
+    "july": 7, "jul": 7,
+    "august": 8, "aug": 8,
+    "september": 9, "sep": 9, "sept": 9,
+    "october": 10, "oct": 10,
+    "november": 11, "nov": 11,
+    "december": 12, "dec": 12,
+}
+
+_MONTH_PAT = "|".join(_MONTH_MAP.keys())
+
+
+def _ensure_date_filter(tool_calls: list, user_text: str) -> list:
+    """
+    Fallback: if the user mentioned a specific month/year but the LLM did not
+    produce a set_date_filter call, parse the date expression from plain text
+    and inject one automatically.
+    """
+    if any(tc.get("name") == "set_date_filter" for tc in tool_calls):
+        return tool_calls  # LLM already handled it
+
+    text = user_text.lower()
+    after_date = None
+    before_date = None
+
+    # "in march 2026" / "from march 2026" / "march of 2026" / "during march 2026"
+    m = re.search(
+        r"\b(?:in|from|during|for|of)?\s*(" + _MONTH_PAT + r")\s+(\d{4})\b",
+        text,
+    )
+    if m:
+        month = _MONTH_MAP[m.group(1)]
+        year = int(m.group(2))
+        last_day = calendar.monthrange(year, month)[1]
+        after_date = f"{year:04d}-{month:02d}-01"
+        before_date = f"{year:04d}-{month:02d}-{last_day:02d}"
+    else:
+        # "in 2026" / "from 2026" / "for 2026" (year only)
+        m2 = re.search(r"\b(?:in|from|during|for)?\s*(?:the year\s+)?(\d{4})\b", text)
+        if m2:
+            year = int(m2.group(1))
+            if 2000 <= year <= 2099:
+                after_date = f"{year:04d}-01-01"
+                before_date = f"{year:04d}-12-31"
+
+    if not (after_date or before_date):
+        return tool_calls
+
+    result = list(tool_calls)
+    insert_idx = next(
+        (i for i, tc in enumerate(result) if tc.get("name") == "start_scraping"),
+        len(result),
+    )
+    result.insert(insert_idx, {
+        "name": "set_date_filter",
+        "args": {"after": after_date, "before": before_date},
+    })
+    log.debug("_ensure_date_filter: injected set_date_filter after=%s before=%s", after_date, before_date)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Dependency helpers
 # ---------------------------------------------------------------------------
@@ -161,31 +229,27 @@ def _check_missing_deps() -> list[str]:
 
 def _detect_installer() -> tuple[str, list[str]]:
     """
-    Inspect sys.executable to decide which package manager installed ofscraper.
+    Inspect sys.executable to choose a display name for the installer,
+    then always use 'sys.executable -m pip install' for the actual command.
 
-    Returns (installer_name, base_install_command_list).
-
-    Priority:
-      1. pipx  — exe lives inside pipx/venvs/
-      2. UV    — exe lives inside uv/tools/ (Windows: AppData/uv, Linux: ~/.local/share/uv)
-      3. pip   — fallback: sys.executable -m pip install
+    Using pip inside the running venv works correctly for pip, pipx, and UV
+    tool installs because sys.executable already points to the right Python.
+    'pipx inject <app>' and 'uv tool inject <app>' are avoided because they
+    fail when the CWD contains a directory with the same name as the app.
     """
     exe = str(Path(sys.executable)).replace("\\", "/").lower()
 
-    # pipx: typically ~/.local/pipx/venvs/ofscraper/ or %USERPROFILE%\.local\pipx\
     if "pipx/venvs" in exe:
-        pipx = shutil.which("pipx") or "pipx"
-        return "pipx", [pipx, "inject", "ofscraper"]
-
-    # UV tool: ~/.local/share/uv/tools/ or %APPDATA%\uv\tools\
-    uv = shutil.which("uv")
-    if uv:
+        installer_name = "pipx (installing into venv)"
+    else:
+        uv = shutil.which("uv")
         uv_markers = ["uv/tools", "uv\\tools", "/uv/data/tools"]
-        if any(m in exe for m in uv_markers):
-            return "uv", [uv, "tool", "inject", "ofscraper"]
+        if uv and any(m in exe for m in uv_markers):
+            installer_name = "uv (installing into venv)"
+        else:
+            installer_name = "pip"
 
-    # Default: pip in the current interpreter's environment
-    return "pip", [sys.executable, "-m", "pip", "install"]
+    return installer_name, [sys.executable, "-m", "pip", "install"]
 
 _MODELS = [
     {
@@ -340,16 +404,20 @@ class DepsInstallDialog(QDialog):
         root.addWidget(self._bar)
 
         btn_row = QHBoxLayout()
-        self._install_btn = QPushButton("Install Now")
+        self._install_btn = QPushButton("Retry")
         self._install_btn.setFixedHeight(32)
+        self._install_btn.setEnabled(False)  # disabled until first attempt finishes
         self._install_btn.clicked.connect(self._start_install)
         btn_row.addWidget(self._install_btn)
 
-        self._cancel_btn = QPushButton("Skip / Cancel")
+        self._cancel_btn = QPushButton("Cancel")
         self._cancel_btn.setFixedHeight(32)
         self._cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self._cancel_btn)
         root.addLayout(btn_row)
+
+        # Auto-start the install as soon as the dialog is shown
+        QTimer.singleShot(200, self._start_install)
 
     # ------------------------------------------------------------------
 
@@ -773,9 +841,9 @@ class AssistantCommandBar(QWidget):
     def _on_result(self, raw_text: str, binder):
         from .llm_engine import LLMEngine
         tool_calls, message = LLMEngine.parse_tool_calls(raw_text)
-        tool_calls = _ensure_start_scraping(
-            tool_calls, getattr(self, "_last_user_text", "")
-        )
+        _user_text = getattr(self, "_last_user_text", "")
+        tool_calls = _ensure_start_scraping(tool_calls, _user_text)
+        tool_calls = _ensure_date_filter(tool_calls, _user_text)
         exec_results: list[str] = []
         if tool_calls and binder:
             exec_results = binder.execute_all(tool_calls)
@@ -845,12 +913,12 @@ class LLMAssistantTab(QWidget):
         model_row.addWidget(self._model_combo, stretch=1)
 
         self._load_btn = QPushButton("Load Model")
-        self._load_btn.setStyleSheet("padding: 4px 12px;")
+        self._load_btn.setFixedWidth(100)
         self._load_btn.clicked.connect(self._on_load_model)
         model_row.addWidget(self._load_btn)
 
         self._unload_btn = QPushButton("Unload")
-        self._unload_btn.setStyleSheet("padding: 4px 12px;")
+        self._unload_btn.setFixedWidth(70)
         self._unload_btn.setEnabled(False)
         self._unload_btn.clicked.connect(self._on_unload_model)
         model_row.addWidget(self._unload_btn)
@@ -1027,9 +1095,9 @@ class LLMAssistantTab(QWidget):
         from .llm_engine import LLMEngine
         binder = getattr(self._plugin, "binder", None)
         tool_calls, message = LLMEngine.parse_tool_calls(raw_text)
-        tool_calls = _ensure_start_scraping(
-            tool_calls, getattr(self, "_last_user_text", "")
-        )
+        _user_text = getattr(self, "_last_user_text", "")
+        tool_calls = _ensure_start_scraping(tool_calls, _user_text)
+        tool_calls = _ensure_date_filter(tool_calls, _user_text)
         exec_results: list[str] = []
         if tool_calls and binder:
             exec_results = binder.execute_all(tool_calls)

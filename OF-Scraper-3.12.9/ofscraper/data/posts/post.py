@@ -62,7 +62,9 @@ async def post_media_process(ele, c=None):
     await operations.table_init_create(model_id=model_id, username=username)
     insert_medias, posts, like_post = await process_areas(ele, model_id, username, c=c)
     filter_medias = filters.filtermediaFinal(insert_medias, username, model_id)
-    return filter_medias, posts, like_post
+    # insert_medias still includes locked / non-viewable items; filter_medias is the
+    # download queue. Callers may pass insert_medias to the GUI table so PPV rows show.
+    return filter_medias, insert_medias, posts, like_post
 
 
 @run

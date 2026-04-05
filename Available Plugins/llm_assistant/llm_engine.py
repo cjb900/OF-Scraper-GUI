@@ -65,6 +65,8 @@ RULES:
 - usernames:["ALL"] only when user says "everyone" / "all users"
 - Areas: Timeline Messages Pinned Archived Stories Highlights Purchased Profile Streams
 - "scrape"/"download"/"start"/"go"/"run" → ALWAYS include start_scraping as last tool call
+- dates: "in MONTH YEAR" → set_date_filter {{"after":"YYYY-MM-01","before":"YYYY-MM-DD"}} (last day of month)
+- dates: "in YEAR" → set_date_filter {{"after":"YYYY-01-01","before":"YYYY-12-31"}}
 - Output compact JSON only, no newlines, no spaces between tokens.
 """
 

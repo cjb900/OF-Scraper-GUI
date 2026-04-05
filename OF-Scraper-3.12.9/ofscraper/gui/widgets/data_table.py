@@ -70,6 +70,7 @@ class MediaDataTable(QTableWidget):
         super().__init__(parent)
         self._raw_data = []  # list of dicts (original row data)
         self._display_data = []  # filtered subset
+        self._current_filter = None  # active FilterState for live scrape filtering
         self._row_queue = queue.Queue()
         self._sort_column = 0
         self._sort_order = Qt.SortOrder.AscendingOrder
@@ -119,7 +120,7 @@ class MediaDataTable(QTableWidget):
     def load_data(self, table_data):
         """Load raw table data (list of dicts) into the table, replacing existing data."""
         self._raw_data = table_data
-        self._display_data = list(table_data)
+        self._display_data = self._apply_current_filter(table_data)
         self._rebuild_table()
 
     def clear_all(self):
@@ -160,29 +161,37 @@ class MediaDataTable(QTableWidget):
         for i, row in enumerate(deduped):
             row["index"] = start_index + i
         self._raw_data.extend(deduped)
-        self._display_data.extend(deduped)
+        self._display_data.extend(self._apply_current_filter(deduped))
         self._rebuild_table()
 
-    def apply_filter(self, filter_state):
-        """Apply the filter state and rebuild the table with filtered data."""
-        filtered = []
-        for row in self._raw_data:
+    def _apply_current_filter(self, rows):
+        """Filter a list of rows through _current_filter; returns all rows if no filter set."""
+        if self._current_filter is None:
+            return list(rows)
+        result = []
+        for row in rows:
             passes = True
             for col in COLUMNS:
                 col_lower = col.lower()
                 if col_lower in ("number", "download_cart"):
                     continue
                 val = row.get(col_lower, row.get(col, ""))
-                if not filter_state.validate(col_lower, val):
+                if not self._current_filter.validate(col_lower, val):
                     passes = False
                     break
             if passes:
-                filtered.append(row)
-        self._display_data = filtered
+                result.append(row)
+        return result
+
+    def apply_filter(self, filter_state):
+        """Apply the filter state and rebuild the table with filtered data."""
+        self._current_filter = filter_state
+        self._display_data = self._apply_current_filter(self._raw_data)
         self._rebuild_table()
 
     def reset_filter(self):
         """Reset to show all data."""
+        self._current_filter = None
         self._display_data = list(self._raw_data)
         self._rebuild_table()
 

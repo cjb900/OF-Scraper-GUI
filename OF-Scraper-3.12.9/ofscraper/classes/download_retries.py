@@ -12,7 +12,12 @@ class download_retry(AsyncRetrying):
             max=constants.getattr("OF_MAX_WAIT_API"),
         )
         retry = retry or retry_if_exception(
-            lambda e: str(e) != constants.getattr("SPACE_DOWNLOAD_MESSAGE")
-            and not isinstance(e, KeyboardInterrupt)
+            lambda e: (
+                str(e) != constants.getattr("SPACE_DOWNLOAD_MESSAGE")
+                and not isinstance(e, KeyboardInterrupt)
+                # Don't burn time retrying permanent auth/CDN failures.
+                # aiohttp.ClientResponseError exposes .status; fall back gracefully.
+                and getattr(e, "status", None) not in (401, 403)
+            )
         )
         super().__init__(stop=stop, wait=wait, retry=retry, reraise=True)

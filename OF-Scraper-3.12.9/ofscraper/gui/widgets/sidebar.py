@@ -178,7 +178,12 @@ class FilterState:
         if self.min_price is None and self.max_price is None:
             return True
         try:
-            val = 0 if str(value).lower() == "free" else float(value)
+            s = str(value).strip()
+            if s.lower().startswith("free"):
+                val = 0.0
+            else:
+                m = re.match(r"^([0-9]+\.?[0-9]*)", s)
+                val = float(m.group(1)) if m else float(s)
             if self.min_price is not None and val < self.min_price:
                 return False
             if self.max_price is not None and val > self.max_price:
@@ -313,9 +318,22 @@ class FilterSidebar(QWidget):
         h.addStretch()
         h.addWidget(_make_help_btn("filters-response-type"))
         resp_layout.addLayout(h)
+        # Lowercase keys must match row responsetype / api_type (filter uses .lower()).
         self.resp_checks = {}
-        for rt in ["pinned", "archived", "timeline", "stories", "highlights", "streams"]:
-            cb = QCheckBox(rt.capitalize())
+        for rt in [
+            "pinned",
+            "archived",
+            "timeline",
+            "stories",
+            "highlights",
+            "streams",
+            "messages",
+            "paid",
+            "profile",
+            "labels",
+        ]:
+            label = "Paid" if rt == "paid" else rt.capitalize()
+            cb = QCheckBox(label)
             cb.setChecked(True)
             resp_layout.addWidget(cb)
             self.resp_checks[rt] = cb
@@ -347,6 +365,10 @@ class FilterSidebar(QWidget):
         self.dl_false.setChecked(True)
         self.dl_no = QCheckBox("No (Paid)")
         self.dl_no.setChecked(True)
+        self.dl_no.setToolTip(
+            "Keep rows whose Downloaded cell is N/A (not downloadable until unlocked/purchased). "
+            "Uncheck to hide that paywalled state."
+        )
         status_grid.addWidget(self.dl_true, 1, 0)
         status_grid.addWidget(self.dl_false, 1, 1)
         status_grid.addWidget(self.dl_no, 1, 2)
@@ -361,6 +383,10 @@ class FilterSidebar(QWidget):
         self.ul_false.setChecked(True)
         self.ul_not_paid = QCheckBox("Locked")
         self.ul_not_paid.setChecked(True)
+        self.ul_not_paid.setToolTip(
+            "Keep rows whose Unlocked cell is Locked (not viewable). "
+            "Uncheck to hide paywalled rows from the table."
+        )
         status_grid.addWidget(self.ul_true, 3, 0)
         status_grid.addWidget(self.ul_false, 3, 1)
         status_grid.addWidget(self.ul_not_paid, 3, 2)
@@ -389,6 +415,9 @@ class FilterSidebar(QWidget):
         date_layout.addWidget(self.date_enabled, 0, 4)
         date_layout.addWidget(date_help, 0, 5)
         layout.addWidget(date_group)
+        # Auto-enable date filter when the user picks a date
+        self.min_date.dateChanged.connect(lambda _: self.date_enabled.setChecked(True))
+        self.max_date.dateChanged.connect(lambda _: self.date_enabled.setChecked(True))
 
         # -- Duration / Length --
         length_group = QGroupBox("Duration (Length)")
@@ -507,7 +536,8 @@ class FilterSidebar(QWidget):
         selected_resp = {
             rt for rt, cb in self.resp_checks.items() if cb.isChecked()
         }
-        s.responsetype = selected_resp if len(selected_resp) < 6 else None
+        n_resp = len(self.resp_checks)
+        s.responsetype = selected_resp if len(selected_resp) < n_resp else None
 
         # Downloaded / Unlocked (mixed bool + string values)
         dl_selected = set()
@@ -519,6 +549,8 @@ class FilterSidebar(QWidget):
             dl_selected.add("False")
         if self.dl_no.isChecked():
             dl_selected.add("No")
+            # Locked/paid rows use "N/A" in the Downloaded column (not downloadable yet).
+            dl_selected.add("N/A")
         all_dl_checked = self.dl_true.isChecked() and self.dl_false.isChecked() and self.dl_no.isChecked()
         s.downloaded = dl_selected if not all_dl_checked else None
 
@@ -526,6 +558,9 @@ class FilterSidebar(QWidget):
         if self.ul_true.isChecked():
             ul_selected.add(True)
             ul_selected.add("True")
+            # PPV / message bundles: visible without full purchase (see workflow row builder).
+            ul_selected.add("Preview")
+            ul_selected.add("Included")
         if self.ul_false.isChecked():
             ul_selected.add(False)
             ul_selected.add("False")
@@ -599,6 +634,10 @@ class FilterSidebar(QWidget):
         self.ul_true.setChecked(True)
         self.ul_false.setChecked(True)
         self.ul_not_paid.setChecked(True)
+        for w in (self.min_date, self.max_date):
+            w.blockSignals(True)
+            w.setDate(w.minimumDate())
+            w.blockSignals(False)
         self.date_enabled.setChecked(False)
         self.length_enabled.setChecked(False)
         self.price_min.setValue(0)

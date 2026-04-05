@@ -261,7 +261,13 @@ class sessionManager:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._session.__aexit__(exc_type, exc_val, exc_tb)
+        try:
+            await asyncio.wait_for(
+                self._session.__aexit__(exc_type, exc_val, exc_tb),
+                timeout=15,
+            )
+        except Exception:
+            pass
 
     def __enter__(self):
         self._set_session(async_=False)

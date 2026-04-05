@@ -11,6 +11,33 @@ import subprocess
 import time
 
 from ofscraper.utils.paths.common import get_config_path
+import ofscraper.utils.dates as dates_manager
+import ofscraper.utils.config.data as config_data
+
+
+def _sanitize_plugin_log_name(name: str) -> str:
+    import re
+    name = (name or "unknown").strip().lower()
+    name = re.sub(r"[^a-z0-9._-]+", "_", name)
+    return name.strip("._-") or "unknown"
+
+
+def _plugin_log_path(config_path: Path | None, plugin_name: str) -> Path | None:
+    if not config_path:
+        return None
+    base_log_dir = config_path.parent / "logging"
+    profile = config_data.get_main_profile()
+    log_date = dates_manager.getLogDate() or {}
+    day = log_date.get("day", "unknown-day")
+    now = log_date.get("now", "unknown-run")
+    safe_name = _sanitize_plugin_log_name(plugin_name)
+    if config_data.get_rotate_logs():
+        log_dir = base_log_dir / f"{profile}_{day}" / "plugins"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        return log_dir / f"plugin-{safe_name}_{now}.log"
+    log_dir = base_log_dir / "plugins"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / f"plugin-{safe_name}_{day}.log"
 
 class PluginManager:
     _instance = None
@@ -27,6 +54,7 @@ class PluginManager:
 
         self.plugins = []
         self._loaded_plugin_ids: set[str] = set()
+        self._plugin_loggers_configured: set[str] = set()
         self.log = logging.getLogger("ofscraper_plugins")
 
         config_path = get_config_path()
@@ -36,6 +64,46 @@ class PluginManager:
             self.plugins_dir = None
 
         self._initialized = True
+
+    def _configure_plugin_logger(self, plugin_instance, metadata: dict):
+        """Attach a dedicated file handler for an individual plugin."""
+        plugin_name = metadata.get("name") or metadata.get("id") or "unknown"
+        logger_name = f"ofscraper_plugin.{plugin_name}"
+        if logger_name in self._plugin_loggers_configured:
+            return
+
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.DEBUG)
+        logger.propagate = False
+
+        try:
+            log_path = _plugin_log_path(get_config_path(), plugin_name)
+            if not log_path:
+                return
+            for handler in logger.handlers[:]:
+                if isinstance(handler, logging.FileHandler):
+                    try:
+                        existing = Path(handler.baseFilename)
+                    except Exception:
+                        existing = None
+                    if existing == log_path:
+                        self._plugin_loggers_configured.add(logger_name)
+                        plugin_instance.log = logger
+                        return
+
+            file_handler = logging.FileHandler(log_path, encoding="utf-8")
+            file_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter(
+                fmt="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+            plugin_instance.log = logger
+            self._plugin_loggers_configured.add(logger_name)
+            self.log.info(f"Plugin log file ready: {log_path}")
+        except Exception as e:
+            self.log.warning(f"Failed to configure plugin logger for {plugin_name}: {e}")
 
     def discover_and_load(self):
         """Finds all valid plugins in the plugins directory and loads them."""
@@ -164,6 +232,7 @@ class PluginManager:
                     # Look for the 'Plugin' class
                     if hasattr(module, 'Plugin'):
                         plugin_instance = module.Plugin(metadata=metadata, plugin_dir=str(plugin_dir))
+                        self._configure_plugin_logger(plugin_instance, metadata)
                         self.plugins.append(plugin_instance)
                         self._loaded_plugin_ids.add(plugin_dir.name)
                         self.log.info(f"Loaded plugin: {metadata.get('name', plugin_dir.name)}")
@@ -184,6 +253,15 @@ class PluginManager:
                     from PyQt6.QtWidgets import QMessageBox, QApplication
                     if QApplication.instance():
                         plugin_name = metadata.get("name", plugin_dir.name)
+                        plugin_logger = logging.getLogger(f"ofscraper_plugin.{plugin_name}")
+                        try:
+                            self._configure_plugin_logger(type("_TempPlugin", (), {"log": plugin_logger})(), metadata)
+                        except Exception:
+                            pass
+                        try:
+                            plugin_logger.warning("Missing dependency detected during plugin load: %s", e.name)
+                        except Exception:
+                            pass
                         dlg = QMessageBox()
                         dlg.setIcon(QMessageBox.Icon.Warning)
                         dlg.setWindowTitle("Plugin Missing Dependencies")
@@ -218,6 +296,10 @@ class PluginManager:
                                 plugin_name,
                                 hint,
                             )
+                            try:
+                                plugin_logger.info("Installing plugin dependencies using command: %s", hint)
+                            except Exception:
+                                pass
 
                             # Build a live-output install dialog.
                             install_dlg = QDialog()
@@ -289,6 +371,12 @@ class PluginManager:
                                     elapsed,
                                     plugin_name,
                                 )
+                                try:
+                                    plugin_logger.info("Plugin dependency install completed in %.1fs", elapsed)
+                                    if output:
+                                        plugin_logger.info("Dependency installer full output\n%s", output.rstrip())
+                                except Exception:
+                                    pass
                                 # On Windows, torch/c10.dll must be loaded into
                                 # the process BEFORE PyQt6/SIP initializes (see
                                 # preload_for_windows_gui).  Since deps were just
@@ -368,12 +456,35 @@ class PluginManager:
         if install_method == "uv":
             return f"uv pip install -r \"{req_file}\"{target_flag}"
         if install_method == "pipx":
-            # Prefer a direct pip executable inside the pipx venv if possible.
+            # Use a plugin-local virtualenv first so plugin dependencies are
+            # isolated from the main pipx ofscraper environment.
+            if plugin_dir is not None:
+                plugin_python = self._ensure_plugin_venv(plugin_dir)
+                if plugin_python:
+                    return f'"{plugin_python}" -m pip install -r "{req_file}"{target_flag}'
+
+            # If a host python with pip is available, prefer that next.
+            import shutil
+            import subprocess
+            host_python = shutil.which("python3")
+            if host_python:
+                try:
+                    probe = subprocess.run(
+                        [host_python, "-m", "pip", "--version"],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+                    if probe.returncode == 0:
+                        return f'"{host_python}" -m pip install -r "{req_file}"{target_flag}'
+                except Exception:
+                    pass
+
             pip_path = self._pipx_venv_pip()
             if pip_path:
-                return f"\"{pip_path}\" install -r \"{req_file}\"{target_flag}"
-            # Fallback to pipx runpip (works if pipx launcher is on PATH).
-            return f"pipx runpip ofscraper install -r \"{req_file}\"{target_flag}"
+                return f'"{pip_path}" install -r "{req_file}"{target_flag}'
+
+            return f'pipx runpip ofscraper install -r "{req_file}"{target_flag}'
         if install_method == "venv":
             # Plain virtualenv / Docker: use the venv's own pip executable.
             pip_path = self._venv_pip()
@@ -403,7 +514,7 @@ class PluginManager:
         except Exception as e:
             return 1, str(e)
 
-    def _run_dependency_install_command_live(self, command: str, out_queue) -> tuple[int, str]:
+    def _run_dependency_install_command_live(self, command: str, out_queue, plugin_logger=None) -> tuple[int, str]:
         """
         Run the install command and stream each output line into out_queue so
         the UI can display live progress. Returns (exit_code, full_output).
@@ -421,6 +532,11 @@ class PluginManager:
             for line in proc.stdout:
                 out_queue.put(line)
                 all_lines.append(line)
+                if plugin_logger is not None:
+                    try:
+                        plugin_logger.info(line.rstrip())
+                    except Exception:
+                        pass
             proc.wait()
             return proc.returncode, "".join(all_lines)
         except Exception as e:
@@ -497,6 +613,34 @@ class PluginManager:
         if matches:
             return matches[0].parent
         return None
+
+    def _plugin_venv_dir(self, plugin_dir: Path) -> Path:
+        return plugin_dir / ".deps_venv"
+
+    def _plugin_venv_python(self, plugin_dir: Path) -> str | None:
+        venv_dir = self._plugin_venv_dir(plugin_dir)
+        candidates = [venv_dir / "bin" / "python", venv_dir / "Scripts" / "python.exe"]
+        for candidate in candidates:
+            if candidate.exists():
+                return str(candidate)
+        return None
+
+    def _ensure_plugin_venv(self, plugin_dir: Path) -> str | None:
+        python_path = self._plugin_venv_python(plugin_dir)
+        if python_path:
+            return python_path
+
+        import shutil
+        import subprocess
+        import sys
+
+        venv_dir = self._plugin_venv_dir(plugin_dir)
+        host_python = shutil.which("python3") or sys.executable
+        try:
+            subprocess.run([host_python, "-m", "venv", str(venv_dir)], check=True, capture_output=True, text=True)
+        except Exception:
+            return None
+        return self._plugin_venv_python(plugin_dir)
 
     def _detect_install_method_for_ofscraper(self) -> str:
         # Prefer pipx over uv because some systems have stale `ofscraper`

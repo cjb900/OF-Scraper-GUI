@@ -74,12 +74,15 @@ class scraperManager(commmandManager):
         username = ele.name
         avatar = ele.avatar
         await operations.table_init_create(model_id=model_id, username=username)
-        media, posts, like_posts = await post_media_process(ele, session)
+        media, media_for_table, posts, like_posts = await post_media_process(
+            ele, session
+        )
         return {
             model_id: {
                 "username": username,
                 "posts": posts,
                 "media": media,
+                "media_for_table": media_for_table,
                 "avatar": avatar,
                 "like_posts": like_posts,
                 "ele": ele,

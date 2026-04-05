@@ -70,6 +70,7 @@ class MediaDataTable(QTableWidget):
         super().__init__(parent)
         self._raw_data = []  # list of dicts (original row data)
         self._display_data = []  # filtered subset
+        self._current_filter = None  # active FilterState for live scrape filtering
         self._row_queue = queue.Queue()
         self._sort_column = 0
         self._sort_order = Qt.SortOrder.AscendingOrder
@@ -119,7 +120,7 @@ class MediaDataTable(QTableWidget):
     def load_data(self, table_data):
         """Load raw table data (list of dicts) into the table, replacing existing data."""
         self._raw_data = table_data
-        self._display_data = list(table_data)
+        self._display_data = self._apply_current_filter(table_data)
         self._rebuild_table()
 
     def clear_all(self):
@@ -160,29 +161,37 @@ class MediaDataTable(QTableWidget):
         for i, row in enumerate(deduped):
             row["index"] = start_index + i
         self._raw_data.extend(deduped)
-        self._display_data.extend(deduped)
+        self._display_data.extend(self._apply_current_filter(deduped))
         self._rebuild_table()
 
-    def apply_filter(self, filter_state):
-        """Apply the filter state and rebuild the table with filtered data."""
-        filtered = []
-        for row in self._raw_data:
+    def _apply_current_filter(self, rows):
+        """Filter a list of rows through _current_filter; returns all rows if no filter set."""
+        if self._current_filter is None:
+            return list(rows)
+        result = []
+        for row in rows:
             passes = True
             for col in COLUMNS:
                 col_lower = col.lower()
                 if col_lower in ("number", "download_cart"):
                     continue
                 val = row.get(col_lower, row.get(col, ""))
-                if not filter_state.validate(col_lower, val):
+                if not self._current_filter.validate(col_lower, val):
                     passes = False
                     break
             if passes:
-                filtered.append(row)
-        self._display_data = filtered
+                result.append(row)
+        return result
+
+    def apply_filter(self, filter_state):
+        """Apply the filter state and rebuild the table with filtered data."""
+        self._current_filter = filter_state
+        self._display_data = self._apply_current_filter(self._raw_data)
         self._rebuild_table()
 
     def reset_filter(self):
         """Reset to show all data."""
+        self._current_filter = None
         self._display_data = list(self._raw_data)
         self._rebuild_table()
 
@@ -359,53 +368,71 @@ class MediaDataTable(QTableWidget):
 
     def _on_external_cell_update(self, row_key, column_name, new_value):
         """Handle cell updates from external sources (e.g., download completion).
-        row_key matches against media_id (preferred) or index."""
+        row_key matches against media_id (preferred) or index.
+
+        In duplicate/repost mode, one media_id may appear in multiple rows.
+        Update all matching rows when keyed by media_id so the table reflects
+        completion state consistently.
+        """
         col_lower = column_name.lower()
         try:
             col_idx = [c.lower() for c in COLUMNS].index(col_lower)
         except ValueError:
             return
 
+        matched_indexes = set()
+        update_by_index_only = False
+
         for row_idx in range(self.rowCount()):
             if row_idx >= len(self._display_data):
                 break
             row_data = self._display_data[row_idx]
-            # Match by media_id first, fallback to index
-            if str(row_data.get("media_id", "")) == row_key or str(
-                row_data.get("index", "")
-            ) == row_key:
-                item = self.item(row_idx, col_idx)
-                if item:
-                    item.setText(new_value)
-                    # Style download_cart and downloaded columns
-                    if col_lower == "download_cart":
-                        item.setForeground(QColor(_cart_color(new_value)))
-                    elif col_lower == "downloaded":
-                        if new_value == "True":
-                            color = c("green")
-                        elif new_value == "N/A":
-                            color = c("surface2")
-                        else:
-                            color = c("red")
-                        item.setForeground(QColor(color))
-                    elif col_lower == "unlocked":
-                        if new_value == "Locked":
-                            color = c("surface2")
-                        elif new_value == "Preview":
-                            color = c("sky")
-                        elif new_value == "Included":
-                            color = c("teal")
-                        elif new_value == "True":
-                            color = c("green")
-                        else:
-                            color = c("red")
-                        item.setForeground(QColor(color))
-                # Also update the backing data
+            media_match = str(row_data.get("media_id", "")) == row_key
+            index_match = str(row_data.get("index", "")) == row_key
+            if not media_match and not index_match:
+                continue
+
+            if index_match and not media_match:
+                update_by_index_only = True
+
+            item = self.item(row_idx, col_idx)
+            if item:
+                item.setText(new_value)
+                if col_lower == "download_cart":
+                    item.setForeground(QColor(_cart_color(new_value)))
+                elif col_lower == "downloaded":
+                    if new_value == "True":
+                        color = c("green")
+                    elif new_value == "N/A":
+                        color = c("surface2")
+                    else:
+                        color = c("red")
+                    item.setForeground(QColor(color))
+                elif col_lower == "unlocked":
+                    if new_value == "Locked":
+                        color = c("surface2")
+                    elif new_value == "Preview":
+                        color = c("sky")
+                    elif new_value == "Included":
+                        color = c("teal")
+                    elif new_value == "True":
+                        color = c("green")
+                    else:
+                        color = c("red")
+                    item.setForeground(QColor(color))
+
+            row_data[col_lower] = new_value
+            matched_indexes.add(str(row_data.get("index", "")))
+            if index_match and not media_match:
+                break
+
+        # Keep backing _raw_data in sync as well.
+        for row_data in self._raw_data:
+            if str(row_data.get("index", "")) in matched_indexes or (not update_by_index_only and str(row_data.get("media_id", "")) == row_key):
                 row_data[col_lower] = new_value
-                # If this update was keyed by index, only update that row.
-                # If keyed by media_id, update all rows that share that media_id.
-                if str(row_data.get("index", "")) == row_key:
-                    break
+
+        if col_lower == "download_cart":
+            self._update_cart_count()
 
     def _on_posts_liked_updated(self, results: dict):
         """Handle posts_liked_updated signal from a like/unlike action.

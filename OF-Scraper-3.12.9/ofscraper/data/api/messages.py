@@ -51,7 +51,13 @@ async def get_messages(model_id, username, c=None):
         read_args.retriveArgs().post_id or []
     ) > constants.getattr("MAX_MESSAGES_INDIVIDUAL_SEARCH"):
         oldmessages = await get_old_messages(model_id, username)
-        before = (read_args.retriveArgs().before).float_timestamp
+        _before = read_args.retriveArgs().before
+        # GUI / no CLI date cap leaves before unset; treat as "through now" for range logic.
+        before = (
+            _before.float_timestamp
+            if _before is not None
+            else arrow.utcnow().float_timestamp
+        )
         log_after_before(after, before, username)
         filteredArray = get_filterArray(after, before, oldmessages)
         splitArrays = get_split_array(filteredArray)

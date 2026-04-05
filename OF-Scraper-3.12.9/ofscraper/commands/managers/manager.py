@@ -38,8 +38,8 @@ class commmandManager:
                     try:
                         with progress_utils.setup_api_split_progress_live():
                             self._data_helper(ele)
-                            all_media, posts, like_posts = await post_media_process(
-                                ele, c=c
+                            all_media, media_for_table, posts, like_posts = (
+                                await post_media_process(ele, c=c)
                             )
 
                             text_posts = filters.filterPostFinalText(posts)
@@ -57,6 +57,7 @@ class commmandManager:
                                 )
                             result = await funct(
                                 media=all_media,
+                                media_for_table=media_for_table,
                                 posts=text_posts,
                                 like_posts=like_posts,
                                 ele=ele,
@@ -117,6 +118,7 @@ class commmandManager:
                 progress_updater.update_user_activity(total=len(data.items()))
                 for _, val in data.items():
                     all_media = val["media"]
+                    media_for_table = val.get("media_for_table", all_media)
                     posts = val["posts"]
                     like_posts = val["like_posts"]
                     ele = val["ele"]
@@ -136,6 +138,7 @@ class commmandManager:
                                 like_posts,
                                 *args,
                                 media=all_media,
+                                media_for_table=media_for_table,
                                 ele=ele,
                                 **kwargs,
                             )

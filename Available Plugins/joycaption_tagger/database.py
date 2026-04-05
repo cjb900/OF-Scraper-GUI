@@ -10,6 +10,45 @@ from peewee import SqliteDatabase, Model, CharField, DateTimeField, TextField, B
 db = SqliteDatabase(None, pragmas={"journal_mode": "wal"}, thread_safe=True)
 
 
+def extract_model_username(file_path: str) -> str:
+    """Extract the model username from a file path.
+
+    Two methods are tried in order:
+
+    1. Path-component scan — look for Messages, Posts, or Streams in the path
+       components; the folder immediately before that marker is the username.
+       Example: .../OnlyFans/katie_darling/Posts/Images/photo.jpg -> 'katie_darling'
+
+    2. Directory-tree walk (fallback) — walk up the directory tree and check
+       whether any ancestor folder *contains* Messages, Posts, or Streams as
+       actual subdirectories on disk.  This handles cases where the user scans
+       the model folder directly and the marker doesn't appear in the stored path.
+    """
+    # Any one of these folder names indicates we've found a model directory.
+    _markers_lower = {"messages", "images", "videos", "posts", "streams", "archive", "profile", "paid"}
+    _markers_exact = {"Messages", "Images", "Videos", "Posts", "Streams", "Archive", "Profile", "Paid"}
+
+    # Method 1: parse path components
+    parts = Path(str(file_path)).parts
+    for i, part in enumerate(parts):
+        if part.lower() in _markers_lower and i > 0:
+            return parts[i - 1]
+
+    # Method 2: walk up the directory tree looking for the OF-Scraper structure
+    try:
+        p = Path(str(file_path))
+        if p.is_file():
+            p = p.parent
+        while p != p.parent:  # stop at filesystem root
+            if any((p / m).is_dir() for m in _markers_exact):
+                return p.name
+            p = p.parent
+    except OSError:
+        pass
+
+    return ""
+
+
 def canonical_media_path(file_path) -> str:
     """Normalize paths for SQLite + os.path.exists (important on Windows)."""
     try:
@@ -58,6 +97,7 @@ class MediaItem(BaseModel):
     file_path = CharField(unique=True, max_length=1024)
     tags_json = TextField(default="[]")
     model_used = CharField(max_length=50)
+    model_username = CharField(max_length=255, default="")
     created_at = DateTimeField(default=datetime.datetime.now)
     copied_to_smart_folder = BooleanField(default=False)
 
@@ -152,3 +192,8 @@ def init_db(db_path: str):
     db.init(db_path)
     db.connect()
     db.create_tables([MediaItem, MediaEmbedding], safe=True)
+    # Migration: add model_username to existing databases that predate this field.
+    try:
+        db.execute_sql("ALTER TABLE mediaitem ADD COLUMN model_username VARCHAR(255) DEFAULT ''")
+    except Exception:
+        pass  # Column already exists

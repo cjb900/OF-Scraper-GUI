@@ -11,6 +11,13 @@ from PyQt6.QtWidgets import (
 from ofscraper.gui.signals import app_signals
 from ofscraper.gui.styles import c
 
+_DOWNLOAD_QUEUE_TOOLTIP = (
+    "Jobs in the filtered download queue for this run (after skipping items already "
+    "marked downloaded in the database, merging duplicate media IDs, and profile "
+    "avatar cache rules). The table row count can be higher because it lists database "
+    "records (e.g. the same media on multiple posts)."
+)
+
 
 def _progress_bar_qss(radius=4):
     return (
@@ -34,8 +41,9 @@ class ProgressSummaryBar(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        self.overall_label = QLabel("Downloads: 0 / 0")
+        self.overall_label = QLabel("Download queue: 0 / 0")
         self.overall_label.setProperty("muted", True)
+        self.overall_label.setToolTip(_DOWNLOAD_QUEUE_TOOLTIP)
         layout.addWidget(self.overall_label)
 
         self.overall_progress = QProgressBar()
@@ -43,6 +51,7 @@ class ProgressSummaryBar(QWidget):
         self.overall_progress.setValue(0)
         self.overall_progress.setTextVisible(True)
         self.overall_progress.setFixedHeight(18)
+        self.overall_progress.setToolTip(_DOWNLOAD_QUEUE_TOOLTIP)
         # Keep % text legible even when the bar fills.
         # The key is a darker chunk color + bright text.
         self.overall_progress.setStyleSheet(_progress_bar_qss(4))
@@ -60,7 +69,7 @@ class ProgressSummaryBar(QWidget):
 
     @pyqtSlot(int, int)
     def _update_overall(self, completed, total):
-        self.overall_label.setText(f"Downloads: {completed} / {total}")
+        self.overall_label.setText(f"Download queue: {completed} / {total}")
         if total > 0:
             self.overall_progress.setValue(int((completed / total) * 100))
         else:
@@ -74,7 +83,7 @@ class ProgressSummaryBar(QWidget):
     def clear_all(self):
         self._peak_bytes = 0
         self.overall_progress.setValue(0)
-        self.overall_label.setText("Downloads: 0 / 0")
+        self.overall_label.setText("Download queue: 0 / 0")
         self.bytes_label.setText("Total: 0 B")
 
 
@@ -94,8 +103,9 @@ class ProgressPanel(QWidget):
 
         # Overall stats
         stats_layout = QHBoxLayout()
-        self.overall_label = QLabel("Downloads: 0 / 0")
+        self.overall_label = QLabel("Download queue: 0 / 0")
         self.overall_label.setProperty("subheading", True)
+        self.overall_label.setToolTip(_DOWNLOAD_QUEUE_TOOLTIP)
         stats_layout.addWidget(self.overall_label)
 
         self.bytes_label = QLabel("Total: 0 B")
@@ -111,6 +121,7 @@ class ProgressPanel(QWidget):
         self.overall_progress.setTextVisible(True)
         self.overall_progress.setFixedHeight(24)
         self.overall_progress.setStyleSheet(_progress_bar_qss(6))
+        self.overall_progress.setToolTip(_DOWNLOAD_QUEUE_TOOLTIP)
         main_layout.addWidget(self.overall_progress)
 
         # Scroll area for per-file progress bars
@@ -175,7 +186,7 @@ class ProgressPanel(QWidget):
 
     @pyqtSlot(int, int)
     def _update_overall(self, completed, total):
-        self.overall_label.setText(f"Downloads: {completed} / {total}")
+        self.overall_label.setText(f"Download queue: {completed} / {total}")
         if total > 0:
             self.overall_progress.setValue(int((completed / total) * 100))
         else:
@@ -191,7 +202,7 @@ class ProgressPanel(QWidget):
         for task_id in list(self._tasks.keys()):
             self._remove_task(task_id)
         self.overall_progress.setValue(0)
-        self.overall_label.setText("Downloads: 0 / 0")
+        self.overall_label.setText("Download queue: 0 / 0")
         self.bytes_label.setText("Total: 0 B")
 
 
