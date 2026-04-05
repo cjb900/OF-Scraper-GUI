@@ -108,13 +108,13 @@ A visual walkthrough of each page in the GUI.
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
 - **Download** — download media files from your subscribed creators
-  - **User Lists** *(optional sub-option)* — filter which models are loaded by entering one or more OnlyFans list names (comma-separated). Leave blank to load all subscribed models. Equivalent to `--ul` on the command line.
+  - **User Lists** *(3.14.5 only)* — filter which models are loaded by entering one or more OnlyFans list names (comma-separated). Leave blank to load all subscribed models. Equivalent to `--ul` on the command line.
 
 <!-- Screenshot placeholder: Select Action page showing the User Lists field under "Download content from a user" -->
 
 - **Like/Unlike** — automate liking or unliking posts
 - **Metadata** — update your local database without downloading files
-- **Check modes** (Post Check, Message Check, Paid Check, Story Check) — browse all content for a creator in a table view and selectively download individual items
+- **Check modes** *(3.14.3 and 3.14.5)* (Post Check, Message Check, Paid Check, Story Check) — browse all content for a creator in a table view and selectively download individual items
 - **Scrape individual posts by URL or Post ID** *(3.14.5 only)* — download specific posts by pasting OnlyFans post URLs or post IDs directly, bypassing model and area selection entirely
 
 After selecting an action, click **Next** to move on.
@@ -129,7 +129,7 @@ Choose which types of posts to scrape and apply filters before the scrape begins
 
 - **Content areas** — Timeline, Messages, Archived, Paid, Stories, Highlights, Pinned, Streams
 - **Filters** — narrow by date range, limit post count, skip already-downloaded content, and more
-- **Include Post Text** — when enabled, the text body of each post is included alongside the downloaded media
+- **Include Post Text** *(3.14.3 and 3.14.5)* — when enabled, the text body of each post is included alongside the downloaded media
 - **Daemon Mode** — set a repeat interval (1–1440 minutes) so the scraper runs automatically on a schedule
 - **Username filter** — pre-filter the model list to only show specific creators
 
@@ -149,7 +149,7 @@ A searchable, filterable table of all creators you are subscribed to. From here 
 - **Select** individual creators or use Select All / Select None
 - **Show Avatars** — toggle to display each creator's profile picture alongside their name in the table. Clicking an avatar opens that creator's OnlyFans page in your browser
 - The footer shows how many rows are displayed vs the total (e.g. `42 / 1200 rows (filtered)`)
-- **Reload Models** — a **Reload Models** button appears in the navigation bar after models load, letting you re-fetch the model list without going back to the Select Action page
+- **Reload Models** *(3.14.5 only)* — a **Reload Models** button appears in the navigation bar after models load, letting you re-fetch the model list without going back to the Select Action page
 
 Click **Start Scrape** when you have selected the creators you want to download from.
 
@@ -169,7 +169,7 @@ Shows live output from the scraper while it runs:
 
 ---
 
-### Check Mode
+### Check Mode *(3.14.3 and 3.14.5)*
 
 <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Check%20Mode.jpg" width="600" alt="Check Mode table">
 
@@ -306,7 +306,7 @@ Built-in documentation available at any time without leaving the app:
   - **Help / README** — navigate to the Auth Issues section of the built-in help
 - A **Retry** button also appears inline in the navigation bar
 
-### User Lists
+### User Lists *(3.14.5 only)*
 - On the **Select Action** page, a **User Lists** field appears under "Download content from a user"
 - Enter one or more OnlyFans list names (comma-separated) to load only models who are members of those lists
 - Leave blank to load all subscribed models (default behavior)
@@ -334,7 +334,7 @@ Built-in documentation available at any time without leaving the app:
 - **Open Downloads Folder** button in the toolbar — opens the configured `save_location` from your config directly in your file manager
 - **New Scrape** button: if scraping is active, confirms cancellation first; optionally resets all options and model selections back to defaults before returning to the start
 
-### Check mode
+### Check mode *(3.14.3 and 3.14.5)*
 - Select **Post Check**, **Message Check**, **Paid Check**, or **Story Check** from the action selector to enter check mode
 - A full media table is shown for the selected creator(s) — including content that is behind a paywall
 - **Locked** items (paywalled, no download URL) are clearly marked in the Download Cart column with a grey cell that cannot be clicked
@@ -347,16 +347,15 @@ Built-in documentation available at any time without leaving the app:
 - Resets automatically when a new scrape is started
 
 ### CLI auto-start
-- If launched with `ofscraper --gui` together with action, area, and username flags (or a `--ul` user list in place of `--username`), the GUI wizard is skipped and scraping begins automatically — matching the TUI behavior for scripted/automated workflows
-- Example with user list: `ofscraper --gui --ul testing -a download -o all`
+- If launched with `ofscraper --gui` together with action, area, and username flags, the GUI wizard is skipped and scraping begins automatically — matching the TUI behavior for scripted/automated workflows
+- `--ul` user list auto-start *(3.14.5 only)*: `ofscraper --gui --ul testing -a download -o all`
 - This is also how the Docker container starts a scrape automatically via the `GUI_ARGS` environment variable (see [Docker](#docker))
 
 ---
 
 ### Scrape individual posts by URL or Post ID *(3.14.5)*
 
-<img src="https://github.com/user-attachments/assets/0e803391-ebfd-44e4-a7bd-9ea0e843b736" width="600" alt="Scrape by Post ID or URL">
-
+<!-- Screenshot placeholder: Action page showing "Scrape individual posts by URL or Post ID" selected -->
 <!-- Screenshot placeholder: URL input page showing the text box with example URLs/IDs -->
 
 A dedicated action for downloading specific posts without going through model or area selection.
@@ -384,10 +383,14 @@ A dedicated action for downloading specific posts without going through model or
 The GUI includes a Discord webhook toggle that controls whether scraping activity is posted to your configured Discord channel.
 
 **Discord toggle (GUI)**
-- A Discord enable/disable toggle is available on the scrape settings pages
-- When enabled and a webhook URL is set in Configuration → General, Discord notifications fire at the `LOW` level by default — only important messages, warnings, errors, and run summaries. The level can be changed on the Select Content Areas & Filters page
+- A Discord enable/disable toggle is available on the scrape settings pages (all versions)
+- When enabled and a webhook URL is set in Configuration → General, notifications are sent during the scrape
 - When the `--discord` flag is also passed on the command line, the CLI value takes precedence
+
+**Notification level selector** *(3.14.5 only)*
+- Choose **LOW** (warnings, errors, and run summary only) or **NORMAL** (all events). Defaults to **LOW**
 - On first enable, a one-time prompt asks if you want to save `LOW` as the permanent default in `gui_settings.json`
+- In 3.14.3 and 3.12.9, Discord always fires at the `NORMAL` level with no selector
 
 **Per-run scrape summary** *(3.14.5)*
 
@@ -407,7 +410,7 @@ After each completed scrape run, a summary is automatically posted to your Disco
 
 ---
 
-## Plugin system
+## Plugin system *(3.14.5 only)*
 
 OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your ofscraper config directory and are loaded automatically on startup.
 
@@ -435,7 +438,7 @@ For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOP
 
 Two ready-to-use plugins are included. Both are **disabled by default** — enable them by setting `plugin_enabled = 1` in their `main.py`.
 
-#### JoyCaption Tagger (`joycaption_tagger`)
+#### JoyCaption Tagger (`joycaption_tagger`) *(3.14.5 only)*
 
 Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. JoyCaption Alpha Two natively supports adult/explicit content captioning, making it well-suited for OF-Scraper content. Caption style and length are configurable per the plugin settings panel. A built-in image gallery lets you browse and search tagged images by caption content, browse by model (click a model to see all their tagged images), and open any image in your system's external image viewer.
 
@@ -538,7 +541,7 @@ This builds a browsable folder structure organized by image content automaticall
 
 ---
 
-#### LLM Assistant (`llm_assistant`)
+#### LLM Assistant (`llm_assistant`) *(3.14.5 only)*
 
 Adds a **🤖 AI Assistant** chat panel to the sidebar. Type plain English commands — the assistant translates them into GUI actions such as setting usernames, selecting content areas, and starting downloads.
 
@@ -656,13 +659,31 @@ Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`.
 
 ## Supported versions
 
-| Patch script | OF-Scraper version | Notes |
-|---|---|---|
-| `patch_ofscraper_3.12.9_gui.py` | 3.12.9 | |
-| `patch_ofscraper_3.14.3_gui.py` | 3.14.3 | |
-| `patch_ofscraper_3.14.5_gui.py` | 3.14.5 | Adds scrape-by-URL, Discord summary, plugin system improvements |
+| Patch script | OF-Scraper version |
+|---|---|
+| `patch_ofscraper_3.12.9_gui.py` | 3.12.9 |
+| `patch_ofscraper_3.14.3_gui.py` | 3.14.3 |
+| `patch_ofscraper_3.14.5_gui.py` | 3.14.5 |
 
-All patch scripts include the same core GUI features. Version-specific additions are noted throughout this document.
+### Feature availability by version
+
+| Feature | 3.12.9 | 3.14.3 | 3.14.5 |
+|---|:---:|:---:|:---:|
+| Core scraper workflow (download, like/unlike) | ✅ | ✅ | ✅ |
+| Authentication, Configuration, Profiles, Merge DBs | ✅ | ✅ | ✅ |
+| Daemon mode | ✅ | ✅ | ✅ |
+| Discord webhook toggle | ✅ | ✅ | ✅ |
+| DRM Key Creation | ✅ | ✅ | ✅ |
+| Table page (filters, sort, cart, avatars) | ✅ | ✅ | ✅ |
+| CLI auto-start (`--username`, `-a`, `-o`) | ✅ | ✅ | ✅ |
+| Check modes (Post / Message / Paid / Story Check) | ❌ | ✅ | ✅ |
+| Include Post Text | ❌ | ✅ | ✅ |
+| User Lists (`--ul`) + Reload Models | ❌ | ❌ | ✅ |
+| Discord notification level selector (LOW / NORMAL) | ❌ | ❌ | ✅ |
+| Per-run Discord scrape summary | ❌ | ❌ | ✅ |
+| Scrape by URL / Post ID | ❌ | ❌ | ✅ |
+| CLI auto-start with `--ul` | ❌ | ❌ | ✅ |
+| Plugin system (JoyCaption, LLM Assistant) | ❌ | ❌ | ✅ |
 
 ## Supported platforms and install methods
 
