@@ -17,7 +17,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Select Content Areas & Filters](#select-content-areas--filters)
   - [Select Models](#select-models)
   - [Scraper Running](#scraper-running)
-  - [Check Mode](#check-mode)
+  - [Check Mode](#check-mode-3143-and-3145)
   - [Authentication](#authentication)
   - [Configuration](#configuration)
   - [DRM Key Creation](#drm-key-creation)
