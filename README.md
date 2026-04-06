@@ -412,7 +412,7 @@ After each completed scrape run, a summary is automatically posted to your Disco
 
 ---
 
-## Plugin system *(3.14.5 only)*
+## Plugin system *(all versions)*
 
 OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your ofscraper config directory and are loaded automatically on startup.
 
@@ -440,7 +440,7 @@ For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOP
 
 Two ready-to-use plugins are included. Both are **disabled by default** — enable them by setting `plugin_enabled = 1` in their `main.py`.
 
-#### JoyCaption Tagger (`joycaption_tagger`) *(3.14.5 only)*
+#### JoyCaption Tagger (`joycaption_tagger`) *(all versions)*
 
 Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. JoyCaption Alpha Two natively supports adult/explicit content captioning, making it well-suited for OF-Scraper content. Caption style and length are configurable per the plugin settings panel. A built-in image gallery lets you browse and search tagged images by caption content, browse by model (click a model to see all their tagged images), and open any image in your system's external image viewer.
 
@@ -543,7 +543,7 @@ This builds a browsable folder structure organized by image content automaticall
 
 ---
 
-#### LLM Assistant (`llm_assistant`) *(3.14.5 only)*
+#### LLM Assistant (`llm_assistant`) *(all versions)*
 
 Adds a **🤖 AI Assistant** chat panel to the sidebar. Type plain English commands — the assistant translates them into GUI actions such as setting usernames, selecting content areas, and starting downloads.
 
@@ -685,7 +685,7 @@ Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`.
 | Per-run Discord scrape summary | ❌ | ❌ | ✅ |
 | Scrape by URL / Post ID | ❌ | ❌ | ✅ |
 | CLI auto-start with `--ul` | ❌ | ❌ | ✅ |
-| Plugin system (JoyCaption, LLM Assistant) | ❌ | ❌ | ✅ |
+| Plugin system (JoyCaption, LLM Assistant) | ✅ | ✅ | ✅ |
 
 ## Supported platforms and install methods
 
