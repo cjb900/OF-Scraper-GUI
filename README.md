@@ -38,10 +38,10 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [CLI auto-start](#cli-auto-start)
   - [Scrape individual posts by URL or Post ID](#scrape-individual-posts-by-url-or-post-id-3145)
   - [Discord webhook integration](#discord-webhook-integration)
-  - [User Lists](#user-lists)
-- [Plugin system](#plugin-system)
-  - [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger)
-  - [LLM Assistant](#llm-assistant-llm_assistant)
+  - [User Lists](#user-lists-3145-only)
+- [Plugin system](#plugin-system-all-versions)
+  - [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger-all-versions)
+  - [LLM Assistant](#llm-assistant-llm_assistant-all-versions)
 - [Docker](#docker)
   - [Running the GUI in Docker](#running-the-gui-in-docker)
   - [Auto-starting a scrape on container startup](#auto-starting-a-scrape-on-container-startup)
@@ -427,6 +427,9 @@ Each plugin is a subfolder containing at minimum a `main.py` with a `Plugin` cla
 | `on_load()` | When the plugin is first loaded at startup |
 | `on_ui_setup(main_window)` | After the GUI window is built *(GUI mode only)* |
 | `on_item_downloaded(item_data, file_path)` | Every time a file is saved to disk |
+| `on_scrape_start(config, models)` | When a new scrape begins |
+| `on_posts_collected(posts, model_username)` | After each batch of posts/messages is collected for a model |
+| `on_scrape_complete(stats)` | When the scrape finishes |
 
 Plugins that declare a `requirements.txt` will trigger a one-click dependency install dialog if their packages are missing.
 
@@ -595,6 +598,74 @@ The plugin handles its own setup on first enable:
 > # pipx
 > pipx inject ofscraper llama-cpp-python huggingface-hub
 > ```
+
+---
+
+#### Trial Link Scanner (`trial_link_scanner`) *(all versions)*
+
+Automatically scans every direct message collected during a scrape for OnlyFans trial/free-trial links (`https://onlyfans.com/<creator>/trial/<token>`), logs all matches to a daily log file, and optionally posts them to your Discord webhook — including any images attached to the message.
+
+**Screenshots**
+
+<table>
+<tr>
+<td align="center"><img src="https://github.com/user-attachments/assets/5b7e3bab-98aa-4f88-a6ae-1afd1e9dd331" width="600" alt="Help / README"><br><em>Trial Link Scanner plugin page</em></td>
+</tr>
+</table>
+
+**How it works**
+
+1. During scraping, every direct message collected for each model is passed to the plugin via the `on_posts_collected` hook
+2. The plugin searches the raw HTML message text (not the stripped display text) for trial link URLs using a regex — this catches the full URL even when OnlyFans truncates it in the UI
+3. Each unique link found is written to a daily log file (`logs/trial_links_YYYY-MM-DD.log`) inside the plugin directory
+4. If Discord is enabled and a webhook URL is configured in OF-Scraper's Configuration → General, a notification is sent immediately (or held until the scrape ends in summary mode)
+5. Images attached to the message are downloaded from OnlyFans' CDN locally (using the IP-restricted signed URL) and uploaded directly to Discord as file attachments, so they display permanently in Discord without relying on OnlyFans' CDN
+
+**Setup**
+
+1. Copy the `trial_link_scanner` folder to your plugin directory:
+   - **Windows:** `C:\Users\<YourUser>\.config\ofscraper\plugins\trial_link_scanner\`
+   - **Linux/macOS:** `~/.config/ofscraper/plugins/trial_link_scanner/`
+2. Open `main.py` and set `plugin_enabled = 1` at the top (or leave it at `1` if already set)
+3. Restart the GUI — a **Trial Links** button will appear in the sidebar
+4. Click **Trial Links** in the sidebar and click **Enable** to activate the plugin
+5. Configure your preferred Mode, Timing, and Discord setting
+6. Ensure a Discord webhook URL is set in **Configuration → General**
+
+**Plugin settings**
+
+| Setting | Options | Description |
+| :--- | :--- | :--- |
+| Mode | `link` / `full` | **link** — send only the trial URL · **full** — send the trial URL plus the full message text |
+| Timing | `immediate` / `summary` | **immediate** — one Discord message per link as it is found · **summary** — one combined message at the end of the scrape |
+| Discord | `enabled` / `disabled` | Whether to send matches to your Discord webhook. Links are always written to the log file regardless |
+
+**Recent Finds log**
+
+The **Trial Links** sidebar page shows all trial links found today (from the current day's log file). The log displays:
+
+- The date and time the link was found
+- The model username who sent the message
+- The trial link URL
+- The full message text (in `full` mode)
+
+Log files are stored at `<plugin_dir>/logs/trial_links_YYYY-MM-DD.log` and accumulate across scrape sessions for the same day.
+
+**Discord notification format**
+
+Each Discord message includes:
+
+- **Header** — `Trial link found — modelname · YYYY-MM-DD HH:MM` (the original message date, not the scan time)
+- **Trial link URL** — clickable link to the trial page
+- **Message text** (in `full` mode) — the message body with HTML stripped and entities decoded
+- **Attached images** — up to 4 thumbnail images from the message, uploaded directly to Discord
+
+**Notes**
+
+- The plugin reads raw message data directly — it does not depend on the **Include Post Text** scrape setting
+- Trial links are deduplicated per session: the same link from the same model is only reported once per scrape run, even if it appears in multiple messages
+- OnlyFans CDN image URLs are IP-restricted signed URLs. The plugin downloads images locally first (from your machine's authorized IP) and uploads them directly to Discord, so they remain visible permanently without requiring OF CDN access
+- Discord error details (HTTP status codes, response bodies) are logged to `logs/discord_errors.log` if anything goes wrong
 
 ---
 
