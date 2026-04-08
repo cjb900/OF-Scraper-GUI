@@ -1,7 +1,0 @@
-{
-  "name": "Trial Link Scanner",
-  "version": "1.0.0",
-  "author": "Antigravity",
-  "description": "Scans post and message text for OnlyFans trial links and logs/posts them to Discord.",
-  "api_version": 1
-}
