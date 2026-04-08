@@ -157,8 +157,11 @@ class ScanFolderThread(QThread):
                     r = self.plugin.try_ingest_existing_path(canon)
                     if r == "added":
                         added += 1
-                except Exception:
-                    pass
+                except Exception as e:
+                    import logging
+                    logging.getLogger("ofscraper_plugin.joycaption_tagger").error(
+                        "Scan error for %s: %s", canon, e
+                    )
                 self.progress.emit(i + 1, total)
         finally:
             self.scan_finished.emit(added, total, cancelled)
@@ -561,7 +564,7 @@ class JoyCaptionTab(QWidget):
             query = MediaItem.select().order_by(MediaItem.created_at.desc())
             if self._active_model_filter:
                 query = query.where(MediaItem.model_username == self._active_model_filter)
-            items = list(query.limit(2000))
+            items = list(query)
         except Exception as e:
             self.status_label.setText(f"DB error: {e}")
             return

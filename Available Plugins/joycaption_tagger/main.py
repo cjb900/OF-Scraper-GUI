@@ -1,7 +1,8 @@
 #Enabled 1 / Disabled 0 - Set this plugin as enabled - Default value 1
-plugin_enabled=1
+plugin_enabled=0
 
 import json
+import logging
 import shutil
 import threading
 from pathlib import Path
@@ -18,6 +19,7 @@ from .database import (
 )
 from .comfyui_client import ComfyUIClient, ComfyUIError
 
+log = logging.getLogger("ofscraper_plugin.joycaption_tagger")
 
 # Caption types the user can choose from in settings.
 # Must match the keys in joycaption_comfyui's CAPTION_TYPE_MAP.
@@ -89,7 +91,7 @@ class Plugin(BasePlugin):
     """
 
     def on_load(self):
-        self.log.info("Loaded %s plugin!", self.metadata.get("name", "JoyCaption Tagger"))
+        log.info("Loaded %s plugin!", self.metadata.get("name", "JoyCaption Tagger"))
 
         self.data_dir = Path(self.plugin_dir) if getattr(self, "plugin_dir", None) else Path(__file__).parent
         self.db_path = self.data_dir / "jc_tags.db"
@@ -113,7 +115,7 @@ class Plugin(BasePlugin):
                 with open(self.settings_path, "r", encoding="utf-8") as f:
                     self.settings.update(json.load(f))
             except Exception as e:
-                self.log.error("Failed to load settings: %s", e)
+                log.error("Failed to load settings: %s", e)
 
         init_db(str(self.db_path))
         self.client = ComfyUIClient(self.settings.get("comfyui_url", "http://localhost:8188"))
@@ -217,7 +219,7 @@ class Plugin(BasePlugin):
                     shutil.copy2(path_key, dest_file)
                     copied = True
                 except Exception as e:
-                    self.log.error("Smart-folder copy failed: %s", e)
+                    log.error("Smart-folder copy failed: %s", e)
 
         item.copied_to_smart_folder = copied
         item.save()
@@ -229,20 +231,24 @@ class Plugin(BasePlugin):
     def try_ingest_existing_path(self, path_key: str) -> str:
         """Tag + insert one gallery row. Returns: skipped | added | noop | error"""
         if MediaItem.select().where(MediaItem.file_path == path_key).exists():
+            log.debug("JoyCaption: skipping already-tagged %s", Path(path_key).name)
             return "skipped"
         if Path(path_key).suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".jfif"}:
             return "noop"
+        log.info("JoyCaption: tagging %s", Path(path_key).name)
         try:
             tags = self._compute_tags_for_path(path_key)
         except Exception as e:
-            self.log.error("Batch scan tagging failed for %s: %s", path_key, e)
+            log.error("Batch scan tagging failed for %s: %s", path_key, e)
             return "error"
         if not tags:
+            log.warning("JoyCaption: no caption returned for %s", Path(path_key).name)
             return "noop"
+        log.info("JoyCaption: tagged %s — %d tag(s)", Path(path_key).name, len(tags))
         try:
             self._persist_media_item(path_key, tags)
         except Exception as e:
-            self.log.error("Batch scan DB save failed for %s: %s", path_key, e)
+            log.error("Batch scan DB save failed for %s: %s", path_key, e)
             return "error"
         return "added"
 
@@ -252,7 +258,7 @@ class Plugin(BasePlugin):
 
         resolved = resolve_media_path_for_tagging(file_path)
         if not resolved:
-            self.log.warning("JoyCaption: could not resolve downloaded file path: %r", file_path)
+            log.warning("JoyCaption: could not resolve downloaded file path: %r", file_path)
             return
 
         file_path_obj = Path(resolved)
@@ -263,15 +269,15 @@ class Plugin(BasePlugin):
         if MediaItem.select().where(MediaItem.file_path == path_key).exists():
             return
 
-        self.log.info("JoyCaption processing new image: %s", file_path_obj.name)
+        log.info("JoyCaption processing new image: %s", file_path_obj.name)
         try:
             tags = self._compute_tags_for_path(path_key)
         except Exception as e:
-            self.log.error("JoyCaption error for %s: %s", file_path_obj.name, e)
+            log.error("JoyCaption error for %s: %s", file_path_obj.name, e)
             return
 
         if not tags:
-            self.log.info("JoyCaption: no caption returned for %s", file_path_obj.name)
+            log.info("JoyCaption: no caption returned for %s", file_path_obj.name)
             return
 
         self._persist_media_item(path_key, tags, smart_source_path=str(resolved))
@@ -312,9 +318,9 @@ class Plugin(BasePlugin):
                     nav_layout.addWidget(btn)
 
             btn.clicked.connect(lambda checked: main_window._navigate("jc_gallery"))
-            self.log.info("Attached JoyCaption Gallery to sidebar.")
+            log.info("Attached JoyCaption Gallery to sidebar.")
         except Exception as e:
-            self.log.error("Failed to attach GUI to sidebar: %s", e)
+            log.error("Failed to attach GUI to sidebar: %s", e)
 
     def on_unload(self):
         self.client = None

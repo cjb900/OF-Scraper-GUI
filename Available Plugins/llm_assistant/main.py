@@ -1,5 +1,5 @@
 #Enabled 1 / Disabled 0 - Set this plugin as enabled - Default value 1
-plugin_enabled = 1
+plugin_enabled = 0
 
 import json
 from pathlib import Path

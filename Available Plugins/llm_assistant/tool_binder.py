@@ -217,6 +217,13 @@ class ToolBinder:
                 spc = getattr(ap, "scrape_paid_check", None)
                 if spc:
                     spc.setChecked(f != "free")
+                # When "paid only" — clear all area checkboxes so only the
+                # global paid endpoint runs (no per-user area scraping).
+                if f == "paid":
+                    checks = getattr(ap, "_area_checks", {}) or {}
+                    for cb in checks.values():
+                        cb.setChecked(False)
+                    log.info("Price filter=paid: cleared all area checkboxes")
         except Exception as e:
             return f"Could not set price filter: {e}"
         return f"Price filter set to: {f}"
