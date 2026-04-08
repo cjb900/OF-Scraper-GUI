@@ -43,6 +43,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 - [Plugin system](#plugin-system-all-versions)
   - [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger-all-versions)
   - [LLM Assistant](#llm-assistant-llm_assistant-all-versions)
+  - [Trial Link Scanner](#trial-link-scanner-trial_link_scanner-all-versions)
 - [Docker](#docker)
   - [Running the GUI in Docker](#running-the-gui-in-docker)
   - [Auto-starting a scrape on container startup](#auto-starting-a-scrape-on-container-startup)
