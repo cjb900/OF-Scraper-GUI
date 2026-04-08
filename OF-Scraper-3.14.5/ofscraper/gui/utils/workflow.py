@@ -56,8 +56,9 @@ class _NullLive:
     """
     is_started = False
     renderable = None
+    transient = False  # Rich Live attribute accessed by stop_live_screen
 
-    def start(self):
+    def start(self, refresh=True):
         self.is_started = True
 
     def stop(self):
@@ -789,7 +790,7 @@ def _query_post_info(cur):
     return post_info
 
 
-def _load_models_from_db(selected_models, date_range=None, media_ids=None):
+def _load_models_from_db(selected_models, date_range=None, media_ids=None, stats_only=False):
     """Query the DB for all media records of each selected model and emit
     them to the GUI table.  Runs synchronously (called from the scraper
     background thread after the pipeline finishes).
@@ -798,6 +799,10 @@ def _load_models_from_db(selected_models, date_range=None, media_ids=None):
                                "to_date": "YYYY-MM-DD"} — when enabled, only
     rows whose posted_at falls within the range are emitted to the table so
     the display matches what was actually scraped.
+
+    stats_only: when True, compute and return per-model stats without emitting
+    data_replace signals (used for normal GUI downloads where live rows are
+    already displayed and should not be replaced).
 
     Returns a dict: {username: {"photos": N, "videos": N, "audios": N,
                                 "dl_photos": N, "dl_videos": N, "dl_audios": N}}
@@ -934,14 +939,15 @@ def _load_models_from_db(selected_models, date_range=None, media_ids=None):
                             _st["dl_audios"] += 1
                 per_model_stats[username] = _st
 
-                rows = _build_db_rows(data, username, post_info)
-                if rows:
-                    # Use data_replace so the DB result replaces any rows
-                    # emitted by the live scraper pipeline, preventing duplicates.
-                    app_signals.data_replace.emit(rows)
-                    log.info(
-                        f"Loaded {len(rows)} items from DB for {username}"
-                    )
+                if not stats_only:
+                    rows = _build_db_rows(data, username, post_info)
+                    if rows:
+                        # Use data_replace so the DB result replaces any rows
+                        # emitted by the live scraper pipeline, preventing duplicates.
+                        app_signals.data_replace.emit(rows)
+                        log.info(
+                            f"Loaded {len(rows)} items from DB for {username}"
+                        )
         except Exception as e:
             log.warning(f"[DB Load] Failed to load DB data for {username}: {e}")
             import traceback as _tb
@@ -956,18 +962,26 @@ def _load_models_from_db(selected_models, date_range=None, media_ids=None):
     return per_model_stats
 
 
-def _emit_download_status(media, model_id, username):
-    """Query the DB for downloaded media IDs and emit cell_update signals."""
+def _emit_download_status(media, model_id, username, extra_table_rows=None):
+    """Query the DB for downloaded media IDs and emit cell_update signals.
+
+    extra_table_rows: optional list of all row dicts (from get_rows_for_gui_table)
+    for items that may have been filtered from the download queue (already downloaded,
+    profile images via the profile cache, etc.).  Each row is checked against the
+    media DB; Profile-type rows also fall back to the profile key-value cache.
+    """
     try:
         from ofscraper.db.operations_.media import get_media_ids_downloaded
 
         downloaded_set = get_media_ids_downloaded(
             model_id=model_id, username=username
         )
+        handled_ids = set()
         for ele in media:
             media_id = getattr(ele, "id", None)
             if media_id is None:
                 continue
+            handled_ids.add(str(media_id))
             canview = getattr(ele, "canview", True)
             is_downloaded = media_id in downloaded_set
 
@@ -990,6 +1004,32 @@ def _emit_download_status(media, model_id, username):
                     app_signals.cell_update.emit(
                         str(media_id), "download_cart", "[downloaded]"
                     )
+
+        # Items filtered from the download queue (already downloaded, profile images
+        # cached via separate cache, etc.) never appear in `media` above.
+        # Check each against the media DB; Profile rows also fall back to the
+        # profile key-value cache (avatar_{username}_{post_id}).
+        if extra_table_rows:
+            try:
+                import ofscraper.utils.cache.cache as _prof_cache
+            except Exception:
+                _prof_cache = None
+            for row in extra_table_rows:
+                media_id = str(row.get('media_id', '') or '')
+                if not media_id or media_id in handled_ids:
+                    continue
+                post_id = str(row.get('post_id', '') or '')
+                responsetype = str(row.get('responsetype', '') or '').capitalize()
+                # Primary: media DB (populated by mark_media_as_downloaded)
+                is_downloaded = media_id in downloaded_set
+                # Fallback for Profile rows: profile key-value cache
+                if not is_downloaded and responsetype == 'Profile' and _prof_cache and post_id:
+                    is_downloaded = bool(
+                        _prof_cache.get(f"avatar_{username}_{post_id}", default=False)
+                    )
+                app_signals.cell_update.emit(media_id, "downloaded", str(is_downloaded))
+                if is_downloaded:
+                    app_signals.cell_update.emit(media_id, "download_cart", "[downloaded]")
     except Exception as e:
         log.debug(f"Failed to emit download status: {e}")
 
@@ -1086,6 +1126,9 @@ def _make_gui_scraper_manager():
                             f"Skipping download for {username}: no media to download",
                         )
                         out.append([])
+                        # Still update table row statuses (e.g. profile images and
+                        # already-downloaded items filtered from the queue).
+                        _emit_download_status([], model_id, username, extra_table_rows=table_rows)
                         continue
                     # Start periodic DB polling for real-time Downloaded updates
                     _gui_state.start_polling(media, model_id, username)
@@ -1113,9 +1156,11 @@ def _make_gui_scraper_manager():
                         )
                         out.append([])
                     finally:
-                        # Stop polling and do a final status sweep
+                        # Stop polling and do a final status sweep.
+                        # Pass all table rows so filtered items (profile images,
+                        # already-downloaded items) also get their status updated.
                         _gui_state.stop_polling()
-                        _emit_download_status(media, model_id, username)
+                        _emit_download_status(media, model_id, username, extra_table_rows=table_rows)
                 elif action == "like":
                     try:
                         app_signals.log_message.emit(
@@ -1712,6 +1757,11 @@ class GUIWorkflow:
                     raise KeyboardInterrupt()
                 run_count += 1
 
+                # Reset live-rows flag each iteration so daemon re-runs don't inherit
+                # run #1's True value and incorrectly skip DB table replacement when
+                # the current run produced no live rows (e.g. after a crash).
+                self._live_rows_emitted = False
+
                 # Reset GUI progress counters/state each run so the overall progress bar
                 # doesn't get stuck using previous run totals (especially after purge).
                 try:
@@ -2004,10 +2054,10 @@ class GUIWorkflow:
                             scraping_manager.runner()
                         except Exception as _runner_err:
                             import traceback as _tb3
-                            log.warning(f"[DIAG] runner() RAISED: {_runner_err}\n{_tb3.format_exc()}")
+                            log.debug(f"[DIAG] runner() RAISED: {_runner_err}\n{_tb3.format_exc()}")
                             raise
                         finally:
-                            log.warning("[DIAG] runner() exited (finally block)")
+                            log.debug("[DIAG] runner() exited (finally block)")
                             if _orig_process_paid_dict is not None:
                                 try:
                                     import ofscraper.data.posts.scrape_paid as _spm
@@ -2038,13 +2088,15 @@ class GUIWorkflow:
                         "INFO", "Scraper pipeline completed successfully"
                     )
                 except Exception as e:
+                    # Mute Discord first so the error/traceback doesn't get posted there.
+                    self._mute_discord_handler()
                     log.error(f"Scraper error on run #{run_count}: {e}")
-                    log.error(traceback.format_exc())
+                    log.debug(traceback.format_exc())
                     app_signals.log_message.emit(
                         "ERROR", f"Scraper failed on run #{run_count}: {e}"
                     )
                     app_signals.log_message.emit(
-                        "ERROR", traceback.format_exc()
+                        "DEBUG", traceback.format_exc()
                     )
 
                 if _gui_cancel_event.is_set():
@@ -2068,12 +2120,19 @@ class GUIWorkflow:
                     and self._live_rows_emitted
                     and not _used_global_paid
                     and not bool(self._selected_actions & self._CHECK_MODES)
+                    and run_count == 1  # daemon re-runs always reload full DB to show complete state
                 )
                 if is_normal_gui_download:
                     app_signals.log_message.emit(
                         "INFO", "Skipping DB table replacement for normal GUI download scrape; keeping live rows from this run..."
                     )
-                elif self._live_rows_emitted and not _used_global_paid:
+                    # Still read DB stats so the Discord summary shows correct counts.
+                    _db_stats = _load_models_from_db(
+                        self._selected_models,
+                        date_range={} if self._scrape_paid else (self._date_range or {}),
+                        stats_only=True,
+                    )
+                elif self._live_rows_emitted and not _used_global_paid and run_count == 1:
                     app_signals.log_message.emit(
                         "INFO", "Skipping DB table replacement because live rows were already emitted for this run..."
                     )
@@ -2109,7 +2168,25 @@ class GUIWorkflow:
                             if isinstance(_h, _DH):
                                 _h.setLevel(_lvl)
                                 break
-                        _lines = ["\n\n--- Scrape Results ---"]
+                        # Per-run download counts from common_globals (reset each daemon iteration).
+                        try:
+                            import ofscraper.commands.scraper.actions.utils.globals as _cg_disc
+                            _run_photos = int(_cg_disc.photo_count)
+                            _run_videos = int(_cg_disc.video_count)
+                            _run_audios = int(_cg_disc.audio_count)
+                        except Exception:
+                            _run_photos = _run_videos = _run_audios = 0
+                        _run_new = _run_photos + _run_videos + _run_audios
+                        # @here ping if user enabled it and new content was found
+                        _daemon_ping = False
+                        if self._daemon_enabled and _run_new > 0:
+                            try:
+                                from ofscraper.gui.utils.gui_settings import load_gui_settings as _lgs
+                                _daemon_ping = bool(_lgs().get("daemon_discord_ping", False))
+                            except Exception:
+                                pass
+                        _lines = ["@here"] if _daemon_ping else []
+                        _lines.append("\n\n--- Scrape Results ---")
                         for _m in self._selected_models:
                             _un = _m.name
                             _st = _db_stats.get(_un, {})
@@ -2121,14 +2198,15 @@ class GUIWorkflow:
                             _dl_audios = _st.get("dl_audios", 0)
                             _total = _photos + _videos + _audios
                             _dl_total = _dl_photos + _dl_videos + _dl_audios
+                            # Show per-run new downloads alongside cumulative DB total.
+                            # Use \[ to escape brackets so Rich's markup parser
+                            # (inside DiscordFormatter) doesn't strip [username] as a style tag.
                             _lines.append(
-                                # Use \[ to escape brackets so Rich's markup
-                                # parser (inside DiscordFormatter) doesn't
-                                # strip [username] as a style tag.
-                                f"\\[{_un}] {_dl_total}/{_total} media downloaded"
-                                f" [{_dl_videos} videos,"
-                                f" {_dl_audios} audios,"
-                                f" {_dl_photos} photos]"
+                                f"\\[{_un}] {_run_new} new this run"
+                                f" [{_run_videos} videos,"
+                                f" {_run_audios} audios,"
+                                f" {_run_photos} photos]"
+                                f" | {_dl_total}/{_total} total in DB"
                             )
                         _dlog.getLogger("shared").warning("\n".join(_lines))
                     except Exception:

@@ -421,6 +421,22 @@ class AreaSelectorPage(QWidget):
         row.addWidget(_make_help_btn("sca-daemon-sound"))
         daemon_layout.addLayout(row)
 
+        self.daemon_discord_ping_check = QCheckBox(
+            "@here Discord mention when new content is found"
+        )
+        self.daemon_discord_ping_check.setFont(QFont("Segoe UI", 11))
+        self.daemon_discord_ping_check.setEnabled(False)
+        self.daemon_discord_ping_check.setToolTip(
+            "When daemon mode finds new content to download, prepend @here to the\n"
+            "Discord summary so your server gets a notification.\n"
+            "Requires Discord webhook to be enabled. No ping is sent if nothing new was found."
+        )
+        self.daemon_discord_ping_check.toggled.connect(self._on_daemon_ping_toggled)
+        row = QHBoxLayout()
+        row.addWidget(self.daemon_discord_ping_check)
+        row.addStretch()
+        daemon_layout.addLayout(row)
+
         layout.addWidget(daemon_group)
 
         # Separator before filters
@@ -547,6 +563,14 @@ class AreaSelectorPage(QWidget):
                     self._block_discord_prompt = False
         except Exception:
             pass
+        # Load saved daemon discord ping preference
+        try:
+            gs_ping = load_gui_settings()
+            self.daemon_discord_ping_check.setChecked(
+                bool(gs_ping.get("daemon_discord_ping", False))
+            )
+        except Exception:
+            pass
 
     def _on_discord_check_toggled(self, checked: bool):
         """Show a one-time prompt asking whether Discord should always be enabled."""
@@ -591,6 +615,8 @@ class AreaSelectorPage(QWidget):
         self.daemon_interval.setEnabled(False)
         self.notify_check.setChecked(False)
         self.sound_check.setChecked(False)
+        self.daemon_discord_ping_check.setChecked(False)
+        self.daemon_discord_ping_check.setEnabled(False)
         # Reset media type checkboxes to match config
         config_filter = config_data.get_filter() or ["Images", "Videos", "Audios"]
         config_filter_lower = {x.lower() for x in config_filter}
@@ -886,6 +912,13 @@ class AreaSelectorPage(QWidget):
 
     def _on_daemon_toggled(self, checked):
         self.daemon_interval.setEnabled(checked)
+        self.daemon_discord_ping_check.setEnabled(checked)
+
+    def _on_daemon_ping_toggled(self, checked: bool):
+        from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
+        gs = load_gui_settings()
+        gs["daemon_discord_ping"] = checked
+        save_gui_settings(gs)
 
     def is_daemon_enabled(self):
         return self.daemon_check.isChecked()
@@ -898,6 +931,9 @@ class AreaSelectorPage(QWidget):
 
     def is_sound_enabled(self):
         return self.sound_check.isChecked()
+
+    def is_daemon_discord_ping_enabled(self):
+        return self.daemon_discord_ping_check.isChecked()
 
     def get_username_filter(self):
         """Return the username entered in the filter, if any."""

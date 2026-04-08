@@ -25,6 +25,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Merge Databases](#merge-databases)
   - [Help / README](#help--readme)
 - [GUI features](#gui-features)
+  - [Application icon](#application-icon)
   - [Theme](#theme)
   - [Verbose Log](#verbose-log)
   - [Context-sensitive help](#context-sensitive-help)
@@ -132,7 +133,7 @@ Choose which types of posts to scrape and apply filters before the scrape begins
 - **Content areas** — Timeline, Messages, Archived, Paid, Stories, Highlights, Pinned, Streams
 - **Filters** — narrow by date range, limit post count, skip already-downloaded content, and more
 - **Include Post Text** *(3.14.3 and 3.14.5)* — when enabled, the text body of each post is included alongside the downloaded media
-- **Daemon Mode** — set a repeat interval (1–1440 minutes) so the scraper runs automatically on a schedule
+- **Daemon Mode** — set a repeat interval (1–1440 minutes) so the scraper runs automatically on a schedule; optional system notification, sound alert, and **@here Discord ping when new content is found**
 - **Username filter** — pre-filter the model list to only show specific creators
 
 Once you're happy with your selections, click **Next** to load and choose your models.
@@ -283,6 +284,10 @@ Built-in documentation available at any time without leaving the app:
 
 ## GUI features
 
+### Application icon
+- The GUI displays its own icon in the **title bar**, **taskbar**, and **system tray** instead of the generic Python icon
+- On Windows, the correct AppUserModelID is registered so the taskbar groups and identifies the app as OF-Scraper rather than Python
+
 ### Theme
 - Toggle between **Dark** and **Light** mode using the button in the bottom-left navigation bar
 - Theme preference is saved to `gui_settings.json` in your ofscraper config directory
@@ -326,6 +331,7 @@ Built-in documentation available at any time without leaving the app:
 - While waiting between runs, a **countdown timer** is shown in the table toolbar
 - Optional **system tray notification** when each run starts (all platforms)
 - Optional **sound alert** when each run starts (Windows)
+- Optional **@here Discord mention** — when enabled, the Discord scrape summary is prefixed with `@here` only when new content was downloaded in that run. No ping is sent for runs that find nothing new. Requires a Discord webhook to be configured
 - A **Stop Daemon** button appears in the toolbar; clicking it gracefully stops the loop after the current run
 
 ### Table page
@@ -394,21 +400,30 @@ The GUI includes a Discord webhook toggle that controls whether scraping activit
 - On first enable, a one-time prompt asks if you want to save `LOW` as the permanent default in `gui_settings.json`
 - In 3.14.3 and 3.12.9, Discord always fires at the `NORMAL` level with no selector
 
-**Per-run scrape summary** *(3.14.5)*
+**Per-run scrape summary** *(all versions)*
 
 <!-- Screenshot placeholder: Discord message showing the "--- Scrape Results ---" summary -->
 
-After each completed scrape run, a summary is automatically posted to your Discord webhook showing only what was downloaded in **that run** (not cumulative totals from the database):
+After each completed scrape run, a summary is automatically posted to your Discord webhook showing what was downloaded in **that run** alongside the cumulative totals from the database:
 
 ```
 --- Scrape Results ---
-[creator_username] 12 new downloads [8 videos, 0 audios, 4 photos] | 3 skipped
+[creator_username] 12 new this run [8 videos, 0 audios, 4 photos] | 12/198 total in DB
 ```
 
-- Shows each creator's name, total new files downloaded, breakdown by type, and skipped count
-- Counts reset to zero at the start of each run — if nothing new was downloaded, the summary shows `0 new downloads`
-- Works with any Discord level (`--discord low` or higher)
+- Shows each creator's name, new files downloaded this run with type breakdown, and total downloaded vs total in DB
+- Per-run counts reset to zero at the start of each run — if nothing new was downloaded, the summary shows `0 new this run`
+- Works with any Discord level (`LOW` or `NORMAL`)
 - Requires a webhook URL configured in Configuration → General
+
+**@here Discord ping** *(daemon mode, all versions)*
+
+When using daemon mode, an optional **@here Discord mention when new content is found** checkbox is available in the Daemon Mode section:
+
+- When enabled, `@here` is prepended to the scrape summary message — notifying your whole Discord server
+- The ping is sent **only when new content was downloaded** in that run; runs that find nothing new send the summary quietly with no mention
+- The checkbox is only active when daemon mode is enabled
+- The preference is saved to `gui_settings.json` and persists across sessions
 
 ---
 
@@ -445,7 +460,7 @@ Two ready-to-use plugins are included. Both are **disabled by default** — enab
 
 #### JoyCaption Tagger (`joycaption_tagger`) *(all versions)*
 
-Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. JoyCaption Alpha Two natively supports adult/explicit content captioning, making it well-suited for OF-Scraper content. Caption style and length are configurable per the plugin settings panel. A built-in image gallery lets you browse and search tagged images by caption content, browse by model (click a model to see all their tagged images), and open any image in your system's external image viewer.
+Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. JoyCaption Alpha Two natively supports adult/explicit content captioning, making it well-suited for OF-Scraper content. Caption style and length are configurable per the plugin settings panel. A built-in image gallery lets you browse and search tagged images by caption content, browse by model (click a model to see all their tagged images), and open any image in your system's external image viewer. The gallery has no cap on the number of images displayed, and all tagging activity is logged so you can see exactly what the plugin is doing during folder scans.
 
 > **Performance note:** JoyCaption sends each image to ComfyUI for AI inference, which is compute-intensive. Captioning a single image can take anywhere from a few seconds to several minutes depending on your hardware (CPU vs. GPU, available RAM, etc.).
 >

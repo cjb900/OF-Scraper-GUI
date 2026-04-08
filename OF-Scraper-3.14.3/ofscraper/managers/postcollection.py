@@ -218,15 +218,22 @@ class PostCollection:
         if not isinstance(items, list):
             items = [items]
         actions = actions or []
-        new_posts_added = 0
+        all_processed = []
         for item in items:
             # Call the single-item processor
             post = self._process_and_add_post(item, actions, overwrite)
-            if post:  # You can track how many were successfully added
-                new_posts_added += 1
+            if post is not None:
+                all_processed.append(post)
 
-        if new_posts_added > 0:
-            log.info(f"Added {new_posts_added} posts to the collection")
+        log.debug(f"[PluginHook] add_posts processed {len(all_processed)} posts for {self.username!r}")
+        if all_processed:
+            try:
+                from ofscraper.plugins.manager import plugin_manager
+                plugin_manager.dispatch_event(
+                    "on_posts_collected", all_processed, self.username or ""
+                )
+            except Exception:
+                pass
 
     def get_media_for_gui_table(self) -> list:
         """

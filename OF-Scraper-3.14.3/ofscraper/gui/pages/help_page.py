@@ -308,6 +308,22 @@ The **Unlocked** column is not a direct 1:1 match with “purchased”.
   - **Unlocked**: True / False / Locked
 - **Post Date Range**, **Duration (Length)**, **Price Range**, **ID Filters**, **Username**
 
+<a id="config-root"></a>
+## Configuration (config.json)
+
+Edit your OF-Scraper settings without touching `config.json` directly. Click **Save** to write changes. Each tab has a **?** button that jumps to the relevant help section.
+
+<a id="config-download"></a>
+### Download tab
+
+- **Min Free Space (MB)**: The minimum free disk space required before a download is allowed. Set to `0` to disable the check.
+- **Auto Resume**: When enabled, partially downloaded files are resumed rather than restarted from scratch.
+- **Max Post Count**: Limits how many posts are collected per model. Set to `0` for no limit.
+- **FFmpeg Path**: Full path to your `ffmpeg` (or `ffmpeg.exe`) binary. Required for merging DRM video/audio streams and for integrity checking.
+- **Verify All Integrity**: After each standard (non-DRM) video or audio download, uses `ffprobe` to measure the file's actual playback duration and compares it against the duration reported by the OnlyFans API. If they differ by more than 3 seconds the file is considered corrupted, deleted from disk, and the download is marked as failed so it will be retried. DRM-protected content is always integrity-checked regardless of this setting. Requires FFmpeg/ffprobe to be configured. Useful on unreliable connections to catch silently-truncated downloads.
+- **Download Filter**: Choose which media types to include — **Images**, **Audios**, **Videos**, **Text**. This is the default filter applied to every scrape (individual runs can override it on the area selector page).
+- **Post Script**: Optional path to a script that is executed after each download completes.
+
 ## Merge DBs
 
 1. Pick a **Source Folder** that contains one or more `user_data.db` files.
@@ -380,6 +396,7 @@ class HelpPage(QWidget):
         self.jump_combo.addItem("Select Content Areas & Filters", "sca-root")
         self.jump_combo.addItem("Select Models", "models-root")
         self.jump_combo.addItem("Configuration (config.json)", "config-root")
+        self.jump_combo.addItem("Configuration — Download tab", "config-download")
         self.jump_combo.addItem("Table / Scraping page", "table-root")
         self.jump_combo.addItem("Filters", "filters-root")
         self.jump_combo.addItem("Table columns", "table-columns")

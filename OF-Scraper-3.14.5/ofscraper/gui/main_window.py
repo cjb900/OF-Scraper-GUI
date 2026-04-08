@@ -691,6 +691,15 @@ class MainWindow(QMainWindow):
         app_signals.data_loading_finished.connect(self._on_data_loaded)
         app_signals.data_replace.connect(self._on_data_replace)
         app_signals.manual_urls_confirmed.connect(self._on_manual_urls_confirmed)
+        app_signals.scraping_finished.connect(self._on_scraping_finished_plugins)
+
+    def _on_scraping_finished_plugins(self):
+        """Dispatch on_scrape_complete to all loaded plugins when a scrape session ends."""
+        try:
+            from ofscraper.plugins.manager import plugin_manager
+            plugin_manager.dispatch_event("on_scrape_complete", {})
+        except Exception:
+            pass
 
     def _navigate(self, page_id):
         if page_id in self._pages:

@@ -16,6 +16,11 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
   - [Additional Options](#sca-additional-options)
   - [Advanced Scrape Options](#sca-advanced-options)
   - [Daemon Mode](#sca-daemon-mode)
+    - [Enable daemon mode](#sca-daemon-enable)
+    - [Interval](#sca-daemon-interval)
+    - [System notification when scraping starts](#sca-daemon-notify)
+    - [Sound alert when scraping starts](#sca-daemon-sound)
+    - [@here Discord mention when new content is found](#sca-daemon-discord-ping)
   - [Filters (embedded)](#sca-filters)
 - [Select Models](#models-root)
   - [Model Filters (right sidebar)](#models-filters-root)
@@ -185,6 +190,16 @@ Shows a desktop notification at the start of each daemon run.
 <a id="sca-daemon-sound"></a>
 #### Sound alert when scraping starts
 Plays a short beep at the start of each daemon run (best-effort on Windows).
+
+<a id="sca-daemon-discord-ping"></a>
+#### @here Discord mention when new content is found
+When enabled, prepends `@here` to the Discord scrape summary message so your server gets a notification — but **only** when new content was actually downloaded in that run. If a daemon run finds nothing new, the summary is posted quietly with no mention.
+
+Requirements:
+- Daemon mode must be enabled (this checkbox is disabled otherwise)
+- A Discord webhook URL must be configured in **Config → General**
+
+The preference is saved to `gui_settings.json` and persists across sessions.
 
 <a id="sca-filters"></a>
 ### Filters (on this page)

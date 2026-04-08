@@ -27,6 +27,12 @@ class BasePlugin:
         """Called immediately after a media item is saved to disk."""
         pass
 
+    def on_posts_collected(self, posts, model_username):
+        """Called after a batch of posts/messages is added to the collection for a model.
+        Fires for every content area batch (timeline, messages, paid, etc.) regardless
+        of whether any files are downloaded. Use this to scan post text."""
+        pass
+
     def on_scrape_complete(self, stats):
         """Called when a scraping session finishes completely."""
         pass

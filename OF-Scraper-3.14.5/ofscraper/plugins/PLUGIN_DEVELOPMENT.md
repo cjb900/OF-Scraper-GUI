@@ -19,6 +19,56 @@ Plugins are loaded in both **GUI mode** (`ofscraper --gui`) and **headless/CLI m
 
 ## Plugin Structure
 
+## Logging
+
+Each plugin automatically gets its own dedicated logger via `self.log` from `BasePlugin`.
+
+- Logger name format: `ofscraper_plugin.<Plugin Name>`
+- Log files are written separately from the normal OF-Scraper logs
+- Plugin log location follows OF-Scraper's normal log naming convention, for example:
+  - rotated logs: `.../logging/<profile>_<YYYY-MM-DD>/plugins/plugin-<plugin-name>_<YYYY-MM-DD_HH.mm.ss>.log`
+  - daily logs: `.../logging/plugins/plugin-<plugin-name>_<YYYY-MM-DD>.log`
+
+Example usage inside your plugin:
+
+```python
+class Plugin(BasePlugin):
+    def on_load(self):
+        self.log.info("Plugin loaded")
+
+    def on_item_downloaded(self, item_data, file_path):
+        self.log.debug(f"Downloaded {file_path}")
+```
+
+Use `self.log.info(...)`, `self.log.warning(...)`, `self.log.error(...)`, and `self.log.debug(...)` freely — the plugin manager configures a per-plugin file handler automatically when the plugin is loaded.
+
+### What gets logged automatically
+
+The plugin manager now writes important plugin lifecycle events into the per-plugin log file automatically, including:
+
+- plugin load failures
+- missing dependency detection during plugin load
+- dependency installer start / finish / failure
+- full dependency installer output
+
+That means a plugin log file should contain both:
+- messages your plugin writes via `self.log`
+- manager-driven lifecycle/install events that happen before the plugin can fully load
+
+## Dependencies
+
+If your plugin requires third-party packages:
+
+1. list them in a `requirements.txt` file inside the plugin directory
+2. OF-Scraper can prompt to install missing dependencies automatically
+3. dependencies are installed into the plugin-local `deps/` folder
+4. the installer now prefers a plugin-local virtual environment at `.deps_venv/` to avoid polluting the main OF-Scraper environment
+
+This is especially important for pipx installs, where plugin dependencies should remain isolated from the main `ofscraper` application environment.
+
+Dependency installer output is also written to the plugin's dedicated log file, so plugin authors and users can troubleshoot failed installs more easily.
+
+
 Each plugin lives in its own subdirectory. The folder name is used as the plugin's internal ID.
 
 **Minimum required file:** `main.py`
@@ -135,8 +185,9 @@ Override any of these methods in your `Plugin` class. All hooks are called via `
 | `on_load()` | **Active** | Right after the plugin is instantiated. Use for initialisation. |
 | `on_ui_setup(main_window)` | **Active (GUI only)** | After the PyQt6 main window is fully built. |
 | `on_item_downloaded(item_data, file_path)` | **Active** | Each time a media file is successfully saved to disk. Fires in both GUI and CLI mode. |
-| `on_scrape_start(config, models)` | **Reserved** | Defined but not yet dispatched. Override now for future compatibility. |
-| `on_scrape_complete(stats)` | **Reserved** | Defined but not yet dispatched. Override now for future compatibility. |
+| `on_scrape_start(config, models)` | **Active** | Before the scrape begins. Must return the `models` list (may be modified). |
+| `on_posts_collected(posts, model_username)` | **Active** | After each batch of messages is collected for a model during scraping. |
+| `on_scrape_complete(stats)` | **Active** | When a scraping session finishes completely. |
 | `on_unload()` | **Reserved** | Defined but not yet dispatched. |
 
 ### `on_item_downloaded(item_data, file_path)`
@@ -165,6 +216,52 @@ def on_item_downloaded(self, item_data, file_path):
             "New image from @%s — post %s: %s",
             item_data.username, item_data.post_id, file_path
         )
+```
+
+### `on_scrape_start(config, models)`
+
+Called before the scrape begins. `config` is the current ofscraper config dict. `models` is the list of model objects that will be scraped. **Must return the models list** — you may filter or reorder it, but you must return it.
+
+```python
+def on_scrape_start(self, config, models):
+    self.log.info("Scrape starting — %d models", len(models))
+    return models   # must return, even if unchanged
+```
+
+### `on_posts_collected(posts, model_username)`
+
+Called after each batch of messages is collected for a model. `posts` is a list of ofscraper Post/Message objects. `model_username` is the creator's username string.
+
+This hook fires during the data-collection phase, before any files are downloaded. It gives you access to the raw message text and media metadata for every collected item.
+
+Key properties available on each post object (via `post._post` raw dict):
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `text` | `str` | Raw HTML message body (includes full URLs inside `<a href>` attributes) |
+| `media` | `list` | List of media dicts. Each has a `files` dict with `full` and `thumb` sub-dicts containing `url`, `width`, `height` |
+| `createdAt` | `str` | ISO timestamp of when the message was sent |
+| `id` | `int` | Message ID |
+| `responseType` | `str` | Content area, e.g. `"message"` |
+
+> **Note:** The `text` field is raw HTML. Use a library or regex to extract URLs or strip tags before displaying. The display URL shown in the OnlyFans UI is often truncated — the full URL is in the `href` attribute of the `<a>` tag.
+
+```python
+def on_posts_collected(self, posts, model_username):
+    for post in posts:
+        raw = getattr(post, "_post", {})
+        text = raw.get("text") or ""
+        if "something_interesting" in text:
+            self.log.info("Found match in message from @%s", model_username)
+```
+
+### `on_scrape_complete(stats)`
+
+Called when the scraping session finishes. `stats` is currently an empty dict — it is reserved for future use.
+
+```python
+def on_scrape_complete(self, stats):
+    self.log.info("Scrape finished.")
 ```
 
 ### `on_ui_setup(main_window)`
@@ -342,6 +439,15 @@ Adds a natural-language chat panel (**🤖 AI Assistant**) to the sidebar. Type 
 - No Ollama, no cloud API, no internet required at runtime.
 - Dependencies: `llama-cpp-python` (auto-prompted on first launch).
 
+### Trial Link Scanner (`trial_link_scanner`)
+Scans direct messages collected during scraping for OnlyFans trial/free-trial links (`https://onlyfans.com/<creator>/trial/<token>`). Logs all matches to a daily log file and optionally posts Discord notifications with the message text, message date, and any attached images.
+- Uses `on_scrape_start` to reset per-session dedup state before each run.
+- Uses `on_posts_collected` to search raw HTML message text for trial URLs using a regex, extract attached image CDN URLs, and log or dispatch each match immediately.
+- Uses `on_scrape_complete` to flush a collected summary to Discord (in `summary` timing mode).
+- Uses `on_ui_setup` to add a **Trial Links** settings and log-viewer page to the sidebar.
+- Images are downloaded locally first (OnlyFans CDN URLs are IP-restricted) then uploaded directly to Discord as file attachments.
+- No external dependencies beyond `requests` (already a dependency of ofscraper).
+
 ---
 
 ## Complete `main.py` Template
@@ -437,21 +543,34 @@ class Plugin(BasePlugin):
         )
 
     # ------------------------------------------------------------------
-    # Reserved hooks (defined but not yet dispatched)
+    # Scrape lifecycle hooks (called in both GUI and CLI mode)
     # ------------------------------------------------------------------
 
     def on_scrape_start(self, config, models):
         """
-        Reserved — not yet dispatched.
-        Will be called before the download queue begins.
-        Must return the models list (possibly modified).
+        Called before the scrape begins.
+        Must return the models list (may be filtered or reordered).
         """
         return models
 
+    def on_posts_collected(self, posts, model_username):
+        """
+        Called after each batch of messages is collected for a model.
+
+        posts           — list of ofscraper Post/Message objects
+        model_username  — str, the creator's username
+
+        Access raw data via post._post (dict). Key fields:
+            "text"       str   Raw HTML message body
+            "media"      list  Media items, each with files.full.url / files.thumb.url
+            "createdAt"  str   ISO timestamp of the message
+        """
+        pass
+
     def on_scrape_complete(self, stats):
         """
-        Reserved — not yet dispatched.
-        Will be called when a scraping session finishes completely.
+        Called when a scraping session finishes completely.
+        stats is currently an empty dict (reserved for future use).
         """
         pass
 ```

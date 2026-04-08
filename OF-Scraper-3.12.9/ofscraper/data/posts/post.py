@@ -487,6 +487,7 @@ async def process_tasks(model_id, username, ele, c=None):
     mediaObjs = []
     textObjs = []
     likeObjs = []
+    allPostObjs = []
     tasks = []
 
     like_area = get_like_area()
@@ -598,6 +599,15 @@ async def process_tasks(model_id, username, ele, c=None):
                     mediaObjs.extend(medias or [])
                 if area.title() in text_area:
                     textObjs.extend(posts or [])
+                allPostObjs.extend(posts or [])
             except Exception as E:
                 log.debug(E)
+    if allPostObjs:
+        try:
+            from ofscraper.plugins.manager import plugin_manager
+            plugin_manager.dispatch_event(
+                "on_posts_collected", allPostObjs, username or ""
+            )
+        except Exception:
+            pass
     return mediaObjs, textObjs, likeObjs

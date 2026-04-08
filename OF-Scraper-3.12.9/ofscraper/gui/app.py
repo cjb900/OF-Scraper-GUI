@@ -166,6 +166,17 @@ class _CloseLegacyModelLoadingPopup(QObject):
 
 def launch_gui(manager=None):
     """Launch the PyQt6 GUI application."""
+    # Tell Windows to use our own AppUserModelID so the taskbar shows our
+    # icon instead of the generic Python icon.
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+                "OFScraper.GUI.1"
+            )
+        except Exception:
+            pass
+
     # On Linux, force XCB (X11) backend to avoid Wayland segfaults with PyQt6.
     # This is safe on both X11 and XWayland sessions.
     if sys.platform.startswith("linux"):
@@ -173,6 +184,15 @@ def launch_gui(manager=None):
     app = QApplication(sys.argv)
     app.setApplicationName("OF-Scraper")
     app.setStyle("Fusion")
+
+    # Load and apply the application icon (taskbar, title bar, tray).
+    try:
+        import pathlib as _pathlib
+        _icon_path = _pathlib.Path(__file__).parent / "assets" / "icon.png"
+        if _icon_path.exists():
+            app.setWindowIcon(QIcon(str(_icon_path)))
+    except Exception:
+        pass
     # Apply saved theme preference (falls back to dark if not set)
     try:
         from ofscraper.gui.utils.gui_settings import load_gui_settings
