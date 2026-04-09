@@ -465,6 +465,7 @@ For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOP
 Two ready-to-use plugins are included. Both are **disabled by default** — enable them by setting `plugin_enabled = 1` in their `main.py`.
 
 #### JoyCaption Tagger (`joycaption_tagger`) *(all versions)*
+https://github.com/cjb900/OF-Scraper-GUI/blob/main/Available%20Plugins/joycaption_tagger.zip
 
 Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. JoyCaption Alpha Two natively supports adult/explicit content captioning, making it well-suited for OF-Scraper content. Caption style and length are configurable per the plugin settings panel. A built-in image gallery lets you browse and search tagged images by caption content, browse by model (click a model to see all their tagged images), and open any image in your system's external image viewer. The gallery has no cap on the number of images displayed, and all tagging activity is logged so you can see exactly what the plugin is doing during folder scans.
 
@@ -568,6 +569,7 @@ This builds a browsable folder structure organized by image content automaticall
 ---
 
 #### LLM Assistant (`llm_assistant`) *(all versions)*
+https://github.com/cjb900/OF-Scraper-GUI/blob/main/Available%20Plugins/llm_assistant.zip
 
 Adds a **🤖 AI Assistant** chat panel to the sidebar. Type plain English commands — the assistant translates them into GUI actions such as setting usernames, selecting content areas, and starting downloads.
 
@@ -623,6 +625,7 @@ The plugin handles its own setup on first enable:
 ---
 
 #### Trial Link Scanner (`trial_link_scanner`) *(all versions)*
+https://github.com/cjb900/OF-Scraper-GUI/blob/main/Available%20Plugins/trial_link_scanner.zip
 
 Automatically scans every direct message collected during a scrape for OnlyFans trial/free-trial links (`https://onlyfans.com/<creator>/trial/<token>`), logs all matches to a daily log file, and optionally posts them to your Discord webhook — including any images attached to the message.
 
