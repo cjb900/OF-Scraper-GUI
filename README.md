@@ -532,7 +532,7 @@ A ready-made Docker Compose setup is included in `docker/comfyui-joycaption/`.
    - Search for **JoyCaption** and install the node
    - Restart the container after installing
 
-5. **Configure the plugin** by opening the JoyCaption Tagger settings in the OF-Scraper GUI and setting the ComfyUI URL to `http://localhost:8188` (or your server's IP if running remotely).
+5. **Configure the plugin** by opening the JoyCaption Tagger settings in the OF-Scraper GUI and setting the ComfyUI URL to `http://localhost:8188`. If ComfyUI is running on a different machine on your network, replace `localhost` with that machine's local IP address (e.g. `http://192.168.1.50:8188`).
 
 **Setup without Docker**
 
@@ -542,7 +542,7 @@ If you already have ComfyUI running locally, install the JoyCaption custom node 
 
 | Setting | Description |
 | :--- | :--- |
-| ComfyUI URL | URL of your ComfyUI server (default: `http://localhost:8188`). Click **Test** to verify the connection. |
+| ComfyUI URL | URL of your ComfyUI server (default: `http://localhost:8188`). Use `localhost` if ComfyUI is on the same machine, or replace it with the local IP address of another device on your network (e.g. `http://192.168.1.50:8188`). Click **Test** to verify the connection. |
 | Caption Type | Style of caption: Descriptive, Stable Diffusion Prompt, Danbooru tag list, e621 tags, etc. |
 | Caption Length | `any`, `very short`, `short`, `medium-length`, `long`, `very long` |
 | Extra Options | Free-text modifiers appended to the caption prompt (e.g. `Do not include low quality, Do not use vague language`) |
