@@ -364,8 +364,13 @@ Built-in documentation available at any time without leaving the app:
 
 ### Scrape individual posts by URL or Post ID *(3.14.5)*
 
-<!-- Screenshot placeholder: Action page showing "Scrape individual posts by URL or Post ID" selected -->
-<!-- Screenshot placeholder: URL input page showing the text box with example URLs/IDs -->
+<table>
+<tr>
+<td align="center"><img src="https://github.com/user-attachments/assets/cc2522e6-c96c-42e2-be40-c11c610e3a10" width="380"><br><em>Scrape individual posts by URL or Post ID</em></td>
+<td align="center"><img src="https://github.com/user-attachments/assets/5a4335a6-3c53-499f-b8de-5bbeec82c183" width="380"><br><em>Manual Scrapping</em></td>
+</tr>
+</table>
+
 
 A dedicated action for downloading specific posts without going through model or area selection.
 
@@ -772,7 +777,7 @@ Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`.
 | Per-run Discord scrape summary | ❌ | ❌ | ✅ |
 | Scrape by URL / Post ID | ❌ | ❌ | ✅ |
 | CLI auto-start with `--ul` | ❌ | ❌ | ✅ |
-| Plugin system (JoyCaption, LLM Assistant) | ✅ | ✅ | ✅ |
+| Plugin system (JoyCaption, LLM Assistant, Trial Link Scanner) | ✅ | ✅ | ✅ |
 
 ## Supported platforms and install methods
 
