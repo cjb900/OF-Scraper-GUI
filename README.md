@@ -132,8 +132,15 @@ After selecting an action, click **Next** to move on.
 Choose which types of posts to scrape and apply filters before the scrape begins:
 
 - **Content areas** — Timeline, Messages, Archived, Paid, Stories, Highlights, Pinned, Streams
-- **Filters** — narrow by date range, limit post count, skip already-downloaded content, and more
+- **Post Date Range** — filter content by post date using independent **After** and **Before** controls; each side can be enabled or disabled independently:
+  - **Fixed date** — pick a specific calendar date with the date picker
+  - **Relative** — enter a number + unit (e.g. *7 days ago*); the date is computed fresh at each scrape run so saved relative settings always mean the last N days
+  - Equivalent to the `--after` / `--before` CLI flags
+- **Media type filter** — limit the scrape to Images, Videos, and/or Audios
+- **Post count limit** — cap the number of posts fetched per creator
+- **Rescrape everything** — force a full history scan, ignoring the "start after last seen" cache; use this after changing filters or to do a complete rebuild
 - **Include Post Text** *(3.14.3, 3.14.5, and 3.14.7)* — when enabled, the text body of each post is included alongside the downloaded media
+- **Video quality** *(3.14.7)* — choose **Default**, **240**, **720**, or **source**; equivalent to the `-q` / `--quality` CLI flag
 - **Daemon Mode** — set a repeat interval (1–1440 minutes) so the scraper runs automatically on a schedule; optional system notification, sound alert, and **@here Discord ping when new content is found**
 - **Username filter** — pre-filter the model list to only show specific creators
 
