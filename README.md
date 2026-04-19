@@ -2,7 +2,7 @@
 
 A self-contained Python script that patches an installed (non-binary) copy of [OF-Scraper](https://github.com/datawhores/OF-Scraper) to add a full **PyQt6 GUI** accessible via the `--gui` flag.
 
-**Supported versions:** `3.12.9`, `3.14.3`, and `3.14.5`
+**Supported versions:** `3.12.9`, `3.14.3`, `3.14.5`, and `3.14.7`
 
 > **Python version requirement**
 > Python **3.11.x** or **3.12.x** is required. Python 3.13+ and versions below 3.11 are **not supported** and may cause issues with OF-Scraper or this patch.
@@ -17,7 +17,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Select Content Areas & Filters](#select-content-areas--filters)
   - [Select Models](#select-models)
   - [Scraper Running](#scraper-running)
-  - [Check Mode](#check-mode-3143-and-3145)
+  - [Check Mode](#check-mode-3143-3145-and-3147)
   - [Authentication](#authentication)
   - [Configuration](#configuration)
   - [DRM Key Creation](#drm-key-creation)
@@ -37,9 +37,9 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Check mode](#check-mode-3143-and-3145)
   - [Progress bar](#progress-bar)
   - [CLI auto-start](#cli-auto-start)
-  - [Scrape individual posts by URL or Post ID](#scrape-individual-posts-by-url-or-post-id-3145)
+  - [Scrape individual posts by URL or Post ID](#scrape-individual-posts-by-url-or-post-id-3145-and-3147)
   - [Discord webhook integration](#discord-webhook-integration)
-  - [User Lists](#user-lists-3145-only)
+  - [User Lists](#user-lists-3145-and-3147)
 - [Plugin system](#plugin-system-all-versions)
   - [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger-all-versions)
   - [LLM Assistant](#llm-assistant-llm_assistant-all-versions)
@@ -55,7 +55,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 - [How it detects your installation](#how-it-detects-your-installation)
   - [Broken installation detection](#broken-installation-detection)
 - [If OF-Scraper is not detected](#if-of-scraper-is-not-detected)
-- [Removal / Uninstall Tool](#removal--uninstall-tool)
+- [OF-Scraper Tools](#of-scraper-tools)
 - [Notes](#notes)
 - [Disclaimer](#disclaimer)
 
@@ -63,25 +63,25 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 
 ```bash
 # Basic usage — auto-detect and patch (replace version number as needed)
-python patch_ofscraper_3.14.5_gui.py
+python patch_ofscraper_3.14.7_gui.py
 
 # Skip confirmation prompt
-python patch_ofscraper_3.14.5_gui.py -y
+python patch_ofscraper_3.14.7_gui.py -y
 
 # Dry run — see what would happen without making changes
-python patch_ofscraper_3.14.5_gui.py --dry-run
+python patch_ofscraper_3.14.7_gui.py --dry-run
 
 # Specify install path manually
-python patch_ofscraper_3.14.5_gui.py --target /path/to/site-packages/ofscraper
+python patch_ofscraper_3.14.7_gui.py --target /path/to/site-packages/ofscraper
 
 # Skip PyQt6 installation (if already installed)
-python patch_ofscraper_3.14.5_gui.py --skip-pyqt6
+python patch_ofscraper_3.14.7_gui.py --skip-pyqt6
 
 # Restore original files from backup
-python patch_ofscraper_3.14.5_gui.py --restore /path/to/backup
+python patch_ofscraper_3.14.7_gui.py --restore /path/to/backup
 ```
 
-The same flags apply to `patch_ofscraper_3.14.3_gui.py` and `patch_ofscraper_3.12.9_gui.py`.
+The same flags apply to `patch_ofscraper_3.14.5_gui.py`, `patch_ofscraper_3.14.3_gui.py`, and `patch_ofscraper_3.12.9_gui.py`.
 
 ## After patching
 
@@ -93,7 +93,7 @@ ofscraper --gui
 
 The patch script will also offer to launch the GUI for you immediately after a successful patch.
 
-> **Note:** If you run the patch script from inside a source directory (e.g. `OF-Scraper-3.14.5/`), use `python -m ofscraper --gui` from a different directory (e.g. your home directory) to ensure the installed version is used rather than the local source files.
+> **Note:** If you run the patch script from inside a source directory (e.g. `OF-Scraper-3.14.7/`), use `python -m ofscraper --gui` from a different directory (e.g. your home directory) to ensure the installed version is used rather than the local source files.
 
 ---
 
@@ -112,14 +112,14 @@ A visual walkthrough of each page in the GUI.
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
 - **Download** — download media files from your subscribed creators
-  - **User Lists** *(3.14.5 only)* — filter which models are loaded by entering one or more OnlyFans list names (comma-separated). Leave blank to load all subscribed models. Equivalent to `--ul` on the command line.
+  - **User Lists** *(3.14.5 and 3.14.7)* — filter which models are loaded by entering one or more OnlyFans list names (comma-separated). Leave blank to load all subscribed models. Equivalent to `--ul` on the command line.
 
 <!-- Screenshot placeholder: Select Action page showing the User Lists field under "Download content from a user" -->
 
 - **Like/Unlike** — automate liking or unliking posts
 - **Metadata** — update your local database without downloading files
-- **Check modes** *(3.14.3 and 3.14.5)* (Post Check, Message Check, Paid Check, Story Check) — browse all content for a creator in a table view and selectively download individual items
-- **Scrape individual posts by URL or Post ID** *(3.14.5 only)* — download specific posts by pasting OnlyFans post URLs or post IDs directly, bypassing model and area selection entirely
+- **Check modes** *(3.14.3, 3.14.5, and 3.14.7)* (Post Check, Message Check, Paid Check, Story Check) — browse all content for a creator in a table view and selectively download individual items
+- **Scrape individual posts by URL or Post ID** *(3.14.5 and 3.14.7)* — download specific posts by pasting OnlyFans post URLs or post IDs directly, bypassing model and area selection entirely
 
 After selecting an action, click **Next** to move on.
 
@@ -133,11 +133,15 @@ Choose which types of posts to scrape and apply filters before the scrape begins
 
 - **Content areas** — Timeline, Messages, Archived, Paid, Stories, Highlights, Pinned, Streams
 - **Filters** — narrow by date range, limit post count, skip already-downloaded content, and more
-- **Include Post Text** *(3.14.3 and 3.14.5)* — when enabled, the text body of each post is included alongside the downloaded media
+- **Include Post Text** *(3.14.3, 3.14.5, and 3.14.7)* — when enabled, the text body of each post is included alongside the downloaded media
 - **Daemon Mode** — set a repeat interval (1–1440 minutes) so the scraper runs automatically on a schedule; optional system notification, sound alert, and **@here Discord ping when new content is found**
 - **Username filter** — pre-filter the model list to only show specific creators
 
 Once you're happy with your selections, click **Next** to load and choose your models.
+
+Settings on this page are **not saved automatically**. Use the buttons in the lower-right of the navigation bar to manage persistence:
+- **Save Settings** — saves the current selections to `gui_settings.json` so they are restored on the next launch
+- **Reset Settings** — clears all saved area settings and restores every option to its default state
 
 ---
 
@@ -153,7 +157,7 @@ A searchable, filterable table of all creators you are subscribed to. From here 
 - **Select** individual creators or use Select All / Select None
 - **Show Avatars** — toggle to display each creator's profile picture alongside their name in the table. Clicking an avatar opens that creator's OnlyFans page in your browser
 - The footer shows how many rows are displayed vs the total (e.g. `42 / 1200 rows (filtered)`)
-- **Reload Models** *(3.14.5 only)* — a **Reload Models** button appears in the navigation bar after models load, letting you re-fetch the model list without going back to the Select Action page
+- **Reload Models** *(3.14.5 and 3.14.7)* — a **Reload Models** button appears in the navigation bar after models load, letting you re-fetch the model list without going back to the Select Action page
 
 Click **Start Scrape** when you have selected the creators you want to download from.
 
@@ -173,7 +177,7 @@ Shows live output from the scraper while it runs:
 
 ---
 
-### Check Mode *(3.14.3 and 3.14.5)*
+### Check Mode *(3.14.3, 3.14.5, and 3.14.7)*
 
 <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Check%20Mode.jpg" width="600" alt="Check Mode table">
 
@@ -314,7 +318,7 @@ Built-in documentation available at any time without leaving the app:
   - **Help / README** — navigate to the Auth Issues section of the built-in help
 - A **Retry** button also appears inline in the navigation bar
 
-### User Lists *(3.14.5 only)*
+### User Lists *(3.14.5 and 3.14.7)*
 - On the **Select Action** page, a **User Lists** field appears under "Download content from a user"
 - Enter one or more OnlyFans list names (comma-separated) to load only models who are members of those lists
 - Leave blank to load all subscribed models (default behavior)
@@ -343,7 +347,7 @@ Built-in documentation available at any time without leaving the app:
 - **Open Downloads Folder** button in the toolbar — opens the configured `save_location` from your config directly in your file manager
 - **New Scrape** button: if scraping is active, confirms cancellation first; optionally resets all options and model selections back to defaults before returning to the start
 
-### Check mode *(3.14.3 and 3.14.5)*
+### Check mode *(3.14.3, 3.14.5, and 3.14.7)*
 - Select **Post Check**, **Message Check**, **Paid Check**, or **Story Check** from the action selector to enter check mode
 - A full media table is shown for the selected creator(s) — including content that is behind a paywall
 - **Locked** items (paywalled, no download URL) are clearly marked in the Download Cart column with a grey cell that cannot be clicked
@@ -357,12 +361,12 @@ Built-in documentation available at any time without leaving the app:
 
 ### CLI auto-start
 - If launched with `ofscraper --gui` together with action, area, and username flags, the GUI wizard is skipped and scraping begins automatically — matching the TUI behavior for scripted/automated workflows
-- `--ul` user list auto-start *(3.14.5 only)*: `ofscraper --gui --ul testing -a download -o all`
+- `--ul` user list auto-start *(3.14.5 and 3.14.7)*: `ofscraper --gui --ul testing -a download -o all`
 - This is also how the Docker container starts a scrape automatically via the `GUI_ARGS` environment variable (see [Docker](#docker))
 
 ---
 
-### Scrape individual posts by URL or Post ID *(3.14.5)*
+### Scrape individual posts by URL or Post ID *(3.14.5 and 3.14.7)*
 
 <table>
 <tr>
@@ -401,7 +405,7 @@ The GUI includes a Discord webhook toggle that controls whether scraping activit
 - When enabled and a webhook URL is set in Configuration → General, notifications are sent during the scrape
 - When the `--discord` flag is also passed on the command line, the CLI value takes precedence
 
-**Notification level selector** *(3.14.5 only)*
+**Notification level selector** *(3.14.5 and 3.14.7)*
 - Choose **LOW** (warnings, errors, and run summary only) or **NORMAL** (all events). Defaults to **LOW**
 - On first enable, a one-time prompt asks if you want to save `LOW` as the permanent default in `gui_settings.json`
 - In 3.14.3 and 3.12.9, Discord always fires at the `NORMAL` level with no selector
@@ -454,7 +458,7 @@ Each plugin is a subfolder containing at minimum a `main.py` with a `Plugin` cla
 
 Plugins that declare a `requirements.txt` will trigger a one-click dependency install dialog if their packages are missing.
 
-For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOPMENT.md`](OF-Scraper-3.14.5/ofscraper/plugins/PLUGIN_DEVELOPMENT.md).
+For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOPMENT.md`](OF-Scraper-3.14.7/ofscraper/plugins/PLUGIN_DEVELOPMENT.md).
 
 > **⚠️ Note:** The plugin system itself is stable, but the included plugins are experimental and a work in progress — they may not function perfectly in all environments.
 
@@ -465,7 +469,6 @@ For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOP
 Two ready-to-use plugins are included. Both are **disabled by default** — enable them by setting `plugin_enabled = 1` in their `main.py`.
 
 #### JoyCaption Tagger (`joycaption_tagger`) *(all versions)*
-https://github.com/cjb900/OF-Scraper-GUI/blob/main/Available%20Plugins/joycaption_tagger.zip
 
 Sends downloaded images to a [JoyCaption Alpha Two](https://huggingface.co/fancyfeast/llama-joycaption-alpha-two-hf-llava) node running inside ComfyUI (local or Docker) and stores the captions in a local database. JoyCaption Alpha Two natively supports adult/explicit content captioning, making it well-suited for OF-Scraper content. Caption style and length are configurable per the plugin settings panel. A built-in image gallery lets you browse and search tagged images by caption content, browse by model (click a model to see all their tagged images), and open any image in your system's external image viewer. The gallery has no cap on the number of images displayed, and all tagging activity is logged so you can see exactly what the plugin is doing during folder scans.
 
@@ -569,7 +572,6 @@ This builds a browsable folder structure organized by image content automaticall
 ---
 
 #### LLM Assistant (`llm_assistant`) *(all versions)*
-https://github.com/cjb900/OF-Scraper-GUI/blob/main/Available%20Plugins/llm_assistant.zip
 
 Adds a **🤖 AI Assistant** chat panel to the sidebar. Type plain English commands — the assistant translates them into GUI actions such as setting usernames, selecting content areas, and starting downloads.
 
@@ -625,7 +627,6 @@ The plugin handles its own setup on first enable:
 ---
 
 #### Trial Link Scanner (`trial_link_scanner`) *(all versions)*
-https://github.com/cjb900/OF-Scraper-GUI/blob/main/Available%20Plugins/trial_link_scanner.zip
 
 Automatically scans every direct message collected during a scrape for OnlyFans trial/free-trial links (`https://onlyfans.com/<creator>/trial/<token>`), logs all matches to a daily log file, and optionally posts them to your Discord webhook — including any images attached to the message.
 
@@ -717,7 +718,7 @@ The `GUI_PATCH_VERSION` build argument and `GUI_ARGS` environment variable in `d
 # docker-compose.yml (key sections)
 build:
   args:
-    GUI_PATCH_VERSION: "3.14.5"   # which patch to apply at build time
+    GUI_PATCH_VERSION: "3.14.7"   # which patch to apply at build time
 environment:
   - GUI_ARGS=                     # leave blank to just open the GUI
 ```
@@ -750,7 +751,7 @@ Change `GUI_PATCH_VERSION` in `docker-compose.yml` (or pass it as a build arg) t
 docker compose build --build-arg GUI_PATCH_VERSION=3.14.3 ofscraper-gui
 ```
 
-Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`.
+Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.7`.
 
 ---
 
@@ -761,26 +762,28 @@ Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`.
 | `patch_ofscraper_3.12.9_gui.py` | 3.12.9 |
 | `patch_ofscraper_3.14.3_gui.py` | 3.14.3 |
 | `patch_ofscraper_3.14.5_gui.py` | 3.14.5 |
+| `patch_ofscraper_3.14.7_gui.py` | 3.14.7 |
 
 ### Feature availability by version
 
-| Feature | 3.12.9 | 3.14.3 | 3.14.5 |
-|---|:---:|:---:|:---:|
-| Core scraper workflow (download, like/unlike) | ✅ | ✅ | ✅ |
-| Authentication, Configuration, Profiles, Merge DBs | ✅ | ✅ | ✅ |
-| Daemon mode | ✅ | ✅ | ✅ |
-| Discord webhook toggle | ✅ | ✅ | ✅ |
-| DRM Key Creation | ✅ | ✅ | ✅ |
-| Table page (filters, sort, cart, avatars) | ✅ | ✅ | ✅ |
-| CLI auto-start (`--username`, `-a`, `-o`) | ✅ | ✅ | ✅ |
-| Check modes (Post / Message / Paid / Story Check) | ❌ | ✅ | ✅ |
-| Include Post Text | ❌ | ✅ | ✅ |
-| User Lists (`--ul`) + Reload Models | ❌ | ❌ | ✅ |
-| Discord notification level selector (LOW / NORMAL) | ❌ | ❌ | ✅ |
-| Per-run Discord scrape summary | ❌ | ❌ | ✅ |
-| Scrape by URL / Post ID | ❌ | ❌ | ✅ |
-| CLI auto-start with `--ul` | ❌ | ❌ | ✅ |
-| Plugin system (JoyCaption, LLM Assistant, Trial Link Scanner) | ✅ | ✅ | ✅ |
+| Feature | 3.12.9 | 3.14.3 | 3.14.5 | 3.14.7 |
+|---|:---:|:---:|:---:|:---:|
+| Core scraper workflow (download, like/unlike) | ✅ | ✅ | ✅ | ✅ |
+| Authentication, Configuration, Profiles, Merge DBs | ✅ | ✅ | ✅ | ✅ |
+| Daemon mode | ✅ | ✅ | ✅ | ✅ |
+| Discord webhook toggle | ✅ | ✅ | ✅ | ✅ |
+| DRM Key Creation | ✅ | ✅ | ✅ | ✅ |
+| Table page (filters, sort, cart, avatars) | ✅ | ✅ | ✅ | ✅ |
+| CLI auto-start (`--username`, `-a`, `-o`) | ✅ | ✅ | ✅ | ✅ |
+| Check modes (Post / Message / Paid / Story Check) | ❌ | ✅ | ✅ | ✅ |
+| Include Post Text | ❌ | ✅ | ✅ | ✅ |
+| User Lists (`--ul`) + Reload Models | ❌ | ❌ | ✅ | ✅ |
+| Discord notification level selector (LOW / NORMAL) | ❌ | ❌ | ✅ | ✅ |
+| Per-run Discord scrape summary | ❌ | ❌ | ✅ | ✅ |
+| Scrape by URL / Post ID | ❌ | ❌ | ✅ | ✅ |
+| CLI auto-start with `--ul` | ❌ | ❌ | ✅ | ✅ |
+| Video quality selector (`-q` / `--quality`) | ❌ | ❌ | ❌ | ✅ |
+| Plugin system (JoyCaption, LLM Assistant, Trial Link Scanner) | ✅ | ✅ | ✅ | ✅ |
 
 ## Supported platforms and install methods
 
@@ -840,22 +843,32 @@ Enter choice (1-5):
 - **Option 4** lets you provide the path to your ofscraper package directory manually (e.g. `/path/to/site-packages/ofscraper`). The script validates the path contains `__main__.py` before proceeding
 - You can also use `--target /path/to/ofscraper` to skip detection entirely
 
-## Removal / Uninstall Tool
+## OF-Scraper Tools
 
-A standalone removal tool (`uninstall_ofscraper.py`) is included for cleanly removing ofscraper. It detects your install method automatically (uv / pipx / pip) and presents four options:
+A standalone maintenance and removal tool (`ofscraper_tools.py`) is included. It detects your install method automatically (uv / pipx / pip) and presents two groups of options.
+
+**Run it with:**
+
+```bash
+python ofscraper_tools.py
+```
+
+### Uninstall options
 
 1. **Just uninstall ofscraper** — removes the package only; config and downloaded content are kept
 2. **Just remove the GUI patch** — uninstalls the patched version and reinstalls stock ofscraper from PyPI; your config is kept
 3. **Remove ofscraper + all config files** — uninstalls ofscraper and deletes `~/.config/ofscraper/` (includes settings, auth, logs, and databases — everything ofscraper stores outside your download folder)
 4. **Purge everything** — uninstalls ofscraper, deletes config, and deletes your downloaded content. The download path is read from `file_options.save_location` in `config.json` **before** the config is deleted, so the correct path is always used regardless of where you saved content
 
-**Run it with:**
+### Data management options *(ofscraper stays installed)*
 
-```bash
-python uninstall_ofscraper.py
-```
+5. **Delete model DB(s) only** — lists every individual model database found across all profiles, showing the creator's username (read directly from the DB) and their numeric ID. You can delete one, several (comma-separated), or all. Only the selected model's `.data/<id>/` folder is removed, leaving all other models and your downloaded files untouched. Resetting a model's DB causes ofscraper to treat all of that creator's content as new on the next run
+6. **Delete downloaded content only** — lists every model folder found inside your download root (`file_options.save_location` in `config.json`), along with each folder's total size on disk. You can delete one, several (comma-separated), or all. Only the selected folders are removed; config and model DBs are not affected. Requires two confirmations. Prompts for the download path if it cannot be read from `config.json`
+7. **Delete SQL cache only** — deletes the `cache_sql/` folder(s) under each profile (`~/.config/ofscraper/<profile>/cache_sql/`). The cache holds API responses that speed up repeated runs; clearing it forces ofscraper to re-fetch everything from the API on the next run. Config, model DBs, and downloaded files are not affected
 
-All destructive options require explicit confirmation before proceeding. The purge option requires two confirmations.
+All destructive options require explicit confirmation before proceeding. Options 4, 5, and 6 require two confirmations.
+
+> **Note:** `uninstall_ofscraper.py` (the previous name for this script) is superseded by `ofscraper_tools.py`.
 
 ---
 
