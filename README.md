@@ -381,7 +381,8 @@ An embedded browser on the Authentication page lets you log in to OnlyFans direc
 - **New Scrape** button: if scraping is active, confirms cancellation first; optionally resets all options and model selections back to defaults before returning to the start
 - **Duplicate column** *(3.14.7)* — shown between **Downloaded** and **Unlocked**. When the same `media_id` appears more than once in the API response (e.g. a post indexed in both Timeline and Archived), every occurrence after the first shows **Duplicate** highlighted in orange with a tooltip explaining the row will be skipped by the download pipeline. When **Allow duplicates** is disabled (the default), duplicate rows also show `Downloaded: False` to make clear those specific rows were not downloaded
 
-<!-- Screenshot placeholder: Content table showing the Duplicate column with orange "Duplicate" indicators -->
+<img src="https://github.com/user-attachments/assets/8ce2a867-08fa-4e0c-bde5-0480fa33ae99" width="600" alt="Duplicate Colmn">
+
 
 ### Check mode *(3.14.3, 3.14.5, and 3.14.7)*
 - Select **Post Check**, **Message Check**, **Paid Check**, or **Story Check** from the action selector to enter check mode
