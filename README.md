@@ -128,7 +128,7 @@ After selecting an action, click **Next** to move on.
 
 ### Select Content Areas & Filters
 
-<img src="https://github.com/user-attachments/assets/fba80d4a-4e5b-40f1-86bc-73453a63c3bc" width="600" alt="Select Content Areas & Filters">
+<img src="https://github.com/user-attachments/assets/aa94352d-9062-4d86-a911-827c755f801e" width="600" alt="Select Content Areas & Filters">
 
 Choose which types of posts to scrape and apply filters before the scrape begins:
 
