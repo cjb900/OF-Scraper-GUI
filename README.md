@@ -2,7 +2,7 @@
 
 A self-contained Python script that patches an installed (non-binary) copy of [OF-Scraper](https://github.com/datawhores/OF-Scraper) to add a full **PyQt6 GUI** accessible via the `--gui` flag.
 
-**Supported versions:** `3.12.9`, `3.14.3`, `3.14.5`, and `3.14.7 (work in progress)`
+**Supported versions:** `3.12.9`, `3.14.3`, `3.14.5`, and `3.14.7`
 
 > **Python version requirement**
 > Python **3.11.x** or **3.12.x** is required. Python 3.13+ and versions below 3.11 are **not supported** and may cause issues with OF-Scraper or this patch.
@@ -34,12 +34,13 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Scraper workflow](#scraper-workflow)
   - [Daemon mode](#daemon-mode-auto-repeat-scraping)
   - [Table page](#table-page)
-  - [Check mode](#check-mode-3143-and-3145)
+  - [Check mode](#check-mode-3143-3145-and-3147)
   - [Progress bar](#progress-bar)
   - [CLI auto-start](#cli-auto-start)
   - [Scrape individual posts by URL or Post ID](#scrape-individual-posts-by-url-or-post-id-3145-and-3147)
   - [Discord webhook integration](#discord-webhook-integration)
   - [User Lists](#user-lists-3145-and-3147)
+  - [Login in Browser](#login-in-browser-3147)
 - [Plugin system](#plugin-system-all-versions)
   - [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger-all-versions)
   - [LLM Assistant](#llm-assistant-llm_assistant-all-versions)
@@ -147,8 +148,8 @@ Choose which types of posts to scrape and apply filters before the scrape begins
 Once you're happy with your selections, click **Next** to load and choose your models.
 
 Settings on this page are **not saved automatically**. Use the buttons in the lower-right of the navigation bar to manage persistence:
-- **Save Settings** — saves the current selections to `gui_settings.json` so they are restored on the next launch
-- **Reset Settings** — clears all saved area settings and restores every option to its default state
+- **Save Settings** — saves the current selections to `gui_settings.json` so they are restored on the next launch *(3.14.7: shows a confirmation dialog before saving)*
+- **Reset Settings** — clears all saved area settings and restores every option to its default state *(3.14.7: shows a confirmation dialog before resetting — defaults to No to prevent accidental clears)*
 
 ---
 
@@ -172,7 +173,7 @@ Click **Start Scrape** when you have selected the creators you want to download 
 
 ### Scraper Running
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Scraper%20Running.jpg" width="600" alt="Scraper Running">
+<img src="https://github.com/user-attachments/assets/a82fb3e6-0ef3-4a45-a94e-6321530ce3ec" width="600" alt="Scraper Running">
 
 Shows live output from the scraper while it runs:
 
@@ -181,12 +182,13 @@ Shows live output from the scraper while it runs:
 - **Cart counter** (toolbar) — shows how many items are queued for download
 - **Open Downloads Folder** button — opens your configured download folder directly in File Explorer
 - **Stop / New Scrape** buttons — stop the current run or start fresh
+- **Scrape summary** *(3.14.7)* — at the end of each run a TUI-style summary is shown in the log panel: a per-model action line followed by a **GLOBAL RUN TOTALS** block showing total items, data transferred, videos, audios, images, skipped, and failed counts across all models
 
 ---
 
 ### Check Mode *(3.14.3, 3.14.5, and 3.14.7)*
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Check%20Mode.jpg" width="600" alt="Check Mode table">
+<img src="https://github.com/user-attachments/assets/1c83ce37-e1b3-4e9f-bdc1-8dfedbbffc5d" width="600" alt="Check Mode table">
 
 Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**) let you browse every piece of media for a creator before committing to a download. Instead of queuing everything at once, you see a full table first and pick exactly what to save.
 
@@ -206,14 +208,18 @@ Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**)
 
 ### Authentication
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Authentication.jpg" width="600" alt="Authentication">
+<img src="https://github.com/user-attachments/assets/376b60af-aff1-405b-b487-13a1495dbce0" width="600" alt="Authentication">
 
 Manage the credentials OF-Scraper uses to connect to OnlyFans:
 
 - **Import cookies** directly from your browser (Chrome, Firefox, Edge, Brave, and more) — no manual copying needed
 - **Auto-detect User Agent** — automatically fills in the correct user agent string for your browser
 - **Edit credentials manually** if you prefer to paste them in yourself
+- **Login in Browser** *(3.14.7)* — an embedded Chromium window lets you log in to OnlyFans directly from inside the app; credentials are captured automatically with no copy-pasting required. See [Login in Browser](#login-in-browser-3147) for full details
 - All credentials are saved to your `auth.json` file
+
+<img src="https://github.com/user-attachments/assets/1a9f099e-2425-482b-a9c2-abf2b4c480a9" width="600" alt="Login in Browser">
+
 
 If scraping fails with an auth error, the GUI will offer a direct link to jump to this page.
 
@@ -241,14 +247,14 @@ Each tab has a **?** button that jumps to the matching section in the built-in H
 
 ### DRM Key Creation
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20DRM.jpg" width="600" alt="DRM Key Creation">
+<img src="https://github.com/user-attachments/assets/f79e77f1-5269-4687-8014-60b716a3e86c" width="600" alt="DRM Key Creation">
 
 A built-in tool for generating the DRM decryption keys required to download protected (DRM-locked) content. You need these keys if you want to download videos that are encrypted with Widevine DRM.
 
 > **Note:** DRM key generation is **not supported in Docker**. Use the GUI on a normal host system (Windows/Linux desktop) instead of a container when generating `client_id.bin` and `private_key.pem`.
 
 - **Fully automated** — downloads the Android SDK, sets up an emulator, and extracts the keys without any manual steps
-- **Streams output** directly into the app so you can follow progress in real time
+- **Streams output** directly into the app so you can follow progress in real time — the Generate Keys button and live console log are immediately visible on page load *(3.14.7: the Requirements & Information panel has been moved below the console so you no longer need to scroll past it)*
 - **Auto-configures** — once keys are generated, the CDM key paths in your config are updated automatically. No need to edit `config.json` manually
 - Accessible from the sidebar or via the quick link in the startup notice if CDM keys are not yet configured
 
@@ -258,7 +264,7 @@ A built-in tool for generating the DRM decryption keys required to download prot
 
 ### Profile Manager
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Profile.jpg" width="600" alt="Profile Manager">
+<img src="https://github.com/user-attachments/assets/8e7b0f2e-db10-479c-bec4-b2e6027b9727" width="600" alt="Profile Manager">
 
 Profiles let you maintain completely separate configurations and credentials — useful if you manage multiple accounts or want different download settings for different use cases.
 
@@ -283,7 +289,7 @@ Merge data from one OF-Scraper database into another. This is useful if you have
 
 ### Help / README
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Help.jpg" width="600" alt="Help / README">
+<img src="https://github.com/user-attachments/assets/f17dac11-34ae-49d0-a9d7-f8d60cad227b" width="600" alt="Help / README">
 
 Built-in documentation available at any time without leaving the app:
 
@@ -315,7 +321,11 @@ Built-in documentation available at any time without leaving the app:
 
 ### Startup dependency check
 - On launch, the GUI checks whether **FFmpeg** and **CDM key paths** are configured
-- If either is missing, a notice pops up with quick links to jump directly to the relevant config fields or to the DRM Key Creation page
+- If either is missing, a **non-blocking** notice pops up — the main window remains fully interactive while the dialog is open
+- **Open Config → Download (FFmpeg)** and **Open Config → CDM (Manual keys)** navigate the main window to the relevant config tab while keeping the dialog visible, so the path instructions stay on screen as you fill in the fields
+- **Generate DRM Keys** closes the dialog and navigates to the DRM Key Creation page
+
+<img src="https://github.com/user-attachments/assets/e44fddc8-6a46-4112-b9e5-f4527af17cee" width="600" alt="Missing Configuration Paths">
 
 ### Auth failure handling
 - When the model list cannot be loaded (auth error), a dialog appears offering:
@@ -324,6 +334,22 @@ Built-in documentation available at any time without leaving the app:
   - **Dynamic Mode (Config)** — jump directly to Configuration → Advanced → Dynamic Mode field
   - **Help / README** — navigate to the Auth Issues section of the built-in help
 - A **Retry** button also appears inline in the navigation bar
+
+### Login in Browser *(3.14.7)*
+
+<img src="https://github.com/user-attachments/assets/1a9f099e-2425-482b-a9c2-abf2b4c480a9" width="600" alt="Login in Browser">
+
+An embedded browser on the Authentication page lets you log in to OnlyFans directly from inside the app — no browser extensions or cookie copy-pasting required:
+
+- Click **Login in Browser** on the Authentication page to open an embedded Chromium window
+- Log in to OnlyFans normally — the GUI watches for session cookies in the background
+- All credential fields start blank (`—`); values are revealed only after `auth_id` is confirmed (which OnlyFans sets exclusively on a successful login), so pre-login session cookies are never mistaken for valid credentials
+- Once `auth_id` is confirmed, all captured values appear at once and the status bar shows **"✓ Logged in"**; if a previous session is still valid the dialog opens already logged in
+- **"Use These Credentials"** is only enabled after a valid `auth_id` is confirmed
+- `x-bc` is captured automatically; if it is missing it can be retrieved manually via the browser's DevTools Network tab
+- Requires `PyQt6-WebEngine` — install with `pip install PyQt6-WebEngine` or `pipx inject ofscraper PyQt6-WebEngine`
+
+> **KDE Plasma note:** On KDE Plasma / KDE neon the browser view may briefly appear blank while the page loads. This is cosmetic — the page loads correctly regardless. A background-colour fix in 3.14.7 minimises the effect.
 
 ### User Lists *(3.14.5 and 3.14.7)*
 - On the **Select Action** page, a **User Lists** field appears under "Download content from a user"
@@ -353,6 +379,9 @@ Built-in documentation available at any time without leaving the app:
 - The toolbar shows a live **Cart: N items** counter as you select rows for download
 - **Open Downloads Folder** button in the toolbar — opens the configured `save_location` from your config directly in your file manager
 - **New Scrape** button: if scraping is active, confirms cancellation first; optionally resets all options and model selections back to defaults before returning to the start
+- **Duplicate column** *(3.14.7)* — shown between **Downloaded** and **Unlocked**. When the same `media_id` appears more than once in the API response (e.g. a post indexed in both Timeline and Archived), every occurrence after the first shows **Duplicate** highlighted in orange with a tooltip explaining the row will be skipped by the download pipeline. When **Allow duplicates** is disabled (the default), duplicate rows also show `Downloaded: False` to make clear those specific rows were not downloaded
+
+<!-- Screenshot placeholder: Content table showing the Duplicate column with orange "Duplicate" indicators -->
 
 ### Check mode *(3.14.3, 3.14.5, and 3.14.7)*
 - Select **Post Check**, **Message Check**, **Paid Check**, or **Story Check** from the action selector to enter check mode
@@ -442,6 +471,8 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 - The checkbox is only active when daemon mode is enabled
 - The preference is saved to `gui_settings.json` and persists across sessions
 
+<img src="https://github.com/user-attachments/assets/85312a79-061b-4ee6-8520-1439ebd39cc6" width="600" alt="Discord @here">
+
 ---
 
 ## Plugin system *(all versions)*
@@ -450,7 +481,7 @@ OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your 
 
 **Plugin directory:**
 - **Windows:** `C:\Users\<YourUser>\.config\ofscraper\plugins\`
-- **Linux/macOS:** `/home/<YourUser>/.config/ofscraper/plugins/`
+- **Linux:** `/home/<YourUser>/.config/ofscraper/plugins/`
 
 Each plugin is a subfolder containing at minimum a `main.py` with a `Plugin` class that inherits from `BasePlugin`. Plugins can hook into the following events:
 
@@ -790,6 +821,11 @@ Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.
 | Scrape by URL / Post ID | ❌ | ❌ | ✅ | ✅ |
 | CLI auto-start with `--ul` | ❌ | ❌ | ✅ | ✅ |
 | Video quality selector (`-q` / `--quality`) | ❌ | ❌ | ❌ | ✅ |
+| Login in Browser (embedded auth) | ❌ | ❌ | ❌ | ✅ |
+| Duplicate column in content table | ❌ | ❌ | ❌ | ✅ |
+| Save/Reset Settings confirmation dialogs | ❌ | ❌ | ❌ | ✅ |
+| TUI-style scrape summary with global totals | ❌ | ❌ | ❌ | ✅ |
+| Non-blocking startup dependency popup | ✅ | ✅ | ✅ | ✅ |
 | Plugin system (JoyCaption, LLM Assistant, Trial Link Scanner) | ✅ | ✅ | ✅ | ✅ |
 
 ## Supported platforms and install methods
