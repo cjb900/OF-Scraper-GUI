@@ -109,10 +109,15 @@ def verify_media_integrity(file_path, expected_duration_seconds=None):
             )
             return False
 
-    log.debug(
-        f"Integrity Check Succeed: {pathlib.Path(file_path).name}\n"
-        f"Expected: {expected_duration_seconds}s | Actual: {actual_duration:.2f}s "
-        f"| Diff: {diff:.2f}s (Limit: 3.0s)"
-    )
+        log.debug(
+            f"Integrity Check Succeed: {pathlib.Path(file_path).name}\n"
+            f"Expected: {expected_duration_seconds}s | Actual: {actual_duration:.2f}s "
+            f"| Diff: {diff:.2f}s (Limit: 3.0s)"
+        )
+    else:
+        log.debug(
+            f"Integrity Check Succeed: {pathlib.Path(file_path).name}\n"
+            f"Expected: (none) | Actual: {actual_duration:.2f}s (no expected duration to compare)"
+        )
 
     return True

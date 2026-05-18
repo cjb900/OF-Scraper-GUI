@@ -662,7 +662,7 @@ class Media(base.base):
             "origname": origname,
             "pssh": kId,
             "type": "video",
-            "name": f"tempvid_{self.id}_{self.post_id}",
+            "name": f"tempvid_{self.id}_{self.post_id}" + (f"_{self._dup_seq}" if hasattr(self, '_dup_seq') else ""),
             "ext": "mp4",
         }
 
@@ -686,7 +686,7 @@ class Media(base.base):
             "origname": origname,
             "pssh": kId,
             "type": "audio",
-            "name": f"tempaudio_{self.id}_{self.post_id}",
+            "name": f"tempaudio_{self.id}_{self.post_id}" + (f"_{self._dup_seq}" if hasattr(self, '_dup_seq') else ""),
             "ext": "mp4",
         }
 

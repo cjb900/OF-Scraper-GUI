@@ -10,11 +10,19 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 
 - [Left navigation](#nav-left)
 - [Scraper workflow](#scraper-workflow)
+  - [Select Action](#action-select)
 - [Select Content Areas & Filters](#sca-root)
   - [Content Areas](#sca-content-areas)
   - [Media Types to Download](#sca-media-types)
   - [Additional Options](#sca-additional-options)
+    - [Scrape entire paid page](#sca-scrape-paid)
+    - [Scrape labels](#sca-scrape-labels)
+    - [Send updates to Discord](#sca-discord-updates)
   - [Advanced Scrape Options](#sca-advanced-options)
+    - [Allow duplicates](#sca-allow-dupes)
+    - [Rescrape everything](#sca-rescrape-all)
+    - [Delete model DB](#sca-delete-db)
+    - [Delete downloaded files](#sca-delete-downloads)
   - [Daemon Mode](#sca-daemon-mode)
     - [Enable daemon mode](#sca-daemon-enable)
     - [Interval](#sca-daemon-interval)
@@ -24,12 +32,35 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
   - [Filters (embedded)](#sca-filters)
 - [Select Models](#models-root)
   - [Model Filters (right sidebar)](#models-filters-root)
+    - [Subscription Type](#models-filters-subscription)
+    - [Flags](#models-filters-flags)
+    - [Price Range](#models-filters-price)
+    - [Sort](#models-filters-sort)
 - [Configuration (config.json)](#config-root)
+  - [General](#config-general)
+  - [File Options](#config-file-options)
+  - [Download](#config-download)
+  - [Performance](#config-performance)
+  - [Content](#config-content)
+  - [CDM](#config-cdm)
+  - [Advanced](#config-advanced)
+  - [Response Type Overrides](#config-response-type)
 - [Table / Scraping page](#table-root)
   - [Toolbar buttons](#table-toolbar)
   - [Progress + logs](#table-progress)
 - [Filters (Table page + embedded)](#filters-root)
+  - [Text Search](#filters-text-search)
+  - [Media Type](#filters-media-type)
+  - [Response Type](#filters-response-type)
+  - [Status (Downloaded / Unlocked)](#filters-status)
+  - [Post Date Range](#filters-date-range)
+  - [Duration (Length)](#filters-duration)
+  - [Price Range](#filters-price)
+  - [ID Filters](#filters-id)
+  - [Username](#filters-username)
 - [Table columns](#table-columns)
+- [Scraping by Post URL / ID](#manual-url-scrape)
+- [DRM Key Creation](#drm-key-creation)
 - [Merge DBs](#merge-dbs)
 - [Troubleshooting notes](#troubleshooting)
 - [Auth Issues](#auth-issues)
@@ -43,6 +74,7 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 - **Authentication**: Enter cookies/headers (stored in your profile `auth.json`).
 - **Configuration**: Edit `config.json` settings (save location, formats, performance, CDM, etc.).
 - **Profiles**: Manage profiles (each profile has separate auth + `.data`).
+- **DRM Key Creation**: Automated Widevine L3 key extraction using an Android emulator. Required for scraping DRM-protected content with **Key Mode: manual**.
 - **Merge DBs**: Merge `user_data.db` files into a single database.
 - **Help / README**: This page.
 
@@ -383,7 +415,7 @@ These settings impact DRM-protected content.
   - The KeyDB API key field remains in the config for compatibility, but **KeyDB mode should be avoided** for now.
 - **Client ID File (`cdm_options.client-id`)** and **Private Key File (`cdm_options.private-key`)**:
   - Required for **manual** CDM keys (DRM scraping)
-  - Guide: `https://github.com/FoxRefire/wvg/wiki/How-to-dump-CDM-key-pair-from-AVD`
+  - Use the built-in **[DRM Key Creation](#drm-key-creation)** page to generate keys automatically, or see the manual guide: `https://github.com/FoxRefire/wvg/wiki/How-to-dump-CDM-key-pair-from-AVD`
 
 <a id="config-advanced"></a>
 ### Advanced
@@ -612,6 +644,55 @@ ID of the specific media item.
 <a id="table-col-text"></a>
 ### Text
 Text/description associated with the post/message (may be truncated).
+
+---
+
+<a id="drm-key-creation"></a>
+## DRM Key Creation
+
+This page automates Widevine L3 key extraction using an Android emulator running on your local machine. The resulting keys (`client_id.bin` and `private_key.pem`) are needed when **Key Mode** is set to `manual` in [Configuration → CDM](#config-cdm).
+
+### System requirements
+
+- **CPU**: x86-64 processor (hardware virtualisation strongly recommended: VT-x on Intel, AMD-V on AMD)
+- **RAM**: 8 GB minimum, 16 GB recommended
+- **Disk**: 8 GB free space (SDK + emulator image + APKs)
+- **Internet**: Required — downloads ~3 GB of tools on first run
+
+### First run
+
+The script automatically downloads the following on first run (~3 GB total):
+
+- Portable JDK 17 (Adoptium Temurin)
+- Android SDK cmdline-tools, emulator, and platform-tools
+- Android system image (android-29, google_apis, x86_64)
+- Frida server binary
+- Kaltura Device Info APK
+
+Subsequent runs reuse the cached files and complete much faster.
+
+### Hardware virtualisation
+
+| Acceleration | Typical time | Notes |
+|---|---|---|
+| KVM / VT-x (hardware) | 10–20 min | Requires CPU with `vmx` or `svm` flag exposed to the guest |
+| Software emulation (TCG) | 45–90 min | Automatic fallback when KVM is unavailable |
+
+The script automatically detects whether hardware virtualisation is available and falls back to software emulation if needed. No manual configuration is required.
+
+### Output
+
+| File | Contents |
+|---|---|
+| `client_id.bin` | Widevine client identification blob |
+| `private_key.pem` | Widevine device private key |
+
+Saved to `~/.config/ofscraper/device/` by default (or the **Output Folder** you specify). After a successful extraction you will be offered the option to update `config.json` and set Key Mode to `manual` automatically.
+
+### Options
+
+- **Extraction Script**: Path to `drm_keydive.py`. Uses the bundled copy by default; point this at a custom script only if you have a specific reason to do so.
+- **Output Folder**: Where the key files are saved. Leave blank to use the default location.
 
 ---
 

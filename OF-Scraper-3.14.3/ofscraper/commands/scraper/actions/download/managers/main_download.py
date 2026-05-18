@@ -1,5 +1,6 @@
 import asyncio
 import pathlib
+import threading
 import traceback
 from functools import partial
 
@@ -39,6 +40,26 @@ from ofscraper.classes.of.media import Media
 from ofscraper.db.operations_.media import mark_media_as_downloaded
 
 
+# Serializes the exists-check + file-move so concurrent downloads of the same
+# media don't both see an empty destination and overwrite each other.
+_move_lock = threading.Lock()
+
+
+def _atomic_move_with_dupe_check(temp, base_path, ele, allow_dupe):
+    with _move_lock:
+        path_to_file = pathlib.Path(base_path)
+        if allow_dupe and path_to_file.exists():
+            counter = 1
+            while True:
+                candidate = path_to_file.parent / f"{path_to_file.stem} ({counter}){path_to_file.suffix}"
+                if not candidate.exists():
+                    path_to_file = candidate
+                    break
+                counter += 1
+        common_paths.moveHelper(temp, path_to_file, ele)
+        return path_to_file
+
+
 class MainDownloadManager(DownloadManager):
 
     async def main_download(self, c, ele: Media, username, model_id):
@@ -72,8 +93,11 @@ class MainDownloadManager(DownloadManager):
 
     async def _main_download_downloader(self, c, ele):
         self._downloadspace()
+        # id(ele) is the Python object identity, which differs between the
+        # original and its copy.copy() duplicate even when they share the same
+        # media_id and post_id, preventing concurrent writes to the same .part file.
         tempholderObj = await placeholder.tempFilePlaceholder(
-            ele, f"{ele.filename}_{ele.id}_{ele.post_id}.part"
+            ele, f"{ele.filename}_{ele.id}_{ele.post_id}_{id(ele)}.part"
         ).init()
 
         # Reset attempt counter to prevent 11/10 display bug
@@ -298,14 +322,17 @@ class MainDownloadManager(DownloadManager):
                 pathlib.Path(temp).unlink(missing_ok=True)
                 raise Exception("Standard video failed duration integrity check")
 
-        common_globals.log.debug(
-            f"{common_logs.get_medialog(ele)} renaming {pathlib.Path(temp).absolute()} -> {path_to_file}"
-        )
-
-        # 3. Move the verified file to final path
-        await asyncio.get_event_loop().run_in_executor(
+        # 2b+3. Atomically check for a duplicate destination and move the file.
+        # Running both the exists-check and the rename inside one threading.Lock
+        # prevents two concurrent downloads from both seeing an empty path,
+        # claiming the same filename, and overwriting each other.
+        allow_dupe = bool(getattr(settings.get_settings(), "allow_dupe_downloads", False))
+        path_to_file = await asyncio.get_event_loop().run_in_executor(
             common_globals.thread,
-            partial(common_paths.moveHelper, temp, path_to_file, ele),
+            partial(_atomic_move_with_dupe_check, temp, path_to_file, ele, allow_dupe),
+        )
+        common_globals.log.debug(
+            f"{common_logs.get_medialog(ele)} moved to {path_to_file}"
         )
 
         (

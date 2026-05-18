@@ -27,14 +27,27 @@ COOKIES = "get_cookies_str"
 HEADERS = "create_header"
 
 
+def _get_retry_after(exception):
+    """Extract retry_after seconds from a Cloudflare 429 response body."""
+    try:
+        resp = getattr(exception, "response", None)
+        if resp is None:
+            return None
+        body = resp.json()
+        val = int(body.get("retry_after", 0))
+        return val if val > 0 else None
+    except Exception:
+        return None
+
+
 def is_rate_limited(exception, sleeper):
     if is_provided_exception_number(exception, 429, 504):
-        sleeper.toomany_req()
+        sleeper.toomany_req(retry_after=_get_retry_after(exception))
 
 
 async def async_is_rate_limited(exception, sleeper):
     if is_provided_exception_number(exception, 429, 504):
-        await sleeper.async_toomany_req()
+        await sleeper.async_toomany_req(retry_after=_get_retry_after(exception))
 
 
 def async_check_400(exception):
@@ -84,12 +97,20 @@ class SessionSleep:
         self._sleep = self._init_sleep
         self._last_date = arrow.now()
 
-    async def async_toomany_req(self):
+    async def async_toomany_req(self, retry_after=None):
         async with self._alock:
-            self.toomany_req()
+            self.toomany_req(retry_after=retry_after)
 
-    def toomany_req(self):
+    def toomany_req(self, retry_after=None):
         log = logging.getLogger("shared")
+        # Cloudflare told us exactly how long to wait — honour it if longer than current sleep
+        if retry_after and retry_after > (self._sleep or 0):
+            self._sleep = retry_after
+            log.debug(
+                f"too many req => Cloudflare retry_after={retry_after}s => sleep set to \\[{self._sleep} seconds]"
+            )
+            self._last_date = arrow.now()
+            return self._sleep
         if not self._sleep:
             self._sleep = (
                 self._init_sleep

@@ -870,7 +870,7 @@ class MainWindow(QMainWindow):
         try:
             from ofscraper.gui.dialogs.missing_deps_dialog import MissingDepsDialog
 
-            dlg = MissingDepsDialog(
+            self._missing_deps_dlg = MissingDepsDialog(
                 missing_ffmpeg=missing_ffmpeg,
                 missing_manual_cdm=missing_manual_cdm,
                 key_mode=key_mode,
@@ -879,6 +879,6 @@ class MainWindow(QMainWindow):
                 on_open_drm=open_drm,
                 parent=self,
             )
-            dlg.exec()
+            self._missing_deps_dlg.show()
         except Exception as e:
             log.debug(f"Missing deps dialog failed: {e}")

@@ -37,6 +37,19 @@ from ofscraper.classes.of.media import Media
 from ofscraper.db.operations_.media import mark_media_as_downloaded
 
 
+def _find_unique_path(path):
+    """Return path with (1), (2), ... suffix until a non-existing path is found."""
+    if not path.exists():
+        return path
+    stem, suffix, parent = path.stem, path.suffix, path.parent
+    counter = 1
+    while True:
+        candidate = parent / f"{stem}({counter}){suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 class MainDownloadManager(DownloadManager):
 
     async def main_download(self, c, ele: Media, username, model_id):
@@ -71,7 +84,7 @@ class MainDownloadManager(DownloadManager):
     async def _main_download_downloader(self, c, ele):
         self._downloadspace()
         tempholderObj = await placeholder.tempFilePlaceholder(
-            ele, f"{ele.filename}_{ele.id}_{ele.post_id}.part"
+            ele, f"{ele.filename}_{ele.id}_{ele.post_id}" + (f"_{ele._dup_seq}" if hasattr(ele, '_dup_seq') else "") + ".part"
         ).init()
 
         common_globals.attempt.set(0)
@@ -277,6 +290,11 @@ class MainDownloadManager(DownloadManager):
     async def _handle_result_main(self, result, ele, username, model_id):
         total, temp, placeholderObj = result
         path_to_file = placeholderObj.trunicated_filepath
+        if (
+            getattr(settings.get_settings(), "allow_dupe_downloads", False)
+            and path_to_file.exists()
+        ):
+            path_to_file = _find_unique_path(path_to_file)
 
         # 1. Check that the file size matches the API reported size
         await self._size_checker(temp, ele, total)

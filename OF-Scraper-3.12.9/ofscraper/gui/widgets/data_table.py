@@ -23,6 +23,7 @@ COLUMNS = [
     "Download_Cart",
     "UserName",
     "Downloaded",
+    "Duplicate",
     "Unlocked",
     "other_posts_with_media",
     "Length",
@@ -107,6 +108,8 @@ class MediaDataTable(QTableWidget):
                 self.setColumnWidth(i, 300)
             elif col in ("Download_Cart", "Number"):
                 self.setColumnWidth(i, 100)
+            elif col == "Duplicate":
+                self.setColumnWidth(i, 90)
             else:
                 self.setColumnWidth(i, 120)
 
@@ -114,6 +117,7 @@ class MediaDataTable(QTableWidget):
         self.cellClicked.connect(self._on_cell_clicked)
         self.customContextMenuRequested.connect(self._on_context_menu)
         app_signals.cell_update.connect(self._on_external_cell_update)
+        app_signals.downloaded_ids_propagate.connect(self._on_downloaded_ids_propagate)
         app_signals.posts_liked_updated.connect(self._on_posts_liked_updated)
         app_signals.theme_changed.connect(lambda _: self._rebuild_table())
 
@@ -225,7 +229,7 @@ class MediaDataTable(QTableWidget):
                     item.setForeground(QColor(_cart_color(display)))
                     item.setFont(QFont("Consolas", 11, QFont.Weight.Bold))
 
-                # Style downloaded/unlocked/price columns
+                # Style downloaded/duplicate/unlocked/price columns
                 if col_lower == "downloaded":
                     if display == "True":
                         item.setForeground(QColor(c("green")))
@@ -233,6 +237,12 @@ class MediaDataTable(QTableWidget):
                         item.setForeground(QColor(c("surface2")))
                     else:
                         item.setForeground(QColor(c("red")))
+                elif col_lower == "duplicate":
+                    if display == "Duplicate":
+                        item.setForeground(QColor(c("peach")))
+                        item.setToolTip("Same media_id already appears above — will be skipped by the download pipeline")
+                    else:
+                        item.setForeground(QColor(c("surface2")))
                 elif col_lower == "unlocked":
                     if display == "Locked":
                         item.setForeground(QColor(c("surface2")))
@@ -379,42 +389,92 @@ class MediaDataTable(QTableWidget):
             if row_idx >= len(self._display_data):
                 break
             row_data = self._display_data[row_idx]
-            # Match by media_id first, fallback to index
-            if str(row_data.get("media_id", "")) == row_key or str(
-                row_data.get("index", "")
-            ) == row_key:
+            media_match = str(row_data.get("media_id", "")) == row_key
+            index_match = str(row_data.get("index", "")) == row_key
+            if not (media_match or index_match):
+                continue
+
+            # v18: Never overwrite Locked cart state via signal propagation.
+            if col_lower == "download_cart":
                 item = self.item(row_idx, col_idx)
-                if item:
-                    item.setText(new_value)
-                    # Style download_cart and downloaded columns
-                    if col_lower == "download_cart":
-                        item.setForeground(QColor(_cart_color(new_value)))
-                    elif col_lower == "downloaded":
-                        if new_value == "True":
-                            color = c("green")
-                        elif new_value == "N/A":
-                            color = c("surface2")
-                        else:
-                            color = c("red")
-                        item.setForeground(QColor(color))
-                    elif col_lower == "unlocked":
-                        if new_value == "Locked":
-                            color = c("surface2")
-                        elif new_value == "Preview":
-                            color = c("sky")
-                        elif new_value == "Included":
-                            color = c("teal")
-                        elif new_value == "True":
-                            color = c("green")
-                        else:
-                            color = c("red")
-                        item.setForeground(QColor(color))
-                # Also update the backing data
-                row_data[col_lower] = new_value
-                # If this update was keyed by index, only update that row.
-                # If keyed by media_id, update all rows that share that media_id.
-                if str(row_data.get("index", "")) == row_key:
+                if item and item.text() == "Locked":
+                    if index_match and not media_match:
+                        break
+                    continue
+
+            # Allow downloaded=True to propagate to duplicate rows — the underlying
+            # media was downloaded via the primary row, so duplicates should reflect that.
+            # Only block setting downloaded=False on duplicates (don't regress a True state).
+            if col_lower == "downloaded" and row_data.get("duplicate") == "Duplicate" and new_value != "True":
+                if index_match and not media_match:
                     break
+                continue
+
+            item = self.item(row_idx, col_idx)
+            if item:
+                item.setText(new_value)
+                # Style download_cart and downloaded columns
+                if col_lower == "download_cart":
+                    item.setForeground(QColor(_cart_color(new_value)))
+                elif col_lower == "downloaded":
+                    if new_value == "True":
+                        color = c("green")
+                    elif new_value == "N/A":
+                        color = c("surface2")
+                    else:
+                        color = c("red")
+                    item.setForeground(QColor(color))
+                elif col_lower == "unlocked":
+                    if new_value == "Locked":
+                        color = c("surface2")
+                    elif new_value == "Preview":
+                        color = c("sky")
+                    elif new_value == "Included":
+                        color = c("teal")
+                    elif new_value == "True":
+                        color = c("green")
+                    else:
+                        color = c("red")
+                    item.setForeground(QColor(color))
+            # Also update the backing data (protect Locked cart; allow downloaded=True on duplicates)
+            if col_lower == "download_cart":
+                if row_data.get("download_cart") != "Locked":
+                    row_data[col_lower] = new_value
+            elif col_lower == "downloaded" and row_data.get("duplicate") == "Duplicate" and new_value != "True":
+                pass  # don't regress downloaded state on duplicate rows (False won't overwrite True)
+            else:
+                row_data[col_lower] = new_value
+            if index_match and not media_match:
+                break
+
+    def _on_downloaded_ids_propagate(self, downloaded_media_ids):
+        """Update Downloaded=True on ALL rows (including duplicates) whose media_id is confirmed downloaded.
+        Unlike cell_update, this bypasses the duplicate-row guard so duplicates reflect actual DB state."""
+        try:
+            dl_col_idx = [c.lower() for c in COLUMNS].index("downloaded")
+            cart_col_idx = [c.lower() for c in COLUMNS].index("download_cart")
+        except ValueError:
+            return
+        media_id_set = {str(m) for m in downloaded_media_ids}
+        for row_idx in range(self.rowCount()):
+            if row_idx >= len(self._display_data):
+                break
+            row_data = self._display_data[row_idx]
+            if str(row_data.get("media_id", "")) not in media_id_set:
+                continue
+            cart_item = self.item(row_idx, cart_col_idx)
+            if cart_item and cart_item.text() == "Locked":
+                continue
+            dl_item = self.item(row_idx, dl_col_idx)
+            if dl_item and dl_item.text() not in ("True", "N/A"):
+                dl_item.setText("True")
+                dl_item.setForeground(QColor(c("green")))
+                row_data["downloaded"] = "True"
+            cart_item2 = self.item(row_idx, cart_col_idx)
+            if cart_item2 and cart_item2.text() not in ("[downloaded]", "Locked"):
+                cart_item2.setText("[downloaded]")
+                cart_item2.setForeground(QColor(_cart_color("[downloaded]")))
+                row_data["download_cart"] = "[downloaded]"
 
     def _on_posts_liked_updated(self, results: dict):
         """Handle posts_liked_updated signal from a like/unlike action.

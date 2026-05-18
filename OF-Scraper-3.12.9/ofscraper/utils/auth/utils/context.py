@@ -39,10 +39,25 @@ def auth_context():
     try:
         yield
     except FileNotFoundError:
-        console.print("You don't seem to have an `auth.json` file")
+        # In GUI mode, create an empty auth.json so the while-True retry loop in
+        # file.py can read it successfully on the next iteration.  Without this
+        # the loop spins forever because the context manager just returns (= retry)
+        # but auth.json never gets created.
         if _is_gui_mode():
-            log.warning("No auth.json found — GUI will prompt user")
+            try:
+                import ofscraper.utils.paths.common as _cp
+                import ofscraper.utils.auth.utils.dict as _ad
+                _auth_path = _cp.get_auth_file()
+                _auth_path.parent.mkdir(parents=True, exist_ok=True)
+                if not _auth_path.exists():
+                    import json as _json
+                    with open(_auth_path, "w") as _f:
+                        _f.write(_json.dumps(_ad.get_empty(), indent=4))
+                    log.info(f"GUI mode: created empty auth.json at {_auth_path}")
+            except Exception as _ce:
+                log.warning(f"GUI mode: could not create auth.json ({_ce})")
             return
+        console.print("You don't seem to have an `auth.json` file")
         make.make_auth()
     except json.JSONDecodeError as e:
         if _is_gui_mode():

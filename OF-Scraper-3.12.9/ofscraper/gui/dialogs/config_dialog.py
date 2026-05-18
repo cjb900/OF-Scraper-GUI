@@ -640,7 +640,7 @@ class ConfigPage(QWidget):
                     continue
                 val = flat.get(key, "")
                 if isinstance(widget, QLineEdit):
-                    widget.setText(str(val) if val else "")
+                    widget.setText(str(val).strip() if val else "")
                 elif isinstance(widget, QSpinBox):
                     try:
                         widget.setValue(int(val) if val else 0)
@@ -789,13 +789,13 @@ class ConfigPage(QWidget):
             # Binary
             w = self._widgets.get("ffmpeg")
             if w:
-                set_nested(config, "binary_options", "ffmpeg", w.text())
+                set_nested(config, "binary_options", "ffmpeg", w.text().strip())
 
             # Scripts
             for k in ["post_download_script", "post_script"]:
                 w = self._widgets.get(k)
                 if w:
-                    set_nested(config, "scripts_options", k, w.text())
+                    set_nested(config, "scripts_options", k, w.text().strip())
 
             # Performance
             for k in ["download_sems", "thread_count", "download_limit"]:

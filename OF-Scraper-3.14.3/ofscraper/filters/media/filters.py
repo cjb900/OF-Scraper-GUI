@@ -10,8 +10,10 @@ import ofscraper.utils.settings as settings
 from ofscraper.db.operations_.media import (
     get_media_ids_downloaded,
     get_media_ids_downloaded_model,
+    get_media_post_ids_downloaded,
 )
 import ofscraper.utils.of_env.of_env as of_env
+import ofscraper.utils.args.accessors.read as read_args
 
 log = logging.getLogger("shared")
 
@@ -24,6 +26,8 @@ def sort_by_date(media):
 def dupefiltermedia(media):
     output = defaultdict(lambda: None)
     media = sorted(media, key=lambda item: (item.post.date, item.id, item.count))
+    if bool(getattr(read_args.retriveArgs(), "allow_dupe_downloads", False)):
+        return list(media)
     if of_env.getattr("ALLOW_DUPE_MEDIA"):
         for item in media:
             if not output[(item.id, item.post_id)]:
@@ -157,28 +161,57 @@ def previous_download_filter(medialist, username=None, model_id=None):
     medialist = sorted(
         medialist, key=lambda item: (item.post.date, item.id, item.count)
     )
+    allow_dupe_downloads = bool(
+        getattr(settings.get_settings(), "allow_dupe_downloads", False)
+    )
     if settings.get_settings().force_all:
         log.info("forcing all media to be downloaded")
     elif settings.get_settings().force_model_unique:
         log.info("Downloading unique media for model")
-        media_ids = set(
-            get_media_ids_downloaded_model(model_id=model_id, username=username)
-        )
-        log.debug(
-            f"Number of unique media ids in database for {username}: {len(media_ids)}"
-        )
-        medialist = seperate.separate_by_id(medialist, media_ids)
+        if allow_dupe_downloads:
+            media_pairs = set(
+                get_media_post_ids_downloaded(model_id=model_id, username=username)
+                or []
+            )
+            log.debug(
+                f"Number of downloaded media/post pairs in database for {username}: {len(media_pairs)}"
+            )
+            medialist = [
+                m for m in medialist
+                if (m.id, getattr(m, "post_id", getattr(m, "postid", None))) not in media_pairs
+            ]
+        else:
+            media_ids = set(
+                get_media_ids_downloaded_model(model_id=model_id, username=username)
+            )
+            log.debug(
+                f"Number of unique media ids in database for {username}: {len(media_ids)}"
+            )
+            medialist = seperate.separate_by_id(medialist, media_ids)
         log.debug(f"Number of new media_ids after dupe/previously downloaded ids removed: {len(medialist)}")
         medialist = seperate.seperate_avatars(medialist)
         log.debug("Removed previously downloaded avatars/headers")
         log.debug(f"Final Number of media to download {len(medialist)}")
     else:
         log.info("Downloading unique media across all models")
-        media_ids = set(get_media_ids_downloaded(model_id=model_id, username=username))
-        log.debug(
-            f"Number of unique media ids in database for all models: {len(media_ids)}"
-        )
-        medialist = seperate.separate_by_id(medialist, media_ids)
+        if allow_dupe_downloads:
+            media_pairs = set(
+                get_media_post_ids_downloaded(model_id=model_id, username=username)
+                or []
+            )
+            log.debug(
+                f"Number of downloaded media/post pairs in database for model: {len(media_pairs)}"
+            )
+            medialist = [
+                m for m in medialist
+                if (m.id, getattr(m, "post_id", getattr(m, "postid", None))) not in media_pairs
+            ]
+        else:
+            media_ids = set(get_media_ids_downloaded(model_id=model_id, username=username))
+            log.debug(
+                f"Number of unique media ids in database for all models: {len(media_ids)}"
+            )
+            medialist = seperate.separate_by_id(medialist, media_ids)
         log.debug(f"Number of new media_ids after dupe/previously downloaded ids removed: {len(medialist)}")
         medialist = seperate.seperate_avatars(medialist)
         log.debug("Removed previously downloaded avatars/headers")

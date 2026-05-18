@@ -54,11 +54,64 @@ async def get_messages(model_id, username, c=None, post_id=None):
         splitArrays, anchor_id = await get_split_array(model_id, username, after)
         generators = get_tasks(splitArrays, anchor_id, c, model_id, username, after)
         data = await process_tasks(generators)
+        # The incremental chunk-based scan only yields NEW messages; old cached posts
+        # whose media is undownloaded are silently validated and skipped. Fetch them
+        # individually so they enter the download pipeline.
+        if c:
+            already_fetched_ids = {d.get("id") for d in data}
+            extra = await _fetch_old_undownloaded_messages(
+                model_id, username, c, already_fetched_ids
+            )
+            if extra:
+                log.debug(
+                    f"Added {len(extra)} old message posts with undownloaded media to scan results"
+                )
+                data.extend(extra)
     else:
         data = await process_messages_as_individual(model_id, c)
 
     update_check(data, model_id, after, API)
     return data
+
+
+async def _fetch_old_undownloaded_messages(model_id, username, c, already_fetched_ids):
+    """
+    Safety net: find cached message posts that the chunk scan still missed and
+    fetch them individually via the API. Uses the messages table (not the medias
+    table) so posts whose media was never written to medias are also caught.
+    """
+    try:
+        old_posts = await get_messages_post_info(model_id=model_id, username=username)
+        if not old_posts:
+            return []
+
+        deleted_ids = await get_deleted_messages_ids(model_id=model_id, username=username)
+
+        unfetched_post_ids = {
+            item.get("post_id")
+            for item in old_posts
+            if item.get("post_id") not in already_fetched_ids
+            and item.get("post_id") not in deleted_ids
+        }
+
+        if not unfetched_post_ids:
+            return []
+
+        log.debug(
+            f"Safety net: {len(unfetched_post_ids)} cached message post(s) not returned by scan — fetching individually"
+        )
+
+        results = []
+        for post_id in unfetched_post_ids:
+            post = await get_individual_messages_post(model_id, post_id, c)
+            if post and not post.get("error"):
+                results.append(post)
+
+        return results
+    except Exception as E:
+        log.traceback_(E)
+        log.traceback_(traceback.format_exc())
+        return []
 
 
 async def get_old_messages(model_id, username):
@@ -325,10 +378,21 @@ async def scrape_messages(
                         required_ids.discard(g_id)
 
                 if not is_last_chunk and len(required_ids) == 0:
+                    # Yield the completion batch so cached posts in it reach the pipeline.
+                    # Without this, the batch that exhausts required_ids is silently dropped,
+                    # causing old message posts' media to be missed.
+                    yield batch
                     break
 
                 # Boundary condition: We hit our "after" date limit
                 if min_ts < after:
+                    # Yield any messages in this batch that are within the date range
+                    in_range = [
+                        x for x in batch
+                        if float(arrow.get(x.get("createdAt") or x.get("postedAt")).float_timestamp) >= after
+                    ]
+                    if in_range:
+                        yield in_range
                     break
 
                 # Prevent stuck loop

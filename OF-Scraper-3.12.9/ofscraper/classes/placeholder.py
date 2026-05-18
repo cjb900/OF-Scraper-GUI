@@ -1,7 +1,9 @@
 import logging
 import os
 import pathlib
+import random
 import re
+import string
 
 import arrow
 
@@ -93,9 +95,8 @@ class tempFilePlaceholder(basePlaceholder):
     async def init(self):
         dir = await self.gettempDir(self._ele)
         file = self._tempname
-        # remove for now
-        # if constants.getattr("ALLOW_DUPE_MEDIA"):
-        #     file=f"{''.join(random.choice(string.ascii_letters + string.digits) for _ in range(6))}{file}"
+        if bool(getattr(read_args.retriveArgs(), "allow_dupe_downloads", False)):
+            file = f"{''.join(random.choices(string.ascii_lowercase + string.digits, k=6))}{file}"
         self._tempfilepath = paths.truncate(pathlib.Path(dir, file))
         return self
 

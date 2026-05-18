@@ -565,7 +565,7 @@ class ConfigPage(QWidget):
                     if (key == "custom_values" or key.startswith("ow_")) and isinstance(val, (dict, list)):
                         widget.setText(json.dumps(val) if val else "")
                     else:
-                        widget.setText(str(val) if val else "")
+                        widget.setText(str(val).strip() if val else "")
                 elif isinstance(widget, QSpinBox):
                     try:
                         widget.setValue(int(val) if val else 0)
@@ -689,12 +689,12 @@ class ConfigPage(QWidget):
             # Binary
             w = self._widgets.get("ffmpeg")
             if w:
-                set_nested(config, "binary_options", "ffmpeg", w.text())
+                set_nested(config, "binary_options", "ffmpeg", w.text().strip())
 
             # Scripts
             w = self._widgets.get("post_script")
             if w:
-                set_nested(config, "scripts_options", "post_script", w.text())
+                set_nested(config, "scripts_options", "post_script", w.text().strip())
 
             # Performance
             for k in ["download_sems", "download_limit"]:

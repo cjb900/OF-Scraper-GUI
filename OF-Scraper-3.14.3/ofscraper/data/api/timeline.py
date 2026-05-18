@@ -240,14 +240,18 @@ async def get_after(model_id, username):
     )
     deleted_posts = await get_deleted_post_ids(model_id=model_id, username=username)
 
-    # 1. Filter out what we already have or know is dead
+    # 1. Filter out what we already have or know is dead.
+    # unlocked=None means the column was unset (old DB rows predating the column).
+    # Those rows are unknowns; treating None!=0 as True drags the cutoff back to
+    # 2021 and causes a full historical scan every run.  Only anchor on items
+    # where we *know* they are accessible (unlocked not in (0, None)).
     filtered_items = [
         x
         for x in curr
         if x.get("downloaded") != 1
         and x.get("media_id") not in curr_downloaded
         and x.get("post_id") not in deleted_posts
-        and x.get("unlocked") != 0
+        and x.get("unlocked") not in (0, None)
     ]
 
     # If nothing is missing, grab the youngest date to look for brand new posts

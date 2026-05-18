@@ -26,6 +26,7 @@ import ofscraper.classes.placeholder as placeholder
 import ofscraper.actions.utils.general as common
 import ofscraper.actions.utils.globals as common_globals
 import ofscraper.utils.constants as constants
+import ofscraper.utils.args.accessors.read as read_args
 from ofscraper.classes.download_retries import download_retry
 from ofscraper.actions.utils.general import (
     get_unknown_content_type,
@@ -271,6 +272,24 @@ class MainDownloadManager(DownloadManager):
         common_globals.log.debug(
             f"{common_logs.get_medialog(ele)} {await ele.final_filename} size match target: {total} vs actual: {pathlib.Path(temp).absolute().stat().st_size}"
         )
+        # With allow_dupe_downloads, the same media can appear in multiple posts.
+        # When two entries resolve to the same filename, append " (N)" to keep both.
+        if (
+            bool(getattr(read_args.retriveArgs(), "allow_dupe_downloads", False))
+            and pathlib.Path(path_to_file).exists()
+        ):
+            p = pathlib.Path(path_to_file)
+            counter = 1
+            while True:
+                candidate = p.parent / f"{p.stem} ({counter}){p.suffix}"
+                if not candidate.exists():
+                    path_to_file = candidate
+                    common_globals.log.debug(
+                        f"{common_logs.get_medialog(ele)} duplicate filename — saving as {candidate.name}"
+                    )
+                    break
+                counter += 1
+
         common_globals.log.debug(
             f"{common_logs.get_medialog(ele)} renaming {pathlib.Path(temp).absolute()} -> {path_to_file}"
         )

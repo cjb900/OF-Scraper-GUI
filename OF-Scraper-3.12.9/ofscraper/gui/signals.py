@@ -37,6 +37,7 @@ class AppSignals(QObject):
 
     # Cell updates from download process
     cell_update = pyqtSignal(str, str, str)  # row_key, column_name, new_value
+    downloaded_ids_propagate = pyqtSignal(object)  # set of str media_ids confirmed downloaded — updates all rows including duplicates
 
     # Log
     log_message = pyqtSignal(str, str)  # level, message
@@ -47,6 +48,9 @@ class AppSignals(QObject):
 
     # Media type filter from area selector page
     mediatypes_configured = pyqtSignal(list)  # list of media type strings e.g. ["Images", "Videos"]
+
+    # Include-text toggle from area selector page
+    include_text_configured = pyqtSignal(bool)
 
     # Date range filter from area selector page
     date_range_configured = pyqtSignal(object)  # dict: {enabled, from_date, to_date} (date strings "YYYY-MM-DD")

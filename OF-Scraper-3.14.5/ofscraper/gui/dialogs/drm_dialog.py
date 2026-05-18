@@ -401,6 +401,22 @@ class DRMKeyPage(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
+        # On Windows, adb.exe stays running as a daemon after extraction and
+        # holds a lock on the file, causing [WinError 5] Access denied when
+        # shutil.rmtree tries to delete platform-tools/adb.exe.
+        # Kill the server first so the file handle is released.
+        adb_path = os.path.join(home, "widevine-sdk", "platform-tools",
+                                "adb.exe" if sys.platform == "win32" else "adb")
+        if os.path.isfile(adb_path):
+            try:
+                subprocess.run([adb_path, "kill-server"],
+                               capture_output=True, timeout=5)
+            except Exception:
+                pass
+
+        import time
+        time.sleep(1)
+
         errors = []
         for path, _ in present:
             try:

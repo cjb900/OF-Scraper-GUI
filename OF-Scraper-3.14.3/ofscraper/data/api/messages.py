@@ -24,6 +24,7 @@ from ofscraper.data.api.common.after import get_after_pre_checks
 from ofscraper.data.api.common.check import update_check
 from ofscraper.db.operations_.media import (
     get_media_ids_downloaded_model,
+    get_media_post_ids_downloaded,
     get_messages_media,
 )
 from ofscraper.db.operations_.messages import (
@@ -49,8 +50,21 @@ async def get_messages(model_id, username, c=None, post_id=None):
     if len(post_id) == 0 or len(post_id) > of_env.getattr(
         "MAX_MESSAGES_INDIVIDUAL_SEARCH"
     ):
-        splitArrays, anchor_id = await get_split_array(model_id, username, after)
-        generators = get_tasks(splitArrays, anchor_id, c, model_id, username, after)
+        # Always use a single full sweep (is_last_chunk=True) rather than the
+        # cached chunking path. The chunked path stops each chunk as soon as its
+        # required IDs are found, which causes newer PPV/DM messages that appear
+        # on later API pages to be silently skipped. A single full sweep from
+        # newest to 'after' matches 3.12.9 behavior and captures all messages.
+        generators = [
+            scrape_messages(
+                c,
+                model_id,
+                username,
+                message_id=None,
+                is_last_chunk=True,
+                after=after,
+            )
+        ]
         data = await process_tasks(generators)
     else:
         data = await process_messages_as_individual(model_id, c)
@@ -384,25 +398,48 @@ async def get_after(model_id, username):
     if len(curr) == 0:
         return arrow.get("2000").float_timestamp
 
-    curr_downloaded = await get_media_ids_downloaded_model(
-        model_id=model_id, username=username
-    )
     deleted_messages = await get_deleted_messages_ids(
         model_id=model_id, username=username
     )
 
-    filtered_items = [
-        x
-        for x in curr
-        if x.get("downloaded") != 1
-        and x.get("media_id") not in curr_downloaded
-        and x.get("post_id") not in deleted_messages
-        and x.get("unlocked") != 0
-    ]
+    allow_dupes = bool(getattr(settings.get_settings(), "allow_dupe_downloads", False))
+    if allow_dupes:
+        # When allow_dupe_downloads=True, previous_download_filter uses (media_id, post_id)
+        # pairs. Using only media_id here would wrongly consider a pair "downloaded" if the
+        # same media_id was downloaded in a different post (e.g. timeline vs messages),
+        # causing get_after() to return too-recent a date and miss older message pairs.
+        downloaded_pairs = set(
+            get_media_post_ids_downloaded(model_id=model_id, username=username) or []
+        )
+        log.debug(
+            f"allow_dupe_downloads: {len(downloaded_pairs)} downloaded (media_id, post_id) pairs for messages 'after' check"
+        )
+        filtered_items = [
+            x for x in curr
+            if (x.get("media_id"), x.get("post_id")) not in downloaded_pairs
+            and x.get("post_id") not in deleted_messages
+            and x.get("unlocked") != 0
+        ]
+    else:
+        curr_downloaded = await get_media_ids_downloaded_model(
+            model_id=model_id, username=username
+        )
+        filtered_items = [
+            x
+            for x in curr
+            if x.get("downloaded") != 1
+            and x.get("media_id") not in curr_downloaded
+            and x.get("post_id") not in deleted_messages
+            and x.get("unlocked") != 0
+        ]
 
     if len(filtered_items) == 0:
         newest = await get_newest_message_date(model_id=model_id, username=username)
         return max(float(newest or 0), arrow.get("2000").float_timestamp)
+
+    if allow_dupes:
+        oldest_ts = min(float(x.get("posted_at") or 0) for x in filtered_items)
+        return max(oldest_ts, arrow.get("2000").float_timestamp)
 
     unique_missing = {}
     for item in filtered_items:

@@ -93,7 +93,7 @@ class DiscordHandler(logging.Handler):
                 method="post",
                 headers={"Content-type": "application/json"},
                 json={
-                    "content": record,
+                    "content": record[:1990],
                     # "thread_name": self._thread,
                 },
             ) as r:
@@ -114,7 +114,7 @@ class DiscordHandler(logging.Handler):
                 method="post",
                 headers={"Content-type": "application/json"},
                 json={
-                    "content": record,
+                    "content": record[:1990],
                     # "thread_name": self._thread,
                 },
                 skip_expection_check=True,
@@ -211,7 +211,7 @@ class DiscordHandlerMulti(logging.Handler):
                     method="post",
                     headers={"Content-type": "application/json"},
                     json={
-                        "content": record,
+                        "content": record[:1990],
                         # "thread_name": self._thread,
                     },
                 ) as r:
@@ -231,7 +231,7 @@ class DiscordHandlerMulti(logging.Handler):
                 method="post",
                 headers={"Content-type": "application/json"},
                 json={
-                    "content": record,
+                    "content": record[:1990],
                     # "thread_name": self._thread,
                 },
                 skip_expection_check=True,

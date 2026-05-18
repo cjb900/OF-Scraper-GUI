@@ -74,7 +74,7 @@ profilesALL = """
 select user_id,username from profiles
 """
 profilesDrop = """
-DROP TABLE profiles;
+DROP TABLE IF EXISTS profiles;
 """
 
 modelsALL = """
@@ -211,6 +211,7 @@ async def rebuild_profiles_table(model_id=None, username=None, db_path=None, **k
     data = await get_all_profiles(model_id=model_id, username=username, db_path=db_path)
     await drop_profiles_table(model_id=model_id, username=username, db_path=db_path)
     await create_profile_table(model_id=model_id, username=username, db_path=db_path)
-    await write_profile_table_transition(
-        data, model_id=model_id, username=username, db_path=db_path
-    )
+    if data:
+        await write_profile_table_transition(
+            data, model_id=model_id, username=username, db_path=db_path
+        )

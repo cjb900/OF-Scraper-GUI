@@ -7,11 +7,12 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
     QTextBrowser,
     QVBoxLayout,
 )
+
+from ofscraper.gui.styles import c
 
 log = logging.getLogger("shared")
 
@@ -39,7 +40,7 @@ class MissingDepsDialog(QDialog):
         self._on_open_drm = on_open_drm
 
         self.setWindowTitle("Missing configuration paths")
-        self.setModal(True)
+        self.setWindowModality(Qt.WindowModality.NonModal)
         self.setMinimumWidth(720)
         self._setup_ui()
 
@@ -63,6 +64,10 @@ class MissingDepsDialog(QDialog):
         viewer.setOpenExternalLinks(True)
         viewer.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         viewer.setMinimumHeight(220)
+        viewer.setStyleSheet(
+            f"QTextBrowser {{ background-color: {c('base')}; color: {c('text')};"
+            f" border: 1px solid {c('surface1')}; }}"
+        )
         viewer.setHtml(self._build_html())
         layout.addWidget(viewer, stretch=1)
 
@@ -94,13 +99,23 @@ class MissingDepsDialog(QDialog):
     def _build_html(self) -> str:
         parts = []
 
+        css = (
+            f"<style>"
+            f"body {{ color: {c('text')}; }}"
+            f" a {{ color: {c('blue')}; }}"
+            f" code {{ background-color: {c('surface1')}; color: {c('text')};"
+            f" padding: 1px 4px; border-radius: 3px; }}"
+            f"</style>"
+        )
+
         if self._missing_ffmpeg:
             parts.append(
                 """
                 <h3>FFmpeg</h3>
                 <p><b>Missing file path for FFmpeg in your config.</b> This is needed to merge DRM protected audio and video files.</p>
-                <p>Use version <b>7.1.1 or lower</b> from
-                <a href="https://www.gyan.dev/ffmpeg/builds">https://www.gyan.dev/ffmpeg/builds</a>.</p>
+                <p>Use version <b>7.1.1</b> — download:
+                <a href="https://www.videohelp.com/download/ffmpeg-7.1.1-full_build.7z?r=GvPKbvspT">ffmpeg-7.1.1-full_build.7z</a>. (Link for Windows systems only)</p>
+                <p>Extract the downloaded 7z file and provide the full file path to <code>ffmpeg.exe</code></p>
                 """
             )
 
@@ -136,19 +151,7 @@ class MissingDepsDialog(QDialog):
         if not parts:
             parts.append("<p>No missing settings detected.</p>")
 
-        return "\n<hr/>\n".join(parts)
-
-    def _confirm_jump(self, title: str, msg: str) -> bool:
-        try:
-            reply = QMessageBox.question(
-                self,
-                title,
-                msg,
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            return reply == QMessageBox.StandardButton.Yes
-        except Exception:
-            return True
+        return css + "\n" + "\n<hr/>\n".join(parts)
 
     def _open_drm(self):
         if not callable(self._on_open_drm):
@@ -157,20 +160,9 @@ class MissingDepsDialog(QDialog):
         self.accept()
 
     def _open_ffmpeg(self):
-        if not callable(self._on_open_ffmpeg):
-            return
-        if self._confirm_jump(
-            "Open Configuration?",
-            "Open Configuration to the Download tab to enter the FFmpeg file path?",
-        ):
+        if callable(self._on_open_ffmpeg):
             self._on_open_ffmpeg()
 
     def _open_cdm(self):
-        if not callable(self._on_open_cdm):
-            return
-        if self._confirm_jump(
-            "Open Configuration?",
-            "Open Configuration to the CDM tab to enter the manual DRM key paths?",
-        ):
+        if callable(self._on_open_cdm):
             self._on_open_cdm()
-

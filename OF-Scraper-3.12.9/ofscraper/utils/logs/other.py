@@ -166,11 +166,13 @@ def add_other_handler(log, clear=True):
     log_helpers.addtrace()
     # # #log file
     # #discord
-    cord = DiscordHandler()
-    cord.setLevel(log_helpers.getLevel(read_args.retriveArgs().discord))
-    cord.setFormatter(log_class.DiscordFormatter("%(message)s"))
-    # console
-    log.addHandler(cord)
+    _discord_arg = read_args.retriveArgs().discord
+    if _discord_arg and _discord_arg != "OFF":
+        cord = DiscordHandler()
+        cord.setLevel(log_helpers.getLevel(_discord_arg))
+        cord.setFormatter(log_class.DiscordFormatter("%(message)s"))
+        # console
+        log.addHandler(cord)
     if settings.get_log_level() != "OFF":
         stream = open(
             common_paths.getlogpath(),
@@ -201,11 +203,13 @@ def add_other_handler_multi(log, clear=True, other_=None):
     # # #log file
     # #discord
     if not other_:
-        cord = DiscordHandlerMulti()
-        cord.setLevel(log_helpers.getLevel(read_args.retriveArgs().discord))
-        cord.setFormatter(log_class.DiscordFormatter("%(message)s"))
-        # console
-        log.addHandler(cord)
+        _discord_arg = read_args.retriveArgs().discord
+        if _discord_arg and _discord_arg != "OFF":
+            cord = DiscordHandlerMulti()
+            cord.setLevel(log_helpers.getLevel(_discord_arg))
+            cord.setFormatter(log_class.DiscordFormatter("%(message)s"))
+            # console
+            log.addHandler(cord)
         if settings.get_log_level() != "OFF":
             stream = open(
                 common_paths.getlogpath(),

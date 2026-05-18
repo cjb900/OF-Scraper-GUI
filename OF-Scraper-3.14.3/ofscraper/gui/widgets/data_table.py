@@ -23,6 +23,7 @@ COLUMNS = [
     "Download_Cart",
     "UserName",
     "Downloaded",
+    "Duplicate",
     "Unlocked",
     "other_posts_with_media",
     "Length",
@@ -107,6 +108,8 @@ class MediaDataTable(QTableWidget):
                 self.setColumnWidth(i, 300)
             elif col in ("Download_Cart", "Number"):
                 self.setColumnWidth(i, 100)
+            elif col == "Duplicate":
+                self.setColumnWidth(i, 90)
             else:
                 self.setColumnWidth(i, 120)
 
@@ -168,6 +171,7 @@ class MediaDataTable(QTableWidget):
         """Filter a list of rows through _current_filter; returns all rows if no filter set."""
         if self._current_filter is None:
             return list(rows)
+        _logged_filter_state = False
         result = []
         for row in rows:
             passes = True
@@ -177,6 +181,22 @@ class MediaDataTable(QTableWidget):
                     continue
                 val = row.get(col_lower, row.get(col, ""))
                 if not self._current_filter.validate(col_lower, val):
+                    log.warning(
+                        f"[FILTER DEBUG] Row {row.get('index', row.get('post_id', '?'))} "
+                        f"FAILED on col='{col_lower}', value={repr(val)}"
+                    )
+                    if not _logged_filter_state:
+                        _logged_filter_state = True
+                        try:
+                            fs = self._current_filter
+                            log.warning(
+                                f"[FILTER DEBUG] FilterState: downloaded={fs.downloaded!r}, "
+                                f"unlocked={fs.unlocked!r}, mindate={fs.mindate!r}, "
+                                f"maxdate={fs.maxdate!r}, mediatype={fs.mediatype!r}, "
+                                f"responsetype={fs.responsetype!r}, price={fs.price!r}"
+                            )
+                        except Exception as e:
+                            log.warning(f"[FILTER DEBUG] Could not dump FilterState: {e}")
                     passes = False
                     break
             if passes:
@@ -225,7 +245,7 @@ class MediaDataTable(QTableWidget):
                     item.setForeground(QColor(_cart_color(display)))
                     item.setFont(QFont("Consolas", 11, QFont.Weight.Bold))
 
-                # Style downloaded/unlocked/price columns
+                # Style downloaded/duplicate/unlocked/price columns
                 if col_lower == "downloaded":
                     if display == "True":
                         item.setForeground(QColor(c("green")))
@@ -233,6 +253,12 @@ class MediaDataTable(QTableWidget):
                         item.setForeground(QColor(c("surface2")))
                     else:
                         item.setForeground(QColor(c("red")))
+                elif col_lower == "duplicate":
+                    if display == "Duplicate":
+                        item.setForeground(QColor(c("peach")))
+                        item.setToolTip("Same media_id already appears above — will be skipped by the download pipeline")
+                    else:
+                        item.setForeground(QColor(c("surface2")))
                 elif col_lower == "unlocked":
                     if display == "Locked":
                         item.setForeground(QColor(c("surface2")))

@@ -1,4 +1,5 @@
 from typing import Iterable
+import copy
 import logging
 import ofscraper.filters.media.filters as helpers
 import ofscraper.utils.settings as settings
@@ -85,8 +86,41 @@ class PostCollection:
         candidate_posts = [post for post in self.raw_posts if post.is_download_candidate]
         log.info(f"Found {len(candidate_posts)} raw posts marked as download candidates for GUI row building.")
 
+        # Determine date range filter from current args (matches download pipeline filtering).
+        # Labels API returns all posts regardless of after/before, so without this filter
+        # the table would include out-of-range items inflating all counts.
+        _after_filter = None
+        _before_filter = None
+        try:
+            import ofscraper.utils.args.accessors.read as _read_args
+            import arrow as _arrow
+            _args = _read_args.retriveArgs()
+            _after = getattr(_args, 'after', None)
+            _before = getattr(_args, 'before', None)
+            if _after is not None and not (isinstance(_after, int) and _after == 0):
+                _after_filter = _after
+            if _before is not None:
+                _before_filter = _before
+        except Exception:
+            pass
+
         for post in candidate_posts:
             raw_post = getattr(post, '_post', {}) or {}
+
+            # Apply date range filter to exclude out-of-range posts from table display
+            if _after_filter is not None or _before_filter is not None:
+                try:
+                    import arrow as _arrow
+                    _pd_str = raw_post.get('postedAt') or raw_post.get('createdAt') or getattr(post, 'date', None)
+                    if _pd_str:
+                        _pd = _arrow.get(_pd_str)
+                        if _after_filter is not None and _pd < _after_filter:
+                            continue
+                        if _before_filter is not None and _pd > _before_filter:
+                            continue
+                except Exception:
+                    pass
+
             raw_media_list = raw_post.get('media') or []
             responsetype = str(getattr(post, 'responsetype', '') or raw_post.get('responseType') or '')
             post_id = getattr(post, 'id', None) or raw_post.get('id') or ''
@@ -145,6 +179,7 @@ class PostCollection:
                     'download_cart': cart_status,
                     'username': self.username,
                     'downloaded': dl_display,
+                    'duplicate': '',
                     'unlocked': ul_display,
                     'other_posts_with_media': [],
                     'post_media_count': post_media_count,
@@ -157,6 +192,26 @@ class PostCollection:
                     'media_id': media_id,
                     'text': text,
                 })
+
+        # Mark duplicate rows (same media_id seen more than once) and compute counters.
+        # Duplicate rows are skipped by the download pipeline so they must be excluded
+        # from the type-specific counts to keep the summary accurate.
+        global _gui_duplicate_count, _gui_total_rows, _gui_locked_count, _gui_video_count, _gui_photo_count, _gui_audio_count
+        seen_ids = set()
+        dups = 0
+        for row in rows:
+            mid = row.get('media_id')
+            if mid and mid in seen_ids:
+                row['duplicate'] = 'Duplicate'
+                dups += 1
+            elif mid:
+                seen_ids.add(mid)
+        _gui_duplicate_count = dups
+        _gui_total_rows = len(rows)
+        _gui_locked_count = sum(1 for r in rows if r.get('unlocked') == 'Locked')
+        _gui_video_count = sum(1 for r in rows if r.get('unlocked') != 'Locked' and r.get('mediatype') == 'Videos')
+        _gui_photo_count = sum(1 for r in rows if r.get('unlocked') != 'Locked' and r.get('mediatype') == 'Images')
+        _gui_audio_count = sum(1 for r in rows if r.get('unlocked') != 'Locked' and r.get('mediatype') == 'Audios')
 
         log.info(f"Returning {len(rows)} raw GUI table rows from post/media payloads.")
         return rows
@@ -306,13 +361,20 @@ class PostCollection:
         all_media = self._get_prepared_media_from_download_candidates()
 
         log.info("Applying final 'download' mode filters to media list...")
-        all_media = helpers.dupefiltermedia(all_media)
+        # When allow_dupe_downloads is on, skip dupefiltermedia entirely so duplicate
+        # media items from multiple API areas are preserved in the queue. Older versions
+        # of filters.py may not have this bypass built in, so we enforce it here directly.
+        allow_dupes = bool(getattr(settings.get_settings(), "allow_dupe_downloads", False))
+        if not allow_dupes:
+            all_media = helpers.dupefiltermedia(all_media)
         all_media = helpers.previous_download_filter(
             all_media, username=self.username, model_id=self.model_id
         )
         all_media = helpers.ele_count_filter(all_media)
         all_media = helpers.final_media_sort(all_media)
 
+        global _gui_download_queue_size
+        _gui_download_queue_size = len(all_media)
         log.info(f"Returning {len(all_media)} final media items for download.")
         return all_media
 
@@ -428,15 +490,35 @@ class PostCollection:
         Private helper to get download candidates, run per-post filtering,
         and return the aggregated list of media before final filtering.
         """
-        candidate_posts = [post for post in self.posts if post.is_download_candidate]
+        allow_dupes = bool(getattr(settings.get_settings(), "allow_dupe_downloads", False))
+        if allow_dupes:
+            candidate_posts = [post for post in self.raw_posts if post.is_download_candidate]
+        else:
+            candidate_posts = [post for post in self.posts if post.is_download_candidate]
         log.info(f"Found {len(candidate_posts)} posts marked as download candidates.")
 
+        prepared_ids = set()
         for post in candidate_posts:
-            post.prepare_media_for_download()
+            if id(post) not in prepared_ids:
+                post.prepare_media_for_download()
+                prepared_ids.add(id(post))
 
-        all_media = [
-            media for post in candidate_posts for media in post.media_to_download
-        ]
+        seen_media_ids = set()
+        all_media = []
+        for post in candidate_posts:
+            for media in post.media_to_download:
+                # Use the OF media ID (not Python object identity) so that the same media
+                # appearing in multiple posts/areas (as different Python objects) is still
+                # correctly deduplicated and only the second occurrence gets _dup_seq.
+                media_key = media.id if media.id is not None else id(media)
+                if media_key not in seen_media_ids:
+                    seen_media_ids.add(media_key)
+                    all_media.append(media)
+                else:
+                    dup = copy.copy(media)
+                    dup._post = post  # give duplicate its own post ref so post_id differs
+                    dup._dup_seq = len(all_media)  # unique seq so temp names never collide
+                    all_media.append(dup)
         log.debug(f"Aggregated {len(all_media)} media items before final filtering.")
         return all_media
 
@@ -499,7 +581,7 @@ class PostCollection:
 
         existing_post = self._posts_map[post_id]
 
-        # Set eligibility flags
+        # Set eligibility flags on canonical post
         if "like" in actions:
             existing_post.is_like_candidate = True
         if "download" in actions:
@@ -508,4 +590,29 @@ class PostCollection:
             existing_post.is_text_candidate = True
         if "metadata" in actions:
             existing_post.is_metadata_candidate = True
+
+        # For duplicate posts (same post_id already in map), the raw instance in
+        # _raw_posts is a different object than existing_post. Propagate the flags so
+        # get_rows_for_gui_table()'s is_download_candidate filter includes them.
+        if incoming_post is not existing_post:
+            if "like" in actions:
+                incoming_post.is_like_candidate = True
+            if "download" in actions:
+                incoming_post.is_download_candidate = True
+            if "text" in actions:
+                incoming_post.is_text_candidate = True
+            if "metadata" in actions:
+                incoming_post.is_metadata_candidate = True
+
         return existing_post
+
+
+# Module-level counters written by get_rows_for_gui_table(); read by Scrape Summary.
+_gui_duplicate_count = 0
+_gui_total_rows = 0
+_gui_locked_count = 0
+_gui_video_count = 0
+_gui_photo_count = 0
+_gui_audio_count = 0
+# Set by get_media_to_download() to reflect actual download queue size (post-filter).
+_gui_download_queue_size = 0

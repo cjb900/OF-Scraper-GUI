@@ -1,4 +1,5 @@
 from typing import Iterable
+import copy
 import logging
 import ofscraper.filters.media.filters as helpers
 import ofscraper.utils.settings as settings
@@ -75,12 +76,74 @@ class PostCollection:
         return [media for post in self.raw_posts for media in post.all_media]
 
 
-    def get_rows_for_gui_table(self) -> list[dict]:
-        """Build GUI table rows directly from raw post/media payloads.
+    def get_rows_for_gui_table(self) -> list:
+        """Build GUI table rows from all raw media (including cross-area duplicates).
 
-        This avoids relying on partially-normalized Media objects for table display.
-        The GUI table is about *what was found*, not only the final download queue.
+        Uses the same approach as 3.14.7: delegates to _build_media_rows in workflow.py
+        with the full raw_all_media list so every appearance of a media item across
+        multiple API areas shows as a separate row.
         """
+        try:
+            from ofscraper.gui.utils.workflow import _build_media_rows
+            global _gui_duplicate_count, _gui_total_rows, _gui_locked_count, _gui_video_count, _gui_photo_count, _gui_audio_count
+            raw = self.raw_all_media
+
+            # Filter by date range to match what the download pipeline actually processes.
+            # Labels API returns all posts regardless of after/before, so without this
+            # filter the table would include out-of-range items inflating all counts.
+            try:
+                import ofscraper.utils.args.accessors.read as _read_args
+                import arrow as _arrow
+                _args = _read_args.retriveArgs()
+                _after = getattr(_args, 'after', None)
+                _before = getattr(_args, 'before', None)
+                _has_after = _after is not None and not (isinstance(_after, int) and _after == 0)
+                _has_before = _before is not None
+                if _has_after or _has_before:
+                    filtered = []
+                    for m in raw:
+                        try:
+                            _pd = getattr(m, 'postdate', None)
+                            if not _pd:
+                                filtered.append(m)
+                                continue
+                            _mdate = _arrow.get(_pd)
+                            if _has_after and _mdate < _after:
+                                continue
+                            if _has_before and _mdate > _before:
+                                continue
+                            filtered.append(m)
+                        except Exception:
+                            filtered.append(m)
+                    raw = filtered
+            except Exception:
+                pass
+
+            seen = set()
+            unique_count = 0
+            for m in raw:
+                mid = getattr(m, "id", None)
+                key = mid if mid is not None else id(m)
+                if key not in seen:
+                    seen.add(key)
+                    unique_count += 1
+            _gui_duplicate_count = len(raw) - unique_count
+            rows = _build_media_rows(raw, self.username or "")
+            _gui_total_rows = len(rows)
+            _gui_locked_count = sum(
+                1 for r in rows if r.get("unlocked") == "Locked"
+            )
+            _gui_video_count = sum(1 for r in rows if r.get('unlocked') != 'Locked' and r.get('mediatype') == 'Videos')
+            _gui_photo_count = sum(1 for r in rows if r.get('unlocked') != 'Locked' and r.get('mediatype') == 'Images')
+            _gui_audio_count = sum(1 for r in rows if r.get('unlocked') != 'Locked' and r.get('mediatype') == 'Audios')
+            log.info(f"Returning {len(rows)} GUI table rows ({_gui_duplicate_count} duplicates, {_gui_locked_count} locked).")
+            return rows
+        except Exception as e:
+            log.debug(f"get_rows_for_gui_table failed: {e}")
+            return []
+
+    def _get_rows_for_gui_table_legacy(self) -> list[dict]:
+        """Legacy raw-dict row builder (kept for reference). Not used."""
         rows = []
         candidate_posts = [post for post in self.raw_posts if post.is_download_candidate]
         log.info(f"Found {len(candidate_posts)} raw posts marked as download candidates for GUI row building.")
@@ -145,6 +208,7 @@ class PostCollection:
                     'download_cart': cart_status,
                     'username': self.username,
                     'downloaded': dl_display,
+                    'duplicate': '',
                     'unlocked': ul_display,
                     'other_posts_with_media': [],
                     'post_media_count': post_media_count,
@@ -157,6 +221,20 @@ class PostCollection:
                     'media_id': media_id,
                     'text': text,
                 })
+
+        # Mark duplicate rows (same media_id seen more than once) so the GUI table
+        # Duplicate column can display them, then compute the global counter.
+        global _gui_duplicate_count
+        seen_ids = set()
+        dups = 0
+        for row in rows:
+            mid = row.get('media_id')
+            if mid and mid in seen_ids:
+                row['duplicate'] = 'Duplicate'
+                dups += 1
+            elif mid:
+                seen_ids.add(mid)
+        _gui_duplicate_count = dups
 
         log.info(f"Returning {len(rows)} raw GUI table rows from post/media payloads.")
         return rows
@@ -300,12 +378,16 @@ class PostCollection:
         """
         Gets the final, filtered list of media for DOWNLOAD mode.
         """
+        global _gui_download_total, _gui_download_extra, _gui_copy_count
         filtersettings = settings.get_settings().mediatypes
         log.debug(f"filtering Media to {','.join(filtersettings)}")
 
         all_media = self._get_prepared_media_from_download_candidates()
 
         log.info("Applying final 'download' mode filters to media list...")
+        # dupefiltermedia already handles allow_dupe_downloads correctly:
+        # when True it returns ALL items (treating every instance as a separate download);
+        # when False it deduplicates by media_id keeping the best canview instance.
         all_media = helpers.dupefiltermedia(all_media)
         all_media = helpers.previous_download_filter(
             all_media, username=self.username, model_id=self.model_id
@@ -313,6 +395,37 @@ class PostCollection:
         all_media = helpers.ele_count_filter(all_media)
         all_media = helpers.final_media_sort(all_media)
 
+        # Count same-object duplicates AFTER all filters — counting before the
+        # previous_download_filter inflates the value above the post-filter total,
+        # causing bar arithmetic to go negative. With copy.copy() in
+        # _get_prepared_media_from_download_candidates this is always 0.
+        seen_obj_ids = set()
+        extra_count = 0
+        for m in all_media:
+            obj_id = id(m)
+            if obj_id in seen_obj_ids:
+                extra_count += 1
+            else:
+                seen_obj_ids.add(obj_id)
+        _gui_download_extra = extra_count
+        log.debug(f"Same-object duplicate media items after filters: {extra_count}")
+
+        # Count copy pairs: items sharing (media_id, post_id) with another item.
+        # These are cross-area duplicate copies that may get forced_skipped or skipped
+        # when the original was already downloaded in the same session. Tracked so the
+        # summary can exclude their failures from the user-visible failure count.
+        seen_pairs = set()
+        pair_copy_count = 0
+        for m in all_media:
+            key = (getattr(m, 'id', None), getattr(m, 'post_id', getattr(m, 'postid', None)))
+            if key in seen_pairs:
+                pair_copy_count += 1
+            else:
+                seen_pairs.add(key)
+        _gui_copy_count = pair_copy_count
+        log.debug(f"Copy-pair duplicates in pipeline after filters: {pair_copy_count}")
+
+        _gui_download_total = len(all_media)
         log.info(f"Returning {len(all_media)} final media items for download.")
         return all_media
 
@@ -428,15 +541,38 @@ class PostCollection:
         Private helper to get download candidates, run per-post filtering,
         and return the aggregated list of media before final filtering.
         """
-        candidate_posts = [post for post in self.posts if post.is_download_candidate]
+        allow_dupes = bool(getattr(settings.get_settings(), "allow_dupe_downloads", False))
+
+        if allow_dupes:
+            # When allow_dupe_downloads is True, use raw_posts so that the same post
+            # appearing in multiple API areas (e.g. Timeline + Purchased) generates
+            # separate media entries — matching 3.12.9 cross-area duplicate behavior.
+            candidate_posts = [post for post in self.raw_posts if post.is_download_candidate]
+        else:
+            candidate_posts = [post for post in self.posts if post.is_download_candidate]
+
         log.info(f"Found {len(candidate_posts)} posts marked as download candidates.")
 
+        # Prepare each unique post object only once (avoid redundant work on repeated refs)
+        prepared_ids = set()
         for post in candidate_posts:
-            post.prepare_media_for_download()
+            if id(post) not in prepared_ids:
+                post.prepare_media_for_download()
+                prepared_ids.add(id(post))
 
-        all_media = [
-            media for post in candidate_posts for media in post.media_to_download
-        ]
+        # Use shallow copies when the same Python media object appears in multiple
+        # posts (e.g. same Post object in raw_posts twice). Without this, downloading
+        # clears the URL on the shared object causing the second download to fail.
+        seen_obj_ids = set()
+        all_media = []
+        for post in candidate_posts:
+            for media in post.media_to_download:
+                obj_id = id(media)
+                if obj_id not in seen_obj_ids:
+                    seen_obj_ids.add(obj_id)
+                    all_media.append(media)
+                else:
+                    all_media.append(copy.copy(media))
         log.debug(f"Aggregated {len(all_media)} media items before final filtering.")
         return all_media
 
@@ -485,19 +621,19 @@ class PostCollection:
             )
             return None
 
-        # Materialize a Post object for raw insertion tracking.
-        incoming_post = (
-            post_to_process
-            if isinstance(post_to_process, Post)
-            else Post(post_to_process, self.model_id, self.username, mode=self.mode)
-        )
-        self._raw_posts.append(incoming_post)
-
         # Perform the core logic of adding/updating the canonical post map.
         if post_id not in self._posts_map or overwrite:
+            incoming_post = (
+                post_to_process
+                if isinstance(post_to_process, Post)
+                else Post(post_to_process, self.model_id, self.username, mode=self.mode)
+            )
             self._posts_map[post_id] = incoming_post
 
         existing_post = self._posts_map[post_id]
+        # Always append the canonical post to raw list (preserves duplicates/reposts
+        # for GUI table while ensuring the flagged instance is always used).
+        self._raw_posts.append(existing_post)
 
         # Set eligibility flags
         if "like" in actions:
@@ -509,3 +645,20 @@ class PostCollection:
         if "metadata" in actions:
             existing_post.is_metadata_candidate = True
         return existing_post
+
+
+# Module-level counters written by get_rows_for_gui_table(); read by Scrape Summary.
+_gui_duplicate_count = 0
+_gui_total_rows = 0
+_gui_locked_count = 0
+_gui_video_count = 0
+_gui_photo_count = 0
+_gui_audio_count = 0
+# Set by get_media_to_download() to the filtered count actually entering the download pipeline.
+_gui_download_total = 0
+# Same-object duplicate count (always 0 with copy.copy() approach).
+_gui_download_extra = 0
+# Copy-pair count: pipeline items sharing (media_id, post_id) with another item.
+# These copies may fail (skipped/forced_skipped) since the original downloads first.
+# Subtract from _adj_failed in summary so copy non-downloads aren't shown as failures.
+_gui_copy_count = 0

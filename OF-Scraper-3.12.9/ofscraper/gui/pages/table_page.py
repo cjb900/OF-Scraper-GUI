@@ -429,6 +429,39 @@ class TablePage(QWidget):
         else:
             app_signals.daemon_configured.emit(False, 30.0, False, False)
 
+        # Emit date range filter from the table page's own sidebar (self.sidebar),
+        # which has the dates copied from the area page and may have been further
+        # edited by the user on the table page.  Always emit — even when disabled —
+        # so that a previous run's date range does not bleed into the next run.
+        try:
+            fs = getattr(self, "sidebar", None)
+            if fs is not None:
+                date_enabled = bool(
+                    getattr(fs, "date_enabled", None)
+                    and fs.date_enabled.isChecked()
+                )
+                if date_enabled:
+                    _min_w = getattr(fs, "min_date", None)
+                    _max_w = getattr(fs, "max_date", None)
+                    from_date = (
+                        _min_w.date().toString("yyyy-MM-dd")
+                        if _min_w and _min_w.date() != _min_w.minimumDate()
+                        else None
+                    )
+                    to_date = (
+                        _max_w.date().toString("yyyy-MM-dd")
+                        if _max_w and _max_w.date() != _max_w.minimumDate()
+                        else None
+                    )
+                    app_signals.date_range_configured.emit(
+                        {"enabled": True, "from_date": from_date, "to_date": to_date}
+                    )
+                else:
+                    # Explicitly clear any stale date range from a previous run.
+                    app_signals.date_range_configured.emit({"enabled": False})
+        except Exception:
+            pass
+
         log.info(f"Starting scrape with areas: {selected_areas}")
         app_signals.areas_selected.emit(selected_areas)
 
@@ -529,6 +562,16 @@ class TablePage(QWidget):
                     page.reset_to_defaults()
                 except Exception:
                     pass
+        # Reset sidebar filter state so stale date/media filters from a previous
+        # scrape don't carry over and silently filter the next model's results.
+        try:
+            self.sidebar.reset_all()
+        except Exception:
+            pass
+        try:
+            self.data_table.reset_filter()
+        except Exception:
+            pass
         # Clear the table and progress panel so old results don't linger
         try:
             self.data_table.clear_all()

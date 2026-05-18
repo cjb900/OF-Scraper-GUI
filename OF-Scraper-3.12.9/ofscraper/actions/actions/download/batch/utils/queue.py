@@ -30,6 +30,8 @@ def queue_process(pipe_, task1, total):
                 results = pipe_.recv()
                 if not isinstance(results, list):
                     results = [results]
+            except EOFError:
+                break
             except Exception as E:
                 common_globals.log.traceback_(E)
                 common_globals.log.traceback_(traceback.format_exc())

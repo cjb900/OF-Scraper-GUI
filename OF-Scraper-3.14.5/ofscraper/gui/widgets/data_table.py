@@ -23,6 +23,7 @@ COLUMNS = [
     "Download_Cart",
     "UserName",
     "Downloaded",
+    "Duplicate",
     "Unlocked",
     "other_posts_with_media",
     "Length",
@@ -107,6 +108,8 @@ class MediaDataTable(QTableWidget):
                 self.setColumnWidth(i, 300)
             elif col in ("Download_Cart", "Number"):
                 self.setColumnWidth(i, 100)
+            elif col == "Duplicate":
+                self.setColumnWidth(i, 90)
             else:
                 self.setColumnWidth(i, 120)
 
@@ -225,7 +228,7 @@ class MediaDataTable(QTableWidget):
                     item.setForeground(QColor(_cart_color(display)))
                     item.setFont(QFont("Consolas", 11, QFont.Weight.Bold))
 
-                # Style downloaded/unlocked/price columns
+                # Style downloaded/duplicate/unlocked/price columns
                 if col_lower == "downloaded":
                     if display == "True":
                         item.setForeground(QColor(c("green")))
@@ -233,6 +236,12 @@ class MediaDataTable(QTableWidget):
                         item.setForeground(QColor(c("surface2")))
                     else:
                         item.setForeground(QColor(c("red")))
+                elif col_lower == "duplicate":
+                    if display == "Duplicate":
+                        item.setForeground(QColor(c("peach")))
+                        item.setToolTip("Same media_id already appears above — will be skipped by the download pipeline")
+                    else:
+                        item.setForeground(QColor(c("surface2")))
                 elif col_lower == "unlocked":
                     if display == "Locked":
                         item.setForeground(QColor(c("surface2")))

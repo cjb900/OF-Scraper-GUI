@@ -362,10 +362,9 @@ class TablePage(QWidget):
         except Exception:
             # Don't block scraping if the UI reset fails
             pass
-        # Push the current filter state into the table so rows that arrive
-        # live during the scrape are already filtered as they come in.
+        # Clear any stale filter from a previous scrape so all incoming rows are visible.
         try:
-            self.data_table.apply_filter(self.sidebar.collect_state())
+            self.data_table.reset_filter()
         except Exception:
             pass
         try:
@@ -452,21 +451,30 @@ class TablePage(QWidget):
                     and fs.date_enabled.isChecked()
                 )
                 if date_enabled:
+                    # Treat a date at its minimumDate() as "not set" — this is
+                    # what the "No min" / "No max" special-value text signals.
+                    # Passing None lets workflow.py skip args.after / args.before
+                    # independently, so the user can use just --after or just --before.
+                    _min_w = getattr(fs, "min_date", None)
+                    _max_w = getattr(fs, "max_date", None)
                     from_date = (
-                        fs.min_date.date().toString("yyyy-MM-dd")
-                        if getattr(fs, "min_date", None)
+                        _min_w.date().toString("yyyy-MM-dd")
+                        if _min_w and _min_w.date() != _min_w.minimumDate()
                         else None
                     )
                     to_date = (
-                        fs.max_date.date().toString("yyyy-MM-dd")
-                        if getattr(fs, "max_date", None)
+                        _max_w.date().toString("yyyy-MM-dd")
+                        if _max_w and _max_w.date() != _max_w.minimumDate()
                         else None
                     )
                     app_signals.date_range_configured.emit(
                         {"enabled": True, "from_date": from_date, "to_date": to_date}
                     )
-                # else: sidebar date filter is off — preserve any existing
-                # date range (e.g. set by the LLM assistant via set_date_filter)
+                else:
+                    # Sidebar date filter is off — explicitly clear any stale
+                    # date range so the next scrape is not filtered by the
+                    # previous run's date window.
+                    app_signals.date_range_configured.emit({"enabled": False})
         except Exception:
             pass
 
@@ -497,8 +505,22 @@ class TablePage(QWidget):
         self.start_scraping_btn.setEnabled(True)
         self.start_scraping_btn.setText("Start Scraping >>")
         self.daemon_status_label.hide()
-        # Auto-apply sidebar filters (e.g. date range) so the table reflects
-        # the same criteria used for downloading without requiring a manual click.
+        # Reset downloaded/unlocked status filters so all scraped items are
+        # visible — the scrape-time filter controlled what got downloaded, but
+        # after completing, items marked "True" would be hidden if dl_true was
+        # unchecked (causing the 0/N rows (filtered) bug after download).
+        try:
+            for cb in (
+                self.sidebar.dl_true,
+                self.sidebar.dl_false,
+                self.sidebar.dl_no,
+                self.sidebar.ul_true,
+                self.sidebar.ul_false,
+                self.sidebar.ul_not_paid,
+            ):
+                cb.setChecked(True)
+        except Exception:
+            pass
         self._on_filter()
 
     @pyqtSlot(str)
@@ -667,6 +689,19 @@ class TablePage(QWidget):
         # Ask about resetting options
         if self._ask_reset_options():
             self._reset_all_pages()
+
+        # Always reset destructive advanced options so they never silently
+        # carry over from a previous run to the next new scrape.
+        try:
+            main_window = self.window()
+            ap = getattr(main_window, "area_page", None)
+            if ap:
+                for attr in ("rescrape_all_check", "delete_db_check", "delete_downloads_check"):
+                    cb = getattr(ap, attr, None)
+                    if cb:
+                        cb.setChecked(False)
+        except Exception:
+            pass
 
         self._reset_scrape_controls()
         self._navigate_to_action_page()

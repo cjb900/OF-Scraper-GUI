@@ -3,9 +3,9 @@ import shutil
 import subprocess
 import re
 import logging
-import ofscraper.utils.settings as settings
 from ofscraper.utils.system.subprocess import run
 import ofscraper.utils.of_env.of_env as env
+import ofscraper.utils.config.data as config_data
 
 log = logging.getLogger("shared")
 
@@ -78,8 +78,8 @@ def get_ffmpeg() -> str:
 
     log.debug("Searching for a valid FFmpeg binary...")
 
-    # Step 1: Check the path from settings.
-    path_from_settings = settings.get_settings().ffmpeg
+    # Step 1: Check the path from config (settings.get_settings().ffmpeg is never populated).
+    path_from_settings = config_data.get_ffmpeg()
     log.debug(f"Checking settings for ffmpeg path. Found: '{path_from_settings}'")
     if _is_valid_ffmpeg(path_from_settings):
         _ffmpeg_path = path_from_settings

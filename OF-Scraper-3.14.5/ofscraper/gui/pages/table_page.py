@@ -457,21 +457,30 @@ class TablePage(QWidget):
                     and fs.date_enabled.isChecked()
                 )
                 if date_enabled:
+                    # Treat a date at its minimumDate() as "not set" — this is
+                    # what the "No min" / "No max" special-value text signals.
+                    # Passing None lets workflow.py skip args.after / args.before
+                    # independently, so the user can use just --after or just --before.
+                    _min_w = getattr(fs, "min_date", None)
+                    _max_w = getattr(fs, "max_date", None)
                     from_date = (
-                        fs.min_date.date().toString("yyyy-MM-dd")
-                        if getattr(fs, "min_date", None)
+                        _min_w.date().toString("yyyy-MM-dd")
+                        if _min_w and _min_w.date() != _min_w.minimumDate()
                         else None
                     )
                     to_date = (
-                        fs.max_date.date().toString("yyyy-MM-dd")
-                        if getattr(fs, "max_date", None)
+                        _max_w.date().toString("yyyy-MM-dd")
+                        if _max_w and _max_w.date() != _max_w.minimumDate()
                         else None
                     )
                     app_signals.date_range_configured.emit(
                         {"enabled": True, "from_date": from_date, "to_date": to_date}
                     )
-                # else: sidebar date filter is off — preserve any existing
-                # date range (e.g. set by the LLM assistant via set_date_filter)
+                else:
+                    # Sidebar date filter is off — explicitly clear any stale
+                    # date range so the next scrape is not filtered by the
+                    # previous run's date window.
+                    app_signals.date_range_configured.emit({"enabled": False})
         except Exception:
             pass
 

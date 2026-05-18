@@ -1,6 +1,7 @@
 import asyncio
 import pathlib
 import re
+import threading
 import traceback
 from functools import partial
 
@@ -25,6 +26,7 @@ import ofscraper.utils.auth.request as auth_requests
 import ofscraper.utils.cache.cache as cache
 import ofscraper.utils.dates as dates
 import ofscraper.utils.of_env.of_env as of_env
+import ofscraper.utils.settings as settings
 import ofscraper.utils.system.system as system
 from ofscraper.utils.system.subprocess import async_run
 from ofscraper.utils.system.ffprobe import verify_media_integrity
@@ -49,6 +51,26 @@ from ofscraper.utils.system.ffmpeg import get_ffmpeg
 # Media Objects
 from ofscraper.classes.of.media import Media
 from ofscraper.db.operations_.media import mark_media_as_downloaded
+
+
+# Serializes the exists-check + file-move so concurrent alt-downloads of the
+# same media don't both see an empty destination and overwrite each other.
+_alt_move_lock = threading.Lock()
+
+
+def _atomic_alt_move_with_dupe_check(temp, base_path, ele, allow_dupe):
+    with _alt_move_lock:
+        path_to_file = pathlib.Path(base_path)
+        if allow_dupe and path_to_file.exists():
+            counter = 1
+            while True:
+                candidate = path_to_file.parent / f"{path_to_file.stem} ({counter}){path_to_file.suffix}"
+                if not candidate.exists():
+                    path_to_file = candidate
+                    break
+                counter += 1
+        common_paths.moveHelper(temp, path_to_file, ele)
+        return path_to_file
 
 
 class AltDownloadManager(DownloadManager):
@@ -97,8 +119,10 @@ class AltDownloadManager(DownloadManager):
 
     async def _alt_download_downloader(self, item, c, ele):
         self._downloadspace()
+        # id(ele) distinguishes copy.copy() duplicates that share media_id/post_id,
+        # preventing concurrent stream downloads from writing to the same .part file.
         placeholderObj = await placeholder.tempFilePlaceholder(
-            ele, f"{item['name']}.part"
+            ele, f"{item['name']}_{id(ele)}.part"
         ).init()
         item["path"] = placeholderObj.tempfilepath
         item["total"] = None
@@ -352,19 +376,23 @@ class AltDownloadManager(DownloadManager):
             temp_path.unlink(missing_ok=True)
             raise Exception("Merged DRM media failed integrity check")
 
-        common_globals.log.debug(
-            f"Moving intermediate path {temp_path} to {sharedPlaceholderObj.trunicated_filepath}"
-        )
-
-        # Thread executor for disk I/O move operation
-        await asyncio.get_event_loop().run_in_executor(
+        # Atomically check for a duplicate destination and move the merged file.
+        # Running both the exists-check and the rename inside one threading.Lock
+        # prevents two concurrent alt-downloads from both seeing an empty path,
+        # claiming the same filename, and overwriting each other.
+        allow_dupe = bool(getattr(settings.get_settings(), "allow_dupe_downloads", False))
+        path_to_file = await asyncio.get_event_loop().run_in_executor(
             common_globals.thread,
             partial(
-                common_paths.moveHelper,
+                _atomic_alt_move_with_dupe_check,
                 temp_path,
                 sharedPlaceholderObj.trunicated_filepath,
                 ele,
+                allow_dupe,
             ),
+        )
+        common_globals.log.debug(
+            f"Moved merged file to {path_to_file}"
         )
 
         (
@@ -382,7 +410,7 @@ class AltDownloadManager(DownloadManager):
                 common_globals.thread,
                 partial(
                     common_paths.set_time,
-                    sharedPlaceholderObj.trunicated_filepath,
+                    path_to_file,
                     newDate,
                 ),
             )
@@ -390,21 +418,21 @@ class AltDownloadManager(DownloadManager):
         if ele.id:
             await mark_media_as_downloaded(
                 ele,
-                filepath=sharedPlaceholderObj.trunicated_filepath,
+                filepath=path_to_file,
                 model_id=model_id,
                 username=username,
                 downloaded=True,
-                hashdata=await common.get_hash(sharedPlaceholderObj),
-                size=sharedPlaceholderObj.size,
+                hashdata=await common.get_hash(path_to_file),
+                size=path_to_file.stat().st_size if path_to_file.exists() else None,
             )
-        ele.add_filepath(sharedPlaceholderObj.trunicated_filepath)
+        ele.add_filepath(path_to_file)
 
-        await self._after_download_script(sharedPlaceholderObj.trunicated_filepath)
+        await self._after_download_script(path_to_file)
 
         try:
             from ofscraper.plugins.manager import plugin_manager
 
-            _final = sharedPlaceholderObj.trunicated_filepath
+            _final = path_to_file
             _final_s = str(pathlib.Path(_final)) if _final is not None else _final
             _n = len(plugin_manager.plugins)
             _name = pathlib.Path(_final_s).name if _final_s else "?"

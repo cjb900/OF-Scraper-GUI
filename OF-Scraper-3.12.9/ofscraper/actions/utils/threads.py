@@ -1,6 +1,8 @@
 import time
 import logging
 
+STALL_TIMEOUT = 600  # seconds with no queue-thread progress before killing child processes
+
 
 def start_threads(queue_threads, processes):
     [thread.start() for thread in queue_threads]
@@ -11,14 +13,28 @@ def handle_threads(queue_threads, processes, log_threads):
     log = logging.getLogger("shared")
     log.debug(f"Initial Queue Threads: {queue_threads}")
     log.debug(f"Number of initial Queue Threads: {len(queue_threads)}")
+    stall_start = time.time()
+    prev_alive = len(queue_threads)
     while True:
         newqueue_threads = list(filter(lambda x: x and x.is_alive(), queue_threads))
         if len(newqueue_threads) != len(queue_threads):
             log.debug(f"Remaining Queue Threads: {newqueue_threads}")
             log.debug(f"Number of Queue Threads: {len(newqueue_threads)}")
-        if len(queue_threads) == 0:
+            stall_start = time.time()
+            prev_alive = len(newqueue_threads)
+        if len(newqueue_threads) == 0:
             break
         queue_threads = newqueue_threads
+        if time.time() - stall_start > STALL_TIMEOUT:
+            log.warning(
+                f"[Watchdog] No queue-thread progress for {STALL_TIMEOUT}s "
+                f"({len(queue_threads)} thread(s) still alive). "
+                "Terminating stuck child processes."
+            )
+            for process in processes:
+                if process.is_alive():
+                    process.terminate()
+            stall_start = time.time()
         for thread in queue_threads:
             thread.join(timeout=0.1)
         time.sleep(0.5)

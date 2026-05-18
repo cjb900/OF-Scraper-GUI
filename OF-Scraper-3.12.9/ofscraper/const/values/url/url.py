@@ -40,8 +40,8 @@ postURL = "https://onlyfans.com/{}/{}"
 
 donateEP = "https://www.buymeacoffee.com/excludedBittern"
 
-purchased_contentEP = "https://onlyfans.com/api2/v2/posts/paid?limit=100&skip_users=all&format=infinite&offset={}&user_id={}"
-purchased_contentALL = "https://onlyfans.com/api2/v2/posts/paid?limit=100&skip_users=all&format=infinite&offset={}"
+purchased_contentEP = "https://onlyfans.com/api2/v2/posts/paid/all?limit=100&skip_users=all&format=infinite&offset={}&author={}"
+purchased_contentALL = "https://onlyfans.com/api2/v2/posts/paid/all?limit=100&skip_users=all&format=infinite&offset={}"
 
 highlightSPECIFIC = "https://onlyfans.com/api2/v2/stories/highlights/{}"
 storiesSPECIFIC = "https://onlyfans.com/api2/v2/stories/{}"

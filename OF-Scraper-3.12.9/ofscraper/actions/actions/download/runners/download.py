@@ -11,6 +11,7 @@ r"""
                                                                                       
 """
 
+import logging
 import traceback
 
 import ofscraper.actions.utils.globals as common_globals
@@ -41,5 +42,8 @@ async def download(c, ele, model_id, username, multi=False):
         common_globals.log.debug(f"{get_medialog(ele)} exception {E}")
         common_globals.log.debug(
             f"{get_medialog(ele)} exception {traceback.format_exc()}"
+        )
+        logging.getLogger("shared").warning(
+            f"{get_medialog(ele)} Download failed: {E}"
         )
         return "skipped", 0

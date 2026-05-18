@@ -297,8 +297,9 @@ class AreaSelectorPage(QWidget):
         )
         self.allow_dupes_check.setFont(QFont("Segoe UI", 11))
         self.allow_dupes_check.setToolTip(
-            "Disables duplicate-skipping logic.\n"
-            "When enabled, reposted media will appear as separate entries in the table."
+            "When enabled, the duplicate media filter is bypassed completely.\n"
+            "All media — including identical content reposted across multiple posts — will be included.\n"
+            "Other filters (locked, types, date ranges, etc.) still apply."
         )
         row = QHBoxLayout()
         row.addWidget(self.allow_dupes_check)

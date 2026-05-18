@@ -58,6 +58,7 @@ import ofscraper.actions.actions.download.utils.keyhelpers as keyhelpers
 import ofscraper.utils.cache as cache
 import ofscraper.utils.live.updater as progress_updater
 from ofscraper.actions.utils.send.message import send_msg
+import ofscraper.utils.args.accessors.read as read_args
 
 
 class AltDownloadManager(DownloadManager):
@@ -315,13 +316,31 @@ class AltDownloadManager(DownloadManager):
 
         video["path"].unlink(missing_ok=True)
         audio["path"].unlink(missing_ok=True)
-       
+
+        path_to_file = sharedPlaceholderObj.trunicated_filepath
+        # With allow_dupe_downloads, the same media can appear in multiple posts.
+        # When two entries resolve to the same filename, append " (N)" to keep both.
+        if (
+            bool(getattr(read_args.retriveArgs(), "allow_dupe_downloads", False))
+            and pathlib.Path(path_to_file).exists()
+        ):
+            p = pathlib.Path(path_to_file)
+            counter = 1
+            while True:
+                candidate = p.parent / f"{p.stem} ({counter}){p.suffix}"
+                if not candidate.exists():
+                    path_to_file = candidate
+                    common_globals.log.debug(
+                        f"{common_logs.get_medialog(ele)} duplicate filename — saving as {candidate.name}"
+                    )
+                    break
+                counter += 1
 
         common_globals.log.debug(
-            f"Moving intermediate path {temp_path} to {sharedPlaceholderObj.trunicated_filepath}"
+            f"Moving intermediate path {temp_path} to {path_to_file}"
         )
         common_paths.moveHelper(
-            temp_path, sharedPlaceholderObj.trunicated_filepath, ele
+            temp_path, path_to_file, ele
         )
         (
             common_paths.addGlobalDir(sharedPlaceholderObj.filedir)
@@ -333,21 +352,21 @@ class AltDownloadManager(DownloadManager):
             common_globals.log.debug(
                 f"{common_logs.get_medialog(ele)} Attempt to set Date to {arrow.get(newDate).format('YYYY-MM-DD HH:mm')}"
             )
-            common_paths.set_time(sharedPlaceholderObj.trunicated_filepath, newDate)
+            common_paths.set_time(path_to_file, newDate)
             common_globals.log.debug(
-                f"{common_logs.get_medialog(ele)} Date set to {arrow.get(sharedPlaceholderObj.trunicated_filepath.stat().st_mtime).format('YYYY-MM-DD HH:mm')}"
+                f"{common_logs.get_medialog(ele)} Date set to {arrow.get(path_to_file.stat().st_mtime).format('YYYY-MM-DD HH:mm')}"
             )
         if ele.id:
             await download_media_update(
                 ele,
-                filepath=sharedPlaceholderObj.trunicated_filepath,
+                filepath=path_to_file,
                 model_id=model_id,
                 username=username,
                 downloaded=True,
                 hashdata=await common.get_hash(
-                    sharedPlaceholderObj, mediatype=ele.mediatype
+                    path_to_file, mediatype=ele.mediatype
                 ),
-                size=sharedPlaceholderObj.size,
+                size=path_to_file.stat().st_size if path_to_file.exists() else None,
             )
         common.add_additional_data(sharedPlaceholderObj, ele)
         return ele.mediatype, video["total"] + audio["total"]

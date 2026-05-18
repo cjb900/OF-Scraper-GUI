@@ -160,6 +160,23 @@ class WidevineMasterAutomator:
         else:
             print("✅ KeyDive is already installed in the venv.")
 
+        # Validate frida is importable in the venv.  frida 17.9.x Windows wheels
+        # are missing the Cancellable attribute and raise AttributeError on import,
+        # which crashes keydive before it can attach.  Detect and fix proactively.
+        verify = subprocess.run(
+            [self.venv_python, "-c", "import frida; print(frida.__version__)"],
+            capture_output=True, text=True,
+        )
+        if verify.returncode != 0:
+            err = (verify.stderr or verify.stdout or "").strip()
+            print(f"⚠️  Frida import failed in venv: {err[:300]}")
+            print("   Reinstalling frida with version constraint (frida<17.9)...")
+            self.run_cmd([self.venv_python, "-m", "pip", "install",
+                          "--force-reinstall", "frida<17.9"])
+        else:
+            frida_ver = verify.stdout.strip()
+            print(f"   ✅ Frida {frida_ver} OK.")
+
     # ── Java (required by sdkmanager on all platforms) ────────────────────────
 
     def _ensure_java(self):
@@ -387,6 +404,11 @@ class WidevineMasterAutomator:
         else:
             print("✅ SDK components already installed.")
 
+        # On Linux: upgrade emulator to >= 36.5 if older — 36.4.x crashes under
+        # TCG software emulation when frida-server starts on kernel 7.x.
+        if self.os_type == "Linux" and os.path.exists(self.emulator_bin):
+            self._ensure_emulator_version()
+
         # Verify adb is actually present after installation.
         # On Windows, antivirus software frequently quarantines adb.exe immediately
         # after it is downloaded, causing a silent failure that only surfaces later.
@@ -461,8 +483,127 @@ class WidevineMasterAutomator:
                 print(f"❌ Failed to create AVD:\n{result.stderr[:500]}")
                 sys.exit(1)
             print(f"✅ AVD '{self.avd_name}' created.")
+
+            # Verify the .ini pointer file is where the emulator expects it.
+            # Some SDK cmdline-tools versions (e.g. 14.x) write the .ini to a
+            # different location when ANDROID_AVD_HOME is set.  The emulator
+            # checks ONLY $ANDROID_AVD_HOME when that variable is defined — it
+            # does NOT fall through to $HOME/.android/avd — so a misplaced .ini
+            # causes "Unknown AVD name" even though the AVD was created successfully.
+            if not os.path.exists(avd_ini):
+                avd_dir_path = os.path.join(avd_home, f"{self.avd_name}.avd")
+                # Search alternative locations avdmanager may have used
+                search_dirs = [
+                    os.path.join(self.home_dir, ".android", "avd"),
+                    os.path.join(self.sdk_dir, "avd"),
+                    os.path.join(os.environ.get("ANDROID_SDK_HOME", ""), "avd"),
+                ]
+                found_ini = False
+                for search_dir in search_dirs:
+                    if not search_dir or not os.path.isdir(search_dir):
+                        continue
+                    alt_ini = os.path.join(search_dir, f"{self.avd_name}.ini")
+                    if os.path.exists(alt_ini) and os.path.abspath(alt_ini) != os.path.abspath(avd_ini):
+                        print(f"   ⚠️  AVD .ini found in alternate location ({search_dir}), copying to expected path...")
+                        os.makedirs(avd_home, exist_ok=True)
+                        shutil.copy(alt_ini, avd_ini)
+                        found_ini = True
+                        break
+                    # Track if the .avd dir itself is somewhere else
+                    alt_avd_dir = os.path.join(search_dir, f"{self.avd_name}.avd")
+                    if os.path.isdir(alt_avd_dir):
+                        avd_dir_path = alt_avd_dir
+                if not found_ini:
+                    # Create the .ini pointer file from scratch
+                    print(f"   ⚠️  AVD .ini missing from expected location — creating it at {avd_ini}")
+                    os.makedirs(avd_home, exist_ok=True)
+                    with open(avd_ini, "w") as _f:
+                        _f.write("avd.ini.encoding=UTF-8\n")
+                        _f.write(f"path={avd_dir_path}\n")
+                        _f.write(f"path.rel=avd/{self.avd_name}.avd\n")
+                        _f.write(f"target=android-29\n")
         else:
             print(f"✅ AVD '{self.avd_name}' already exists.")
+
+    def _ensure_emulator_version(self):
+        """Upgrade the emulator to ≥ 36.5.0 if needed, and wipe AVD data whenever
+        the emulator version has changed since the AVD was last used.
+
+        36.4.x crashes under TCG software emulation on Linux kernel 7.x.
+        After an upgrade (or after a prior run upgraded without wiping), the old
+        AVD's userdata.img / hardware-qemu.ini are incompatible with the new
+        emulator — adb root kills it mid-boot.  We track the version that last
+        used the AVD in a stamp file and wipe whenever the version changes."""
+        try:
+            r = subprocess.run(
+                [self.emulator_bin, "-version"],
+                capture_output=True, text=True, timeout=15,
+                env=self._sdk_env(),
+            )
+            m = re.search(r"version (\d+\.\d+\.\d+)", r.stdout + r.stderr)
+            if not m:
+                return
+            current_ver = m.group(0).split("version ", 1)[-1]  # e.g. "36.5.1"
+            major, minor = int(current_ver.split(".")[0]), int(current_ver.split(".")[1])
+
+            if (major, minor) < (36, 5):
+                print(f"⚠️  Emulator {current_ver} detected — updating to ≥ 36.5.0...")
+                print("   (36.4.x crashes under TCG software emulation on Linux kernel 7.x)")
+                upd = subprocess.run(
+                    [self.sdkmanager, f"--sdk_root={self.sdk_dir}", "emulator"],
+                    input="y\n" * 10,
+                    text=True,
+                    capture_output=True,
+                    env=self._sdk_env(),
+                )
+                if upd.returncode == 0:
+                    print("✅ Emulator updated.")
+                    # Re-read version after update
+                    r2 = subprocess.run(
+                        [self.emulator_bin, "-version"],
+                        capture_output=True, text=True, timeout=15,
+                        env=self._sdk_env(),
+                    )
+                    m2 = re.search(r"version (\d+\.\d+\.\d+)", r2.stdout + r2.stderr)
+                    if m2:
+                        current_ver = m2.group(0).split("version ", 1)[-1]
+                else:
+                    print("⚠️  Emulator update failed — proceeding with installed version.")
+
+            # Compare current emulator version against what the AVD was last used with.
+            # Wipe whenever there is a mismatch so the new emulator can reinitialise
+            # the AVD cleanly (avoids adb-root crashes from stale userdata.img).
+            avd_dir = os.path.join(
+                self.home_dir, ".android", "avd", f"{self.avd_name}.avd"
+            )
+            ver_stamp = os.path.join(avd_dir, ".ofscraper_emulator_version")
+            saved_ver = None
+            if os.path.exists(ver_stamp):
+                try:
+                    with open(ver_stamp) as f:
+                        saved_ver = f.read().strip()
+                except Exception:
+                    pass
+
+            if saved_ver != current_ver:
+                if saved_ver:
+                    print(f"   AVD last used with emulator {saved_ver}, now {current_ver}"
+                          f" — wiping AVD data for compatibility.")
+                else:
+                    print(f"   AVD emulator version untracked — wiping AVD data to ensure"
+                          f" compatibility with emulator {current_ver}.")
+                self._emulator_upgraded = True
+                # Write stamp now so the next run does not wipe again needlessly.
+                # (The flag still triggers -wipe-data in _launch_emulator_proc.)
+                os.makedirs(avd_dir, exist_ok=True)
+                try:
+                    with open(ver_stamp, "w") as f:
+                        f.write(current_ver)
+                except Exception:
+                    pass
+
+        except Exception as e:
+            print(f"⚠️  Could not verify emulator version: {e}")
 
     # ── Emulator ──────────────────────────────────────────────────────────────
 
@@ -470,7 +611,7 @@ class WidevineMasterAutomator:
         if self.os_type == "Windows":
             return ["-accel", "auto"]   # emulator picks WHPX/HAXM/TCG automatically
         elif self.os_type == "Linux":
-            return ["-accel", "kvm"] if os.path.exists("/dev/kvm") else ["-accel", "auto"]
+            return ["-accel", "on"] if os.path.exists("/dev/kvm") else ["-accel", "auto"]
         else:
             return ["-accel", "hvf"]
 
@@ -513,8 +654,14 @@ class WidevineMasterAutomator:
             "-gpu",   gpu,
             "-partition-size", str(self._userdata_partition_mb()),
         ] + accel
+        if getattr(self, "_emulator_upgraded", False):
+            cmd.append("-wipe-data")
+            print("   (Wiping AVD data — emulator was just upgraded, old AVD state may be incompatible)")
+            self._emulator_upgraded = False
         accel_label = " ".join(accel) if accel else "none"
         print(f"   Acceleration: {accel_label}  GPU: {gpu}")
+        print(f"   Command: {' '.join(cmd)}")
+        self._last_emulator_cmd = cmd
         return subprocess.Popen(cmd, env=self._sdk_env(), stdout=log_file, stderr=log_file)
 
     def _check_windows_acceleration(self):
@@ -630,12 +777,94 @@ class WidevineMasterAutomator:
     def _show_emulator_log(self, tail=60):
         log = getattr(self, "emulator_log", None)
         if log and os.path.exists(log):
-            print("\n--- Emulator log (last lines) ---")
             with open(log) as f:
                 lines = f.readlines()
+            print(f"\n--- Emulator log ({len(lines)} lines total, showing last {min(tail, len(lines))}) ---")
             for line in lines[-tail:]:
                 print(line, end="")
             print("--- End of log ---\n")
+
+    def _dump_system_diagnostics(self, exit_code=None):
+        """Print system-level diagnostics to help identify why the emulator was killed."""
+        if self.os_type != "Linux":
+            return
+        print("\n=== System Diagnostics ===")
+        if exit_code == -9:
+            print("   ⚠️  Emulator was killed by SIGKILL (-9).")
+            print("   This is usually the Linux OOM killer (kernel or systemd-oomd)")
+            print("   terminating the emulator due to memory pressure.")
+
+        # 1. Current memory state
+        print("\n--- Memory (free -m) ---")
+        try:
+            r = subprocess.run(["free", "-m"], capture_output=True, text=True, timeout=5)
+            print(r.stdout.strip())
+        except Exception as e:
+            print(f"   (free -m failed: {e})")
+
+        # 2. OOM / kill messages from kernel ring buffer
+        print("\n--- dmesg: OOM / kill events (last 30 lines matching) ---")
+        try:
+            dmesg = subprocess.run(["dmesg", "--notime"], capture_output=True, text=True, timeout=10)
+            oom_lines = [l for l in dmesg.stdout.splitlines()
+                         if any(kw in l for kw in ("oom", "OOM", "Killed", "kill", "out of memory",
+                                                   "emulator", "qemu", "Memory cgroup"))]
+            if oom_lines:
+                for l in oom_lines[-30:]:
+                    print(f"   {l}")
+            else:
+                print("   (no OOM/kill events found in dmesg)")
+        except Exception as e:
+            print(f"   (dmesg failed: {e})")
+
+        # 3. systemd-oomd status
+        print("\n--- systemd-oomd status ---")
+        try:
+            r = subprocess.run(["systemctl", "is-active", "systemd-oomd"],
+                               capture_output=True, text=True, timeout=5)
+            status = r.stdout.strip()
+            print(f"   systemd-oomd: {status}")
+            if status == "active":
+                print("   ⚠️  systemd-oomd is running — it may have killed the emulator.")
+                print("   Check: journalctl -u systemd-oomd -n 20")
+        except Exception as e:
+            print(f"   (systemctl check failed: {e})")
+
+        # 4. Recent journalctl kills
+        print("\n--- journalctl: recent OOM / kill events ---")
+        try:
+            r = subprocess.run(
+                ["journalctl", "-n", "50", "--no-pager", "--output=short"],
+                capture_output=True, text=True, timeout=10,
+            )
+            kill_lines = [l for l in r.stdout.splitlines()
+                          if any(kw in l.lower() for kw in ("oom", "killed", "memory", "emulator"))]
+            if kill_lines:
+                for l in kill_lines[-20:]:
+                    print(f"   {l}")
+            else:
+                print("   (no relevant entries in recent journalctl)")
+        except Exception as e:
+            print(f"   (journalctl failed: {e})")
+
+        # 5. /proc/meminfo key fields
+        print("\n--- /proc/meminfo (key fields) ---")
+        try:
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    if any(k in line for k in ("MemTotal", "MemFree", "MemAvailable",
+                                               "SwapTotal", "SwapFree", "Committed")):
+                        print(f"   {line.rstrip()}")
+        except Exception as e:
+            print(f"   (/proc/meminfo failed: {e})")
+
+        # 6. Emulator command that was run
+        cmd = getattr(self, "_last_emulator_cmd", None)
+        if cmd:
+            print(f"\n--- Emulator command ---")
+            print(f"   {' '.join(cmd)}")
+
+        print("=== End Diagnostics ===\n")
 
     @staticmethod
     def _find_powershell():
@@ -834,7 +1063,9 @@ class WidevineMasterAutomator:
 
         def _fail(reason):
             print(f"\n❌ {reason}")
+            exit_code = proc.poll() if proc else None
             self._show_emulator_log()
+            self._dump_system_diagnostics(exit_code=exit_code)
             if not self._accel_fallback_tried:
                 self._retry_with_software_accel()
                 self.wait_for_boot(timeout=900)   # 15 min for slow TCG
@@ -886,21 +1117,12 @@ class WidevineMasterAutomator:
                 capture_output=True, text=True,
             )
             if res.stdout.strip() == "1":
-                print(f"\n✅ Boot complete ({_elapsed()}s). Rooting...")
-                subprocess.run([self.adb, "-s", self.target, "root"], capture_output=True)
-                # `adb root` restarts the ADB daemon on-device, which briefly takes
-                # the device offline.  Wait until it's online again before returning.
-                print("   Waiting for device to come back online after root...", flush=True)
-                for _ in range(30):
-                    time.sleep(2)
-                    r = subprocess.run(
-                        [self.adb, "-s", self.target, "get-state"],
-                        capture_output=True, text=True,
-                    )
-                    if r.stdout.strip() == "device":
-                        break
-                else:
-                    print("   ⚠️  Device did not fully come back online after root — continuing anyway.")
+                print(f"\n✅ Boot complete ({_elapsed()}s).")
+                # Do NOT call "adb root" here.  On Linux kernel 7.x (e.g. Pika OS)
+                # the adbd restart triggered by "adb root" crashes the QEMU process.
+                # Root is obtained per-command in install_frida() via "su 0" instead.
+                # Wait briefly for first-boot init jobs to finish before we push files.
+                time.sleep(15)
                 return
 
             print(f"\r   [Phase 2] Booting... {_elapsed()}s elapsed, ~{_remaining()}s remaining   ", end="", flush=True)
@@ -933,11 +1155,158 @@ class WidevineMasterAutomator:
                     f.write(xz.read())
 
         self.run_adb(["push", fs_path, "/data/local/tmp/frida-server"])
-        self.run_adb(["shell", "chmod", "755", "/data/local/tmp/frida-server"])
-        subprocess.Popen(
-            [self.adb, "-s", self.target, "shell", "/data/local/tmp/frida-server"]
+        # chmod: adb push makes the file owned by the shell user, so the shell
+        # user can chmod it — no root needed here.
+        self.run_adb(["shell", "chmod", "755", "/data/local/tmp/frida-server"], check=False)
+
+        # Start frida-server as root WITHOUT calling "adb root".
+        # Strategy: hold an open adb shell session running "su 0 frida-server"
+        # in a background Popen.  This keeps the process alive (it won't be
+        # orphan-killed when the shell exits) and avoids the "adb root" adbd
+        # restart that crashes QEMU on Linux kernel 7.x (Pika OS).
+        print("   Launching frida-server via persistent 'su 0' shell...")
+        self._frida_proc = subprocess.Popen(
+            [self.adb, "-s", self.target, "shell", "su", "0",
+             "/data/local/tmp/frida-server"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
-        time.sleep(3)
+        # Give frida-server a moment to start listening on its port.
+        time.sleep(5)
+
+        # Verify it's actually running.
+        pid_r = self.run_adb(["shell", "pidof", "frida-server"], capture=True, check=False)
+        pid = pid_r.stdout.strip() if pid_r else ""
+        if pid:
+            print(f"   ✅ Frida-server running (PID {pid}).")
+        else:
+            print("   ⚠️  'su 0 frida-server' did not stay running — trying 'su root'...")
+            if self._frida_proc.poll() is None:
+                self._frida_proc.terminate()
+            self._frida_proc = subprocess.Popen(
+                [self.adb, "-s", self.target, "shell", "su", "root",
+                 "/data/local/tmp/frida-server"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            time.sleep(5)
+            pid_r2 = self.run_adb(["shell", "pidof", "frida-server"], capture=True, check=False)
+            pid2 = pid_r2.stdout.strip() if pid_r2 else ""
+            if pid2:
+                print(f"   ✅ Frida-server running via 'su root' (PID {pid2}).")
+            else:
+                # Last resort: adb root — risky on kernel 7.x but better than giving up.
+                print("   ⚠️  su not available — falling back to adb root...")
+                print("       (This may be unstable on kernel 7.x / Pika OS)")
+                if self._frida_proc.poll() is None:
+                    self._frida_proc.terminate()
+                subprocess.run([self.adb, "-s", self.target, "root"], capture_output=True)
+                time.sleep(8)
+                self._frida_proc = subprocess.Popen(
+                    [self.adb, "-s", self.target, "shell",
+                     "/data/local/tmp/frida-server"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                time.sleep(5)
+                pid_r3 = self.run_adb(["shell", "pidof", "frida-server"], capture=True, check=False)
+                pid3 = pid_r3.stdout.strip() if pid_r3 else ""
+                if pid3:
+                    print(f"   ✅ Frida-server running via adb root (PID {pid3}).")
+                else:
+                    print("   ❌ Frida-server could not be started by any method.")
+
+    def _preinstall_kaltura(self):
+        """Install the Kaltura APK immediately after boot, before KeyDive starts.
+
+        On TCG (software) emulation, KeyDive's own 'adb install' fails with
+        'Error: Performing Streamed Install'.  KeyDive then can't launch the app,
+        so it kills the emulator without extracting any keys.  Pre-installing here
+        — using --no-streaming as the primary method — ensures the app is on the
+        device before keydive needs it.
+        """
+        package_name = "com.kaltura.kalturadeviceinfo"
+        if self._is_package_installed(package_name, retries=1):
+            print("✅ Kaltura app already installed on device.")
+            return
+
+        apk_path = os.path.join(self.work_dir, "tmp.apk")
+        if not os.path.isfile(apk_path):
+            print("⚠️  Kaltura APK not cached — keydive will install it.")
+            return
+
+        print("📦 Pre-installing Kaltura APK (before KeyDive)...")
+        self.run_adb(["push", apk_path, "/data/local/tmp/tmp.apk"],
+                     check=False, capture=True)
+
+        for attempt in range(3):
+            if attempt > 0:
+                print(f"   Re-waiting for package manager before retry {attempt + 1}/3...")
+                self._wait_for_package_manager(timeout=120)
+
+            pm_crashed = False
+            for args in [
+                ["install", "--no-streaming", "-r", "-g", apk_path],
+                ["install", "-r", "-g", apk_path],
+                ["shell", "pm", "install", "-r", "/data/local/tmp/tmp.apk"],
+            ]:
+                r = subprocess.run(
+                    [self.adb, "-s", self.target] + args,
+                    capture_output=True, text=True,
+                )
+                out = ((r.stdout or "") + (r.stderr or "")).strip()
+                if r.returncode == 0 or "Success" in out:
+                    time.sleep(5)
+                    if self._is_package_installed(package_name, retries=1):
+                        print("✅ Kaltura APK pre-installed successfully.")
+                        return
+                if out:
+                    print(f"   [pre-install] {out[:150]}")
+                if "Broken pipe" in out or "Can't find service" in out:
+                    pm_crashed = True
+                    break  # PM died mid-call — stop inner loop, re-wait and retry
+
+            if not pm_crashed:
+                break  # Non-PM failure (e.g. INSTALL_FAILED_*) — retrying won't help
+
+        print("⚠️  Kaltura pre-install failed — will retry during UI automation.")
+
+    def _wait_for_package_manager(self, timeout=180):
+        """Wait until the Android package manager service is fully ready.
+
+        sys.boot_completed=1 fires before the package manager has finished
+        initialising on slow hardware or TCG (software) emulation.  Any
+        'adb install' or 'pm' call before pm is ready fails with
+        'cmd: Can't find service: package'.
+
+        On heavily-loaded or memory-constrained systems the PM service can
+        start, respond briefly, then crash (causing 'Broken pipe' on install).
+        We require two consecutive successful responses 10 seconds apart to
+        confirm the PM is stable before returning.
+        """
+        print("   Waiting for package manager...", flush=True)
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            r = self.run_adb(
+                ["shell", "pm", "list", "packages", "android"],
+                check=False, capture=True,
+            )
+            if r and "package:android" in (r.stdout or ""):
+                # PM responded — wait 10 s and re-check to confirm stability
+                time.sleep(10)
+                r2 = self.run_adb(
+                    ["shell", "pm", "list", "packages", "android"],
+                    check=False, capture=True,
+                )
+                if r2 and "package:android" in (r2.stdout or ""):
+                    elapsed = int(timeout - (deadline - time.time()))
+                    print(f"   ✅ Package manager ready ({elapsed}s).")
+                    return True
+                print("   Package manager appeared but not yet stable, retrying...",
+                      flush=True)
+            time.sleep(5)
+        print("   ⚠️  Package manager not ready within timeout — proceeding anyway.")
+        return False
 
     def _screencap(self, label="screen"):
         """Save a screenshot from the emulator to the work dir for debugging."""
@@ -1286,7 +1655,38 @@ class WidevineMasterAutomator:
         self._dismiss_anr_dialogs()
         time.sleep(20)   # give slow TCG emulator time to recover after ANR before checking packages
 
+        # On TCG, keydive may have already exported keys and killed the emulator
+        # during our sleeps above (it kills the emulator as part of its own exit).
+        # Check for files immediately before doing any UI work.
+        em_proc = getattr(self, "_emulator_proc", None)
+        if em_proc and em_proc.poll() is not None:
+            for root_dir, _, files in os.walk(device_dir):
+                if "client_id.bin" in files and \
+                        os.path.getsize(os.path.join(root_dir, "client_id.bin")) > 500:
+                    print(f"\n🎯 Keys exported (emulator exited early): {root_dir}")
+                    os.makedirs(self.out_dir, exist_ok=True)
+                    for f in os.listdir(root_dir):
+                        shutil.copy(os.path.join(root_dir, f), self.out_dir)
+                    kd_proc.terminate()
+                    print(f"📦 Files saved to: {self.out_dir}")
+                    return True
+            print("⚠️  Emulator process exited before UI automation — keydive did not extract keys.")
+            kd_proc.terminate()
+            return False
+
         if not self._ensure_kaltura_ready():
+            # keydive may have exported and exited just before we checked —
+            # do a file scan before giving up.
+            for root_dir, _, files in os.walk(device_dir):
+                if "client_id.bin" in files and \
+                        os.path.getsize(os.path.join(root_dir, "client_id.bin")) > 500:
+                    print(f"\n🎯 Keys exported (pre-loop check): {root_dir}")
+                    os.makedirs(self.out_dir, exist_ok=True)
+                    for f in os.listdir(root_dir):
+                        shutil.copy(os.path.join(root_dir, f), self.out_dir)
+                    kd_proc.terminate()
+                    print(f"📦 Files saved to: {self.out_dir}")
+                    return True
             print("❌ Kaltura app is not installed or did not become interactive. UI automation cannot continue.")
             kd_proc.terminate()
             return False
@@ -1332,6 +1732,16 @@ class WidevineMasterAutomator:
                     return True
 
             if kd_proc.poll() is not None:
+                # KeyDive may have exported files just before exiting — check first.
+                for root_dir, _, files in os.walk(device_dir):
+                    if "client_id.bin" in files and \
+                            os.path.getsize(os.path.join(root_dir, "client_id.bin")) > 500:
+                        print(f"\n🎯 Keys exported (post-exit check): {root_dir}")
+                        os.makedirs(self.out_dir, exist_ok=True)
+                        for f in os.listdir(root_dir):
+                            shutil.copy(os.path.join(root_dir, f), self.out_dir)
+                        print(f"📦 Files saved to: {self.out_dir}")
+                        return True
                 print("❌ KeyDive exited unexpectedly.")
                 return False
 
@@ -1423,12 +1833,28 @@ class WidevineMasterAutomator:
                     player_taps  = 0
                     time.sleep(5)
 
+        # Final file scan — KeyDive may have exported and exited just as the loop
+        # ended (timeout or break).  Check once more before declaring failure.
+        for root_dir, _, files in os.walk(device_dir):
+            if "client_id.bin" in files and \
+                    os.path.getsize(os.path.join(root_dir, "client_id.bin")) > 500:
+                print(f"\n🎯 Keys exported (post-loop check): {root_dir}")
+                os.makedirs(self.out_dir, exist_ok=True)
+                for f in os.listdir(root_dir):
+                    shutil.copy(os.path.join(root_dir, f), self.out_dir)
+                kd_proc.terminate()
+                print(f"📦 Files saved to: {self.out_dir}")
+                return True
+
         kd_proc.terminate()
         print("❌ KeyDive timed out without extracting keys.")
         return False
 
     def cleanup(self):
         print("\n🧹 Cleaning up...")
+        fp = getattr(self, "_frida_proc", None)
+        if fp and fp.poll() is None:
+            fp.terminate()
         if not self.skip_emulator:
             self.run_adb(["emu", "kill"], check=False)
 
@@ -1439,7 +1865,29 @@ class WidevineMasterAutomator:
         self.start_emulator()
         self.wait_for_boot()
         self.install_frida()
+        self._wait_for_package_manager()
+        self._preinstall_kaltura()
         success = self.run_keydive()
+        if not success and not self._accel_fallback_tried:
+            # KVM booted fine but the emulator crashed during DRM extraction.
+            # This happens on some kernels where KVM + Widevine are incompatible
+            # (the DRM process crashes when processing a licence under hardware
+            # acceleration).  Retry the entire frida+keydive phase using software
+            # emulation, which serialises all memory ops through TCG and avoids
+            # the crash.
+            emulator_dead = (
+                getattr(self, "_emulator_proc", None) is not None
+                and self._emulator_proc.poll() is not None
+            )
+            if emulator_dead:
+                print("\n⚠️  Emulator crashed during DRM extraction under KVM.")
+                print("   Some kernels have KVM + Widevine compatibility issues.")
+                self._retry_with_software_accel()
+                self.wait_for_boot(timeout=900)
+                self.install_frida()
+                self._wait_for_package_manager()
+                self._preinstall_kaltura()
+                success = self.run_keydive()
         self.cleanup()
         if not success:
             sys.exit(1)

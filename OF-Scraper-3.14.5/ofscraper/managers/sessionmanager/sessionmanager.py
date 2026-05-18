@@ -73,7 +73,7 @@ class SessionSleep:
         self._last_request_time = arrow.get(
             0
         )  # <-- NEW: Tracks when the API was last hit
-        self._alock = asyncio.Lock()
+        self._alock_map = {}  # per event-loop locks to avoid cross-loop RuntimeError
         self._lock = threading.Lock()
         self._init_sleep = (
             sleep if sleep is not None else of_env.getattr("SESSION_SLEEP_INIT")
@@ -118,8 +118,15 @@ class SessionSleep:
                 f"[{self.error_name}] Sleep decay => Reducing sleep to [{self._sleep:.2f} seconds]"
             )
 
+    def _get_alock(self):
+        loop = asyncio.get_running_loop()
+        loop_id = id(loop)
+        if loop_id not in self._alock_map:
+            self._alock_map[loop_id] = asyncio.Lock()
+        return self._alock_map[loop_id]
+
     async def async_do_sleep(self):
-        async with self._alock:
+        async with self._get_alock():
             self._maybe_decay_sleep()
 
             # 1. Backoff mode (We hit an error, take a long nap)

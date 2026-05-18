@@ -38,9 +38,9 @@ def dupefilter(media):
 # dupe filters that prioritize viewable
 def dupefiltermedia(media):
     output = defaultdict(lambda: None)
-    if constants.getattr("ALLOW_DUPE_MEDIA") or bool(
-        getattr(read_args.retriveArgs(), "allow_dupe_downloads", False)
-    ):
+    if bool(getattr(read_args.retriveArgs(), "allow_dupe_downloads", False)):
+        return list(media)
+    if constants.getattr("ALLOW_DUPE_MEDIA"):
         for item in media:
             if not output[(item.id, item.postid)]:
                 output[(item.id, item.postid)] = item

@@ -165,13 +165,17 @@ def create_schema_table(
 @wrapper.operation_wrapper
 def get_schema_changes(model_id=None, username=None, conn=None, db_path=None, **kwargs):
     with contextlib.closing(conn.cursor()) as cur:
-        data = cur.execute(schemaAll).fetchall()
-        return set(list(map(lambda x: x[0], data)))
+        try:
+            data = cur.execute(schemaAll).fetchall()
+            return set(list(map(lambda x: x[0], data)))
+        except sqlite3.OperationalError:
+            return set()
 
 
 @wrapper.operation_wrapper_async
 def add_flag_schema(flag, model_id=None, username=None, conn=None, **kwargs):
     with contextlib.closing(conn.cursor()) as cur:
+        cur.execute(schemaCreate)
         cur.execute(schemaInsert, [flag, 1])
         conn.commit()
 

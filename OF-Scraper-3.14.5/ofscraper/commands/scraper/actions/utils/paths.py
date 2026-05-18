@@ -16,6 +16,21 @@ except ModuleNotFoundError:
     pass
 
 
+def find_unique_path(path):
+    """Return path with (1), (2), ... suffix appended to stem until a non-existing path is found."""
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    counter = 1
+    while True:
+        candidate = parent / f"{stem}({counter}){suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 def moveHelper(temp, path_to_file, ele, log_=None):
     if not path_to_file.exists():
         shutil.move(temp, path_to_file)

@@ -255,12 +255,9 @@ class AreaSelectorPage(QWidget):
         )
         self.allow_dupes_check.setFont(QFont("Segoe UI", 11))
         self.allow_dupes_check.setToolTip(
-            "Uses (media ID + post ID) for deduplication instead of media ID alone, so "
-            "reposts of the same file on different posts stay separate.\n"
-            "The database records downloads per post: another post with the same media "
-            "stays on the queue until that post's row is downloaded.\n"
-            "A post is skipped only if that exact media+post pair is already marked "
-            "downloaded. Other filters (locked, types, avatars, etc.) still apply."
+            "When enabled, the duplicate media filter is bypassed completely.\n"
+            "All media — including identical content reposted across multiple posts — will be included.\n"
+            "Other filters (locked, types, date ranges, etc.) still apply."
         )
         row = QHBoxLayout()
         row.addWidget(self.allow_dupes_check)

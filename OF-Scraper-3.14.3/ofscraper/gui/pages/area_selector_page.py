@@ -282,8 +282,9 @@ class AreaSelectorPage(QWidget):
         )
         self.allow_dupes_check.setFont(QFont("Segoe UI", 11))
         self.allow_dupes_check.setToolTip(
-            "Disables duplicate-skipping logic.\n"
-            "When enabled, reposted media will appear as separate entries in the table."
+            "When enabled, the duplicate media filter is bypassed completely.\n"
+            "All media — including identical content reposted across multiple posts — will be included.\n"
+            "Other filters (locked, types, date ranges, etc.) still apply."
         )
         row = QHBoxLayout()
         row.addWidget(self.allow_dupes_check)
@@ -948,15 +949,11 @@ class AreaSelectorPage(QWidget):
         tgt.text_input.setText(src.text_input.text())
         tgt.fullstring_check.setChecked(src.fullstring_check.isChecked())
 
-        # Media type
-        for mt, cb in src.media_checks.items():
-            if mt in tgt.media_checks:
-                tgt.media_checks[mt].setChecked(cb.isChecked())
-
-        # Response type
-        for rt, cb in src.resp_checks.items():
-            if rt in tgt.resp_checks:
-                tgt.resp_checks[rt].setChecked(cb.isChecked())
+        # NOTE: media_checks and resp_checks are intentionally NOT copied here.
+        # On the area page they control download eligibility; copying them to the
+        # table sidebar would incorrectly hide scraped rows whose type wasn't
+        # selected (e.g. "Timeline" hidden when "timeline" resp_check is unchecked).
+        # The table sidebar keeps its own default (all checked = show all types).
 
         # Downloaded / Unlocked
         tgt.dl_true.setChecked(src.dl_true.isChecked())

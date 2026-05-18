@@ -21,6 +21,7 @@ log = logging.getLogger("shared")
 _gui_cancel_event = threading.Event()
 
 
+
 def _raise_in_thread(thread_id: int, exc_type=KeyboardInterrupt) -> bool:
     """Best-effort: raise an exception asynchronously in another Python thread.
 
@@ -372,18 +373,52 @@ def _install_gui_progress_hooks():
     _orig_increment_like_task = progress_updater.like.update_overall_task
     _orig_remove_like_task = progress_updater.like.remove_overall_task
 
+    def _get_dup_count():
+        try:
+            import ofscraper.managers.postcollection as _pc
+            return int(_pc._gui_duplicate_count)
+        except Exception:
+            return 0
+
+    def _get_locked_count():
+        try:
+            import ofscraper.managers.postcollection as _pc
+            return int(getattr(_pc, '_gui_locked_count', 0))
+        except Exception:
+            return 0
+
+    def _get_total_rows():
+        try:
+            import ofscraper.managers.postcollection as _pc
+            return int(getattr(_pc, '_gui_total_rows', 0))
+        except Exception:
+            return 0
+
     def gui_add_download_task(*args, **kwargs):
         if _gui_cancel_event.is_set():
             raise KeyboardInterrupt()
         total = kwargs.get("total", 0)
         if _gui_state.locked_total <= 0:
-            # Normal mode: use the task total and emit an initial 0/N signal.
-            _gui_state.total_media = total
-            result = _orig_add_download_task(*args, **kwargs)
+            # Normal mode: prefer the actual post-filter download queue size; fall back to
+            # total_rows - locked (pre-filter table size) if the queue size isn't set yet.
             try:
-                app_signals.overall_progress_updated.emit(0, _gui_state.total_media)
+                import ofscraper.managers.postcollection as _pc_task
+                _download_queue_size = int(getattr(_pc_task, '_gui_download_queue_size', 0))
             except Exception:
-                pass
+                _download_queue_size = 0
+            _total_rows = _get_total_rows()
+            _locked = _get_locked_count()
+            _scraped_total = _download_queue_size if _download_queue_size > 0 else (
+                (_total_rows - _locked) if _total_rows > 0 else total
+            )
+            was_reset = (_gui_state.total_media != _scraped_total)
+            _gui_state.total_media = _scraped_total
+            result = _orig_add_download_task(*args, **kwargs)
+            if was_reset:
+                try:
+                    app_signals.overall_progress_updated.emit(0, _gui_state.total_media)
+                except Exception:
+                    pass
         else:
             # Check mode: total_media is pre-set; do NOT emit (0, N) here because
             # that would reset the bar back to 0 at the start of every per-item call.
@@ -402,12 +437,25 @@ def _install_gui_progress_hooks():
                 _gui_state.check_completed += 1
                 completed = _gui_state.check_completed
             else:
-                completed = (
+                # Don't add _dups when allow_dupe_downloads is on: duplicate
+                # media items are actually downloaded and already counted in
+                # photo_count/video_count, so adding _dups would double-count.
+                try:
+                    import ofscraper.utils.settings as _set_mod
+                    _allow_dupe = bool(
+                        getattr(_set_mod.get_settings(), "allow_dupe_downloads", False)
+                    )
+                except Exception:
+                    _allow_dupe = False
+                _dups = 0 if _allow_dupe else _get_dup_count()
+                completed = min(
                     common_globals.photo_count
                     + common_globals.video_count
                     + common_globals.audio_count
                     + common_globals.skipped
                     + common_globals.forced_skipped
+                    + _dups,
+                    total,
                 )
             app_signals.overall_progress_updated.emit(completed, total)
             app_signals.total_bytes_updated.emit(
@@ -524,6 +572,19 @@ def _build_media_rows(media, username):
     the table reflects what was actually scraped.
     """
     rows = []
+    from collections import Counter as _Counter
+    _mid_counts = _Counter()
+    for _ele in media:
+        _mk = getattr(_ele, "id", None) or id(_ele)
+        _mid_counts[_mk] += 1
+    _mid_seen: set = set()
+
+    try:
+        import ofscraper.utils.settings as _sett
+        _allow_dupe = bool(_sett.get_settings().allow_dupe_downloads)
+    except Exception:
+        _allow_dupe = False
+
     for count, ele in enumerate(media):
         try:
             post = getattr(ele, "post", None)
@@ -622,6 +683,17 @@ def _build_media_rows(media, username):
                 else:
                     ul_display = "Preview" if (preview and price > 0) else str(True)
 
+            # Mark 2nd+ occurrences of the same media_id as duplicates.
+            _mid_key = media_id if media_id else id(ele)
+            _is_dup = (_mid_counts.get(_mid_key, 1) > 1) and (_mid_key in _mid_seen)
+            _mid_seen.add(_mid_key)
+            duplicate_display = "Duplicate" if _is_dup else ""
+
+            # When duplicates are skipped by the pipeline, force Downloaded=False
+            # on duplicate rows so the column only reflects actual pipeline work.
+            if _is_dup and not _allow_dupe:
+                dl_display = "False"
+
             rows.append(
                 {
                     "index": count,
@@ -629,6 +701,7 @@ def _build_media_rows(media, username):
                     "download_cart": cart_status,
                     "username": username,
                     "downloaded": dl_display,
+                    "duplicate": duplicate_display,
                     "unlocked": ul_display,
                     "other_posts_with_media": [],
                     "post_media_count": post_media_count,
@@ -748,6 +821,7 @@ def _build_db_rows(db_records, username, post_info=None):
                     "download_cart": cart_status,
                     "username": username,
                     "downloaded": dl_display,
+                    "duplicate": "",
                     "unlocked": ul_display,
                     "other_posts_with_media": [],
                     "post_media_count": 0,
@@ -763,6 +837,16 @@ def _build_db_rows(db_records, username, post_info=None):
             )
         except Exception as e:
             log.debug(f"Error building DB table row: {e}")
+
+    # Mark rows whose media_id appears more than once (same media in multiple posts).
+    seen_mids = set()
+    for row in rows:
+        mid = row.get("media_id")
+        if mid and mid in seen_mids:
+            row["duplicate"] = "Duplicate"
+        elif mid:
+            seen_mids.add(mid)
+
     return rows
 
 
@@ -976,6 +1060,25 @@ def _emit_download_status(media, model_id, username, extra_table_rows=None):
         downloaded_set = get_media_ids_downloaded(
             model_id=model_id, username=username
         )
+
+        # Build media_id → [row_indices in ascending order] mapping.
+        # We cannot use post_id to distinguish duplicates because shallow-copied
+        # duplicate media objects (copy.copy in postcollection.py) share the same
+        # _post reference, so ele.post_id returns the original post's ID for both
+        # original and duplicate.  Instead, assign row indices positionally: the
+        # Nth ele with a given media_id gets the index of the Nth table row with
+        # that media_id (sorted ascending).  This correctly pairs each ele to its
+        # table row even when duplicate eles share the same post_id.
+        from collections import defaultdict as _defaultdict
+        rows_by_media_id = _defaultdict(list)
+        if extra_table_rows:
+            for _row in sorted(extra_table_rows, key=lambda r: r.get('index', 0)):
+                _mid = str(_row.get('media_id', '') or '')
+                _idx = _row.get('index')
+                if _mid and _idx is not None:
+                    rows_by_media_id[_mid].append(str(_idx))
+        rows_by_media_iter = {k: iter(v) for k, v in rows_by_media_id.items()}
+
         handled_ids = set()
         for ele in media:
             media_id = getattr(ele, "id", None)
@@ -985,25 +1088,36 @@ def _emit_download_status(media, model_id, username, extra_table_rows=None):
             canview = getattr(ele, "canview", True)
             is_downloaded = media_id in downloaded_set
 
+            # Check whether this specific download attempt failed this run.
+            _download_status = None
+            try:
+                _media_dict = getattr(ele, "media", None)
+                if isinstance(_media_dict, dict):
+                    _download_status = _media_dict.get("download_status")
+            except Exception:
+                pass
+            is_failed = _download_status == "failed"
+
+            # Consume the next row index for this media_id so each ele targets
+            # its own table row.  Falls back to broadcast via media_id if no
+            # index is available (extra_table_rows not provided, or exhausted).
+            media_id_str = str(media_id)
+            _mid_iter = rows_by_media_iter.get(media_id_str)
+            row_key = next(_mid_iter, media_id_str) if _mid_iter else media_id_str
+
             if not canview:
-                # Locked content — don't change status
-                app_signals.cell_update.emit(
-                    str(media_id), "downloaded", "N/A"
-                )
-                app_signals.cell_update.emit(
-                    str(media_id), "unlocked", "Locked"
-                )
-                app_signals.cell_update.emit(
-                    str(media_id), "download_cart", "Locked"
-                )
+                # Locked content: broadcast by media_id — all instances are locked
+                app_signals.cell_update.emit(str(media_id), "downloaded", "N/A")
+                app_signals.cell_update.emit(str(media_id), "unlocked", "Locked")
+                app_signals.cell_update.emit(str(media_id), "download_cart", "Locked")
+            elif is_failed:
+                # Download explicitly failed — update only this row via index key
+                app_signals.cell_update.emit(row_key, "downloaded", "False")
+                app_signals.cell_update.emit(row_key, "download_cart", "[failed]")
             else:
-                app_signals.cell_update.emit(
-                    str(media_id), "downloaded", str(is_downloaded)
-                )
+                app_signals.cell_update.emit(row_key, "downloaded", str(is_downloaded))
                 if is_downloaded:
-                    app_signals.cell_update.emit(
-                        str(media_id), "download_cart", "[downloaded]"
-                    )
+                    app_signals.cell_update.emit(row_key, "download_cart", "[downloaded]")
 
         # Items filtered from the download queue (already downloaded, profile images
         # cached via separate cache, etc.) never appear in `media` above.
@@ -1541,30 +1655,36 @@ class GUIWorkflow:
         else:
             # Restore baseline values (which may include CLI-provided flags)
             try:
-                args.after = (self._baseline_args or {}).get("after", None)
+                _bl_after = (self._baseline_args or {}).get("after", None)
+                # after=0 is the integer "unset" sentinel from CLI defaults.
+                # Treat it as None so ofscraper's incremental-downloads logic
+                # can read the DB's last-scraped date and skip old content.
+                # An explicit --after <date> from the CLI would be an Arrow
+                # object (truthy), not 0, so it is preserved correctly.
+                args.after = _bl_after if _bl_after else None
                 args.no_cache = bool((self._baseline_args or {}).get("no_cache", False))
                 args.no_api_cache = bool((self._baseline_args or {}).get("no_api_cache", False))
             except Exception:
                 pass
 
-            # Apply GUI date range filter (overrides baseline after/before)
-            try:
-                import arrow as _arrow
-                dr = self._date_range or {}
-                if dr.get("enabled"):
-                    from_date = dr.get("from_date")
-                    to_date = dr.get("to_date")
-                    if from_date:
-                        args.after = _arrow.get(from_date, "YYYY-MM-DD")
-                    if to_date:
-                        # include the full to_date day
-                        args.before = _arrow.get(to_date, "YYYY-MM-DD").ceil("day")
-                    else:
-                        args.before = None
+        # Apply GUI date range filter unconditionally (overrides both rescrape_all and baseline)
+        try:
+            import arrow as _arrow
+            dr = self._date_range or {}
+            if dr.get("enabled"):
+                from_date = dr.get("from_date")
+                to_date = dr.get("to_date")
+                if from_date:
+                    args.after = _arrow.get(from_date, "YYYY-MM-DD")
+                if to_date:
+                    # include the full to_date day
+                    args.before = _arrow.get(to_date, "YYYY-MM-DD").ceil("day")
                 else:
                     args.before = None
-            except Exception:
-                pass
+            else:
+                args.before = None
+        except Exception:
+            pass
 
         write_args.setArgs(args)
         # Invalidate the settings cache so settings.get_settings() picks up the new
@@ -1799,6 +1919,12 @@ class GUIWorkflow:
                             "OF-Scraper",
                             f"Daemon scrape #{run_count} starting...",
                         )
+
+                try:
+                    from ofscraper.__version__ import __version__ as _ofscraper_ver
+                    app_signals.log_message.emit("INFO", f"OF-Scraper version: {_ofscraper_ver}")
+                except Exception:
+                    pass
 
                 app_signals.status_message.emit(
                     f"Scraping started... (run #{run_count})"
@@ -2049,6 +2175,20 @@ class GUIWorkflow:
                             _orig_spa = None
                             _scraper_mod = None
 
+                        # Clear any stale queue from the previous run so
+                        # prepare_scraper_activity() doesn't call the
+                        # interactive reset_username_prompt() and hang.
+                        # Also clear the model cache: retriver.get_models() uses
+                        # get_via_individual() when usernames is a specific list,
+                        # so _all_subs_dict only holds the PREVIOUS run's model.
+                        # Clearing it forces a re-fetch with the current usernames.
+                        try:
+                            import ofscraper.managers.manager as _mgr
+                            _mgr.Manager.current_model_manager.clear_scrape_queues()
+                            _mgr.Manager.current_model_manager._all_subs_dict = {}
+                        except Exception:
+                            pass
+
                         log.warning("[DIAG] About to call scraping_manager.runner()")
                         try:
                             scraping_manager.runner()
@@ -2110,29 +2250,30 @@ class GUIWorkflow:
                 # scrape_paid_all() bypasses _execute_user_action entirely, so
                 # live rows are never emitted for content fetched via the global
                 # paid endpoint. We must load from DB afterward to show those rows.
-                # Using self._scrape_paid (not "Purchased" in areas) because:
-                #   - scrape_paid=True  → scrape_paid_all() was called → no live rows → DB load needed
-                #   - scrape_paid=False + "Purchased" in areas → per-user endpoint → live rows emitted → DB load NOT needed
                 _used_global_paid = self._scrape_paid
+                # live rows are emitted by _execute_user_action even when scrape_paid_all()
+                # also runs, so keep them whenever _live_rows_emitted is True.
                 is_normal_gui_download = (
                     self._selected_actions == {"download"}
                     and self._selected_models
                     and self._live_rows_emitted
-                    and not _used_global_paid
                     and not bool(self._selected_actions & self._CHECK_MODES)
                     and run_count == 1  # daemon re-runs always reload full DB to show complete state
                 )
                 if is_normal_gui_download:
                     app_signals.log_message.emit(
-                        "INFO", "Skipping DB table replacement for normal GUI download scrape; keeping live rows from this run..."
+                        "INFO", "Scrape complete; computing DB stats (keeping live rows)..."
                     )
-                    # Still read DB stats so the Discord summary shows correct counts.
+                    # Keep the live rows that _execute_user_action already emitted — they
+                    # correctly show all scraped items (including same-post duplicates from
+                    # multiple API areas) with accurate Downloaded/Duplicate labels reflecting
+                    # the actual download results.  Just compute DB stats for the summary.
                     _db_stats = _load_models_from_db(
                         self._selected_models,
-                        date_range={} if self._scrape_paid else (self._date_range or {}),
+                        date_range={},
                         stats_only=True,
                     )
-                elif self._live_rows_emitted and not _used_global_paid and run_count == 1:
+                elif self._live_rows_emitted and run_count == 1:
                     app_signals.log_message.emit(
                         "INFO", "Skipping DB table replacement because live rows were already emitted for this run..."
                     )
@@ -2224,24 +2365,106 @@ class GUIWorkflow:
                 except Exception:
                     pass
 
+                # Force progress bar to 100% — previously-downloaded items are excluded
+                # from the download pipeline so the bar may not reach 100% naturally.
+                try:
+                    _final_total = _gui_state.total_media
+                    if _final_total and _final_total > 0:
+                        app_signals.overall_progress_updated.emit(_final_total, _final_total)
+                except Exception:
+                    pass
+
                 app_signals.scraping_finished.emit()
 
                 if not self._daemon_enabled:
                     app_signals.status_message.emit("Scraping complete")
-                    # Build a per-model summary from DB stats
-                    if _db_stats:
+                    # Build a per-model summary.
+                    if _db_stats or is_normal_gui_download:
                         _summary_lines = ["--- Scrape Summary ---"]
-                        for _m in self._selected_models:
-                            _st = _db_stats.get(_m.name, {})
-                            _total = _st.get("photos", 0) + _st.get("videos", 0) + _st.get("audios", 0)
-                            _dl = _st.get("dl_photos", 0) + _st.get("dl_videos", 0) + _st.get("dl_audios", 0)
-                            _summary_lines.append(
-                                f"  {_m.name}: {_dl} downloaded / {_total} total"
-                                f" ({_st.get('dl_videos',0)} videos,"
-                                f" {_st.get('dl_photos',0)} photos,"
-                                f" {_st.get('dl_audios',0)} audios)"
-                            )
+                        if is_normal_gui_download:
+                            # Use per-run counters (match the progress bar exactly).
+                            try:
+                                import ofscraper.commands.scraper.actions.utils.globals as _cg_sum
+                                _sum_videos = int(_cg_sum.video_count)
+                                _sum_photos = int(_cg_sum.photo_count)
+                                _sum_audios = int(_cg_sum.audio_count)
+                                _sum_forced = int(_cg_sum.forced_skipped)
+                                _sum_failed = int(_cg_sum.skipped)
+                            except Exception:
+                                _sum_videos = _sum_photos = _sum_audios = _sum_forced = _sum_failed = 0
+                            _run_dl = _sum_videos + _sum_photos + _sum_audios
+                            try:
+                                import ofscraper.managers.postcollection as _pc_mod_sum
+                                _total_rows = int(getattr(_pc_mod_sum, '_gui_total_rows', 0))
+                                _locked_count = int(getattr(_pc_mod_sum, '_gui_locked_count', 0))
+                                _tbl_videos = int(getattr(_pc_mod_sum, '_gui_video_count', 0))
+                                _tbl_photos = int(getattr(_pc_mod_sum, '_gui_photo_count', 0))
+                                _tbl_audios = int(getattr(_pc_mod_sum, '_gui_audio_count', 0))
+                                _dup_count = int(getattr(_pc_mod_sum, '_gui_duplicate_count', 0))
+                            except Exception:
+                                _total_rows = 0
+                                _locked_count = 0
+                                _tbl_videos = _tbl_photos = _tbl_audios = 0
+                                _dup_count = 0
+                            # For normal GUI downloads the table includes all historical rows,
+                            # so use actual per-run counters; for other modes use table counts.
+                            if is_normal_gui_download:
+                                _total_scraped = _run_dl
+                            elif _tbl_videos + _tbl_photos + _tbl_audios > 0:
+                                _sum_videos, _sum_photos, _sum_audios = _tbl_videos, _tbl_photos, _tbl_audios
+                                _total_scraped = _tbl_videos + _tbl_photos + _tbl_audios
+                            else:
+                                _total_scraped = (_total_rows - _locked_count) if _total_rows > 0 else (_run_dl + _sum_forced)
+                            # Show how many actually succeeded (total minus failures)
+                            _total_success = max(0, _total_scraped - _sum_failed)
+                            for _m in self._selected_models:
+                                _st = _db_stats.get(_m.name, {})
+                                _db_total = _st.get("photos", 0) + _st.get("videos", 0) + _st.get("audios", 0)
+                                _db_dl = _st.get("dl_photos", 0) + _st.get("dl_videos", 0) + _st.get("dl_audios", 0)
+                                _line = f"  {_m.name}: {_total_success} scraped"
+                                if _sum_failed > 0:
+                                    _line += f" ({_sum_failed} failed)"
+                                _line += f" ({_sum_videos} videos, {_sum_photos} photos, {_sum_audios} audios)"
+                                if _dup_count > 0:
+                                    _line += f" | duplicates: {_dup_count}"
+                                if _db_total > 0 and (_db_dl != _total_success or _db_total != _total_scraped):
+                                    _line += f" | DB: {_db_dl}/{_db_total}"
+                                _summary_lines.append(_line)
+                        else:
+                            for _m in self._selected_models:
+                                _st = _db_stats.get(_m.name, {})
+                                _total = _st.get("photos", 0) + _st.get("videos", 0) + _st.get("audios", 0)
+                                _dl = _st.get("dl_photos", 0) + _st.get("dl_videos", 0) + _st.get("dl_audios", 0)
+                                _summary_lines.append(
+                                    f"  {_m.name}: {_dl} downloaded / {_total} total"
+                                    f" ({_st.get('dl_videos',0)} videos,"
+                                    f" {_st.get('dl_photos',0)} photos,"
+                                    f" {_st.get('dl_audios',0)} audios)"
+                                )
                         app_signals.log_message.emit("INFO", "\n".join(_summary_lines))
+                    # Sync progress bar to DB stats for selected models only.
+                    # This corrects multi-model runs (e.g. scrape_paid) where the last
+                    # secondary model's get_rows_for_gui_table() call overwrites the bar
+                    # total, leaving it on the wrong model's count.
+                    if not is_normal_gui_download and _db_stats:
+                        try:
+                            _pb_total = sum(
+                                _db_stats.get(_m.name, {}).get("photos", 0)
+                                + _db_stats.get(_m.name, {}).get("videos", 0)
+                                + _db_stats.get(_m.name, {}).get("audios", 0)
+                                for _m in self._selected_models
+                            )
+                            _pb_dl = sum(
+                                _db_stats.get(_m.name, {}).get("dl_photos", 0)
+                                + _db_stats.get(_m.name, {}).get("dl_videos", 0)
+                                + _db_stats.get(_m.name, {}).get("dl_audios", 0)
+                                for _m in self._selected_models
+                            )
+                            if _pb_total > 0:
+                                _gui_state.total_media = _pb_total
+                                app_signals.overall_progress_updated.emit(_pb_dl, _pb_total)
+                        except Exception:
+                            pass
                     app_signals.log_message.emit(
                         "INFO", "Scraping pipeline finished"
                     )

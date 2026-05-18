@@ -25,6 +25,7 @@ import ofscraper.utils.auth.request as auth_requests
 import ofscraper.utils.cache.cache as cache
 import ofscraper.utils.dates as dates
 import ofscraper.utils.of_env.of_env as of_env
+import ofscraper.utils.settings as settings
 import ofscraper.utils.system.system as system
 from ofscraper.utils.system.subprocess import async_run
 from ofscraper.utils.system.ffprobe import verify_media_integrity
@@ -47,6 +48,19 @@ from ofscraper.utils.system.ffmpeg import get_ffmpeg
 
 from ofscraper.classes.of.media import Media
 from ofscraper.db.operations_.media import mark_media_as_downloaded
+
+
+def _find_unique_path(path):
+    """Return path with (1), (2), ... suffix until a non-existing path is found."""
+    if not path.exists():
+        return path
+    stem, suffix, parent = path.stem, path.suffix, path.parent
+    counter = 1
+    while True:
+        candidate = parent / f"{stem}({counter}){suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
 
 
 class AltDownloadManager(DownloadManager):
@@ -298,7 +312,7 @@ class AltDownloadManager(DownloadManager):
         self, sharedPlaceholderObj, ele, audio, video, username, model_id
     ):
         tempPlaceholder = await placeholder.tempFilePlaceholder(
-            ele, f"temp_{ele.id or await ele.final_filename}.mp4"
+            ele, f"temp_{ele.id or await ele.final_filename}" + (f"_{ele._dup_seq}" if hasattr(ele, '_dup_seq') else "") + ".mp4"
         ).init()
         temp_path = tempPlaceholder.tempfilepath
         temp_path.unlink(missing_ok=True)
@@ -352,8 +366,15 @@ class AltDownloadManager(DownloadManager):
             temp_path.unlink(missing_ok=True)
             raise Exception("Merged DRM media failed integrity check")
 
+        alt_path_to_file = sharedPlaceholderObj.trunicated_filepath
+        if (
+            getattr(settings.get_settings(), "allow_dupe_downloads", False)
+            and alt_path_to_file.exists()
+        ):
+            alt_path_to_file = _find_unique_path(alt_path_to_file)
+
         common_globals.log.debug(
-            f"Moving intermediate path {temp_path} to {sharedPlaceholderObj.trunicated_filepath}"
+            f"Moving intermediate path {temp_path} to {alt_path_to_file}"
         )
 
         # Thread executor for disk I/O move operation
@@ -362,7 +383,7 @@ class AltDownloadManager(DownloadManager):
             partial(
                 common_paths.moveHelper,
                 temp_path,
-                sharedPlaceholderObj.trunicated_filepath,
+                alt_path_to_file,
                 ele,
             ),
         )
@@ -382,7 +403,7 @@ class AltDownloadManager(DownloadManager):
                 common_globals.thread,
                 partial(
                     common_paths.set_time,
-                    sharedPlaceholderObj.trunicated_filepath,
+                    alt_path_to_file,
                     newDate,
                 ),
             )
@@ -390,21 +411,21 @@ class AltDownloadManager(DownloadManager):
         if ele.id:
             await mark_media_as_downloaded(
                 ele,
-                filepath=sharedPlaceholderObj.trunicated_filepath,
+                filepath=alt_path_to_file,
                 model_id=model_id,
                 username=username,
                 downloaded=True,
                 hashdata=await common.get_hash(sharedPlaceholderObj),
                 size=sharedPlaceholderObj.size,
             )
-        ele.add_filepath(sharedPlaceholderObj.trunicated_filepath)
+        ele.add_filepath(alt_path_to_file)
 
-        await self._after_download_script(sharedPlaceholderObj.trunicated_filepath)
+        await self._after_download_script(alt_path_to_file)
 
         try:
             from ofscraper.plugins.manager import plugin_manager
 
-            _final = sharedPlaceholderObj.trunicated_filepath
+            _final = alt_path_to_file
             _final_s = str(pathlib.Path(_final)) if _final is not None else _final
             _n = len(plugin_manager.plugins)
             _name = pathlib.Path(_final_s).name if _final_s else "?"
