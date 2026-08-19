@@ -112,7 +112,7 @@ A visual walkthrough of each page in the GUI.
 
 ### Scraper — Select Action
 
-<img src="https://github.com/user-attachments/assets/1c83ce37-e1b3-4e9f-bdc1-8dfedbbffc5d" width="600" alt="Main Window — Select Action">
+<img src="https://github.com/user-attachments/assets/7af89ebd-5fa8-4ee3-8ce5-2932839f1a28" width="600" alt="Main Window — Select Action">
 <img src="https://github.com/user-attachments/assets/7633c9ce-70e6-41c4-9171-c0a81c55dbf4" width="600" alt="Main Window — User List">
 
 
