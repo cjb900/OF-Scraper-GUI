@@ -161,7 +161,7 @@ Settings on this page are **not saved automatically**. Use the buttons in the lo
 
 ### Select Models
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Select%20Models.jpg" width="600" alt="Select Models">
+<img src="https://github.com/user-attachments/assets/754ce7a5-c520-4236-a433-40222a5b3b90" width="600" alt="Select Models">
 
 <!-- Screenshot placeholder: Select Models — click username to toggle selection -->
 
