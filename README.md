@@ -28,10 +28,13 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Application icon](#application-icon)
   - [Theme](#theme)
   - [Verbose Log](#verbose-log)
+  - [Privacy / demo mode](#privacy--demo-mode-3147)
   - [Context-sensitive help](#context-sensitive-help)
   - [Startup dependency check](#startup-dependency-check)
   - [Auth failure handling](#auth-failure-handling)
   - [Scraper workflow](#scraper-workflow)
+  - [Safer cancel & confirms](#safer-cancel--confirms-3147)
+  - [Status strip & health chips](#status-strip--health-chips-3147)
   - [Daemon mode](#daemon-mode-auto-repeat-scraping)
   - [Table page](#table-page)
   - [Check mode](#check-mode-3143-3145-and-3147)
@@ -41,7 +44,10 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Discord webhook integration](#discord-webhook-integration)
   - [User Lists](#user-lists-3145-and-3147)
   - [Login in Browser](#login-in-browser-3147)
+  - [Download integrity & security](#download-integrity--security-3147)
+  - [Recent improvements (August 2026)](#recent-improvements-3147--august-2026)
 - [Plugin system](#plugin-system-all-versions)
+  - [Plugins page](#plugins-page-3147)
   - [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger-all-versions)
   - [LLM Assistant](#llm-assistant-llm_assistant-all-versions)
   - [Trial Link Scanner](#trial-link-scanner-trial_link_scanner-all-versions)
@@ -157,12 +163,15 @@ Settings on this page are **not saved automatically**. Use the buttons in the lo
 
 <img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Select%20Models.jpg" width="600" alt="Select Models">
 
+<!-- Screenshot placeholder: Select Models — click username to toggle selection -->
+
 A searchable, filterable table of all creators you are subscribed to. From here you can:
 
 - **Search** by username, display name, or any column
 - **Right-click** any cell to instantly filter the table by that value
 - **Sort** by clicking any column header
 - **Select** individual creators or use Select All / Select None
+- **Click a username** *(3.14.7)* — toggles that model's checkbox (avatar click still opens OnlyFans without changing selection)
 - **Show Avatars** — toggle to display each creator's profile picture alongside their name in the table. Clicking an avatar opens that creator's OnlyFans page in your browser
 - The footer shows how many rows are displayed vs the total (e.g. `42 / 1200 rows (filtered)`)
 - **Reload Models** *(3.14.5 and 3.14.7)* — a **Reload Models** button appears in the navigation bar after models load, letting you re-fetch the model list without going back to the Select Action page
@@ -210,18 +219,20 @@ Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**)
 
 <img src="https://github.com/user-attachments/assets/376b60af-aff1-405b-b487-13a1495dbce0" width="600" alt="Authentication">
 
-Manage the credentials OF-Scraper uses to connect to OnlyFans:
+<!-- Screenshot placeholder: Authentication page with (?) help buttons on each option -->
 
-- **Import cookies** directly from your browser (Chrome, Firefox, Edge, Brave, and more) — no manual copying needed
-- **Auto-detect User Agent** — automatically fills in the correct user agent string for your browser
-- **Edit credentials manually** if you prefer to paste them in yourself
-- **Login in Browser** *(3.14.7)* — an embedded Chromium window lets you log in to OnlyFans directly from inside the app; credentials are captured automatically with no copy-pasting required. See [Login in Browser](#login-in-browser-3147) for full details
-- All credentials are saved to your `auth.json` file
+Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a **?** button that jumps to the matching Help section:
+
+- **Credentials** — paste `sess` / `auth_id` / `auth_uid` / user-agent / `x-bc` manually from DevTools
+- **Import Cookies** *(recommended when already logged in)* — read allowlisted cookies from the selected browser profile on disk (Zen/Firefox on Windows; any listed browser on Linux). Chrome-family **Import Cookies** is Linux-only on Windows builds
+- **Login in System Browser…** *(3.14.7)* — opens a temporary copy of any browser from the dropdown (including Chrome on Windows) and captures credentials after you log in
+- **Login in App Browser…** *(3.14.7)* — embedded Chromium window inside the app (`PyQt6-WebEngine`)
+- Cookie allowlist + hardened `auth.json` permissions *(3.14.7)* — only auth cookies/headers are kept; unrelated browser cookies are dropped
+- Cancel support for Import Cookies and browser login, plus an optional hard login timeout *(3.14.7)*
 
 <img src="https://github.com/user-attachments/assets/1a9f099e-2425-482b-a9c2-abf2b4c480a9" width="600" alt="Login in Browser">
 
-
-If scraping fails with an auth error, the GUI will offer a direct link to jump to this page.
+If scraping fails with an auth error, the GUI will offer a direct link to jump to this page. Footer **Auth / Config / Key** health chips also surface auth problems at a glance *(3.14.7)*.
 
 ---
 
@@ -233,15 +244,15 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 
 - **General** — profile name, metadata path, Discord webhook
 - **File Options** — where files are saved, folder and filename format, date format, text length
-- **Download** — free space minimum, auto-resume, post count limit, media type filter (Images / Audios / Videos / Text)
+- **Download** — free space minimum, auto-resume, post count limit, media type filter (Images / Audios / Videos / Text); *(3.14.7)* **DRM Duration Match %**, Verify All Integrity
 - **Performance** — concurrent downloads, thread count, speed limit
 - **Content** — file size limits, duration limits, ad blocking
-- **CDM** — DRM key mode and key file paths (needed for protected content)
+- **CDM** — DRM key mode and key file paths (needed for protected content); *(3.14.7)* new installs default to **manual**; remote modes warn and never send session cookies
 - **Advanced** — dynamic mode, cache mode, download bars, logging options, and more
 - **Response Type** — customize how content type folders are named
 - **Overwrites** *(3.12.9 only)* — per-media-type overrides for file format, size limits, and more
 
-Each tab has a **?** button that jumps to the matching section in the built-in Help page. Click **Save** to write changes back to `config.json`.
+Each tab has a **?** button that jumps to the matching section in the built-in Help page. Click **Save** to write changes back to `config.json`. *(3.14.7: Save and scrape start validate File Format uniqueness, Directory Format under Save Location, and related settings.)*
 
 ---
 
@@ -315,9 +326,18 @@ Built-in documentation available at any time without leaving the app:
 - When enabled, all log levels are shown in the in-app log panel and a dedicated verbose log file is written to your ofscraper config directory (e.g. `ofscraper_gui_verbose_<profile>_<timestamp>.log`)
 - Verbose logging is disabled by default and the preference is saved to `gui_settings.json`
 
+### Privacy / demo mode *(3.14.7)*
+
+<!-- Screenshot placeholder: Privacy mode ON — masked auth fields and hidden usernames -->
+
+- Toggle **Privacy** in the bottom of the sidebar for safe screenshots / demos
+- Masks auth fields, Save Location / webhook / FFmpeg / CDM paths, model names, and table usernames
+- Extra redaction in the console log; preference saved in `gui_settings.json`
+
 ### Context-sensitive help
 - Every section and option throughout the GUI has a small **?** button next to it
 - Clicking a **?** button navigates directly to the matching section in the Help / README page
+- Authentication options (Credentials, Import Cookies, System Browser, App Browser) each have dedicated Help sections *(3.14.7)*
 
 ### Startup dependency check
 - On launch, the GUI checks whether **FFmpeg** and **CDM key paths** are configured
@@ -339,17 +359,26 @@ Built-in documentation available at any time without leaving the app:
 
 <img src="https://github.com/user-attachments/assets/1a9f099e-2425-482b-a9c2-abf2b4c480a9" width="600" alt="Login in Browser">
 
-An embedded browser on the Authentication page lets you log in to OnlyFans directly from inside the app — no browser extensions or cookie copy-pasting required:
+<!-- Screenshot placeholder: Login in System Browser temporary profile window -->
 
-- Click **Login in Browser** on the Authentication page to open an embedded Chromium window
+Two ways to capture credentials by logging in (plus Import Cookies / manual paste):
+
+**Login in App Browser…**
+- Opens an embedded Chromium window inside the app
 - Log in to OnlyFans normally — the GUI watches for session cookies in the background
-- All credential fields start blank (`—`); values are revealed only after `auth_id` is confirmed (which OnlyFans sets exclusively on a successful login), so pre-login session cookies are never mistaken for valid credentials
-- Once `auth_id` is confirmed, all captured values appear at once and the status bar shows **"✓ Logged in"**; if a previous session is still valid the dialog opens already logged in
+- All credential fields start blank (`—`); values are revealed only after `auth_id` is confirmed
 - **"Use These Credentials"** is only enabled after a valid `auth_id` is confirmed
-- `x-bc` is captured automatically; if it is missing it can be retrieved manually via the browser's DevTools Network tab
-- Requires `PyQt6-WebEngine` — install with `pip install PyQt6-WebEngine` or `pipx inject ofscraper PyQt6-WebEngine`
+- `x-bc` is captured automatically; if missing, use DevTools Network tab
+- Requires `PyQt6-WebEngine` — `pip install PyQt6-WebEngine` or `pipx inject ofscraper PyQt6-WebEngine`
+- **Cancel Login** aborts without importing; optional hard timeout (default 10 minutes)
 
-> **KDE Plasma note:** On KDE Plasma / KDE neon the browser view may briefly appear blank while the page loads. This is cosmetic — the page loads correctly regardless. A background-colour fix in 3.14.7 minimises the effect.
+**Login in System Browser…**
+- Opens a **temporary** copy of whichever browser is selected under **Select Browser** (including Chrome / Edge / Brave on Windows)
+- Fresh empty profile — you must log in again; this is not your everyday session
+- The Import Cookies “Linux only” limit does **not** apply here
+- Prefer Import Cookies when you are already logged in on Zen/Firefox (Windows) or any browser (Linux)
+
+> **KDE Plasma note:** On KDE Plasma / KDE neon the embedded App Browser view may briefly appear blank while the page loads. This is cosmetic — the page loads correctly regardless.
 
 ### User Lists *(3.14.5 and 3.14.7)*
 - On the **Select Action** page, a **User Lists** field appears under "Download content from a user"
@@ -363,10 +392,30 @@ An embedded browser on the Authentication page lets you log in to OnlyFans direc
 - Filters configured on the Area Selector page are automatically carried over to the Table page sidebar when models are confirmed
 - **Username filter** on the Area Selector page pre-narrows the Model Selector list
 
+### Safer cancel & confirms *(3.14.7)*
+
+<!-- Screenshot placeholder: Confirm scrape dialog with ETA summary -->
+
+- **Cancel** shows a Cancelling… state and cooperatively stops API pagination, mid-file chunk downloads, and between models — not only between queued media items
+- **Confirm scrape** for larger / high-impact jobs (multi-model, rescrape, delete DB/files, daemon) with a rough ETA; destructive options always confirm
+- **Confirm downloads** when the check-mode cart has 25+ items
+- **Disk space check** before scrape / Send Downloads against Save Location
+- **Config validation** on Save and before scrape (File Format uniqueness tokens, Directory Format under Save Location, FFmpeg path, etc.)
+
+### Status strip & health chips *(3.14.7)*
+
+<!-- Screenshot placeholder: Footer status strip with Auth / Config / Key chips and per-model badges -->
+
+- Unified footer: phase badge (Ready / Running / Cancelling / Daemon / Complete), status text, progress, row count
+- Clickable **Auth**, **Config**, and **Key** health chips (green / orange / red) — hover for detail; click to jump to the fix page
+- Live **per-model badge bar** above the table during scrapes
+- After a run, a **Download failures** dialog lists failed items (filter table / add to cart in check mode)
+
 ### Daemon mode (auto-repeat scraping)
 - Enable from **Select Content Areas & Filters → Daemon Mode**
 - Sets an interval (1–1440 minutes) for repeated scraping runs
-- While waiting between runs, a **countdown timer** is shown in the table toolbar
+- While waiting between runs, a **countdown timer** is shown in the table toolbar with wall-clock ETA *(3.14.7)*
+- **Last-run chip** between cycles shows downloads / fails / size from the previous cycle *(3.14.7)*
 - Optional **system tray notification** when each run starts (all platforms)
 - Optional **sound alert** when each run starts (Windows)
 - Optional **@here Discord mention** — when enabled, the Discord scrape summary is prefixed with `@here` only when new content was downloaded in that run. No ping is sent for runs that find nothing new. Requires a Discord webhook to be configured
@@ -380,9 +429,19 @@ An embedded browser on the Authentication page lets you log in to OnlyFans direc
 - **Open Downloads Folder** button in the toolbar — opens the configured `save_location` from your config directly in your file manager
 - **New Scrape** button: if scraping is active, confirms cancellation first; optionally resets all options and model selections back to defaults before returning to the start
 - **Collapsible filter sidebar** *(3.14.7)* — click **◀ Filters** in the toolbar to hide the left-hand filter panel and give the table the full window width. The button changes to **▶ Filters** when the sidebar is hidden; clicking it again restores the sidebar to exactly the width it was before it was collapsed
+- **Filter presets** *(3.14.7)* — save / save as / rename / delete named filter sets; last-used restored on startup
+- **Column layout** *(3.14.7)* — remembered width / order / visibility; **Sticky columns** keep Number / Download Cart (and optionally UserName) visible while scrolling horizontally
+- **Export CSV** *(3.14.7)* — export visible (or selected) rows; respects Privacy mode usernames
+- **History** *(3.14.7)* — browse recent scrape / check runs; Details, Re-run, delete
+- **Click Post ID / Media ID** *(3.14.7)* — opens the OnlyFans post in your browser
+- Empty-table guidance overlay when no rows are visible *(3.14.7)*
+- Check-mode cart actions (Select All / Add Selected / Send Downloads) only appear in check mode *(3.14.7)*
 - **Duplicate column** *(3.14.7)* — shown between **Downloaded** and **Unlocked**. When the same `media_id` appears more than once in the API response (e.g. a post indexed in both Timeline and Archived), every occurrence after the first shows **Duplicate** highlighted in orange with a tooltip explaining the row will be skipped by the download pipeline. When **Allow duplicates** is disabled (the default), duplicate rows also show `Downloaded: False` to make clear those specific rows were not downloaded
 
 <img src="https://github.com/user-attachments/assets/8ce2a867-08fa-4e0c-bde5-0480fa33ae99" width="600" alt="Duplicate Colmn">
+
+<!-- Screenshot placeholder: Table with sticky columns + Export CSV / History toolbar -->
+<!-- Screenshot placeholder: Post ID / Media ID link cells opening OnlyFans -->
 
 
 ### Check mode *(3.14.3, 3.14.5, and 3.14.7)*
@@ -477,6 +536,34 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 
 ---
 
+### Download integrity & security *(3.14.7)*
+
+<!-- Screenshot placeholder: Configuration → Download — DRM Duration Match % -->
+
+- **DRM Duration Match %** (default 98%) — reject empty/tiny muxes and files whose playback duration is too short vs expected; failed checks delete the bad file for retry
+- Download stall watchdog and stricter `.part` finalize (Content-Range aware resume)
+- Media / DRM / license URLs must use allowlisted hosts (`onlyfans.com`, `cloudfront.net`; extend via `OFSC_MEDIA_HOST_SUFFIXES`)
+- Download paths confined under Save Location (and temp root for `.part` files)
+- Remote Key Mode (`cdrm` / `cdrm2` / `keydb`) warnings; new installs default to **manual** CDM; remote helpers never send session cookies
+- About / sidebar version check against PyPI; first-run welcome for `--gui` and plugins
+
+### Recent improvements *(3.14.7 — August 2026)*
+
+Major UX / hardening pass (patch series through `20260816_gui_3_14_7_v270`). Highlights:
+
+| Area | What changed |
+|---|---|
+| Auth | System + App browser login, Import Cookies cancel, cookie allowlist, `(?)` help per option |
+| Safety | Cooperative cancel, scrape/cart confirms, disk-space check, config validation, privacy mode |
+| Status | Unified strip, Auth/Config/Key chips, per-model badges, failure summary |
+| Table | History, filter presets, sticky columns, CSV export, Post/Media ID links, check-mode-only cart |
+| Plugins | Sidebar Plugins page with Enable/Disable, **Load now**, **Unload now** |
+| Downloads | DRM duration integrity, stall/`.part` resilience, host allowlist, save-root confinement |
+
+See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full dated changelog.
+
+---
+
 ## Plugin system *(all versions)*
 
 OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your ofscraper config directory and are loaded automatically on startup.
@@ -485,16 +572,27 @@ OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your 
 - **Windows:** `C:\Users\<YourUser>\.config\ofscraper\plugins\`
 - **Linux:** `/home/<YourUser>/.config/ofscraper/plugins/`
 
+### Plugins page *(3.14.7)*
+
+<!-- Screenshot placeholder: Plugins page — Load now / Unload now -->
+
+- Left-nav **Plugins** page lists installed plugins (name, version, Loaded / Disabled / Not loaded)
+- **Enable / Disable** writes `plugin_enabled` in the plugin’s `main.py`
+- **Load now** / **Unload now** — bring a plugin into (or out of) the current GUI session without restarting (runs `on_ui_setup` / `on_ui_teardown`)
+- Open plugins folder / selected plugin folder; Refresh after copying a new plugin in
+
 Each plugin is a subfolder containing at minimum a `main.py` with a `Plugin` class that inherits from `BasePlugin`. Plugins can hook into the following events:
 
 | Hook | When it fires |
 | :--- | :--- |
 | `on_load()` | When the plugin is first loaded at startup |
 | `on_ui_setup(main_window)` | After the GUI window is built *(GUI mode only)* |
+| `on_ui_teardown(main_window)` | Before unload / **Unload now** — remove pages/nav *(3.14.7)* |
 | `on_item_downloaded(item_data, file_path)` | Every time a file is saved to disk |
 | `on_scrape_start(config, models)` | When a new scrape begins |
 | `on_posts_collected(posts, model_username)` | After each batch of posts/messages is collected for a model |
 | `on_scrape_complete(stats)` | When the scrape finishes |
+| `on_unload()` | When the plugin is unloaded |
 
 Plugins that declare a `requirements.txt` will trigger a one-click dependency install dialog if their packages are missing.
 
