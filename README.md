@@ -183,7 +183,8 @@ Click **Next >>** when you have selected the creators you want to process. That 
 
 ### Scraping page
 
-<img src="https://github.com/user-attachments/assets/a82fb3e6-0ef3-4a45-a94e-6321530ce3ec" width="600" alt="Scraping page — media table">
+<img src="https://github.com/user-attachments/assets/aea045bf-0d96-4067-b2af-02d641e4ceae" width="600" alt="Scraping page — media table">
+<img src="https://github.com/user-attachments/assets/adcbd093-ad62-47f7-84ca-1ec6ff0a9aa5" width="600" alt="Scraping page — media table">
 
 The main scrape workspace after models are selected. Until you press **Start Scraping >>**, the table may show **Ready to scrape** with guidance to begin fetching media for your selected models and areas.
 
