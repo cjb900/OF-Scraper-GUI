@@ -16,7 +16,8 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Scraper — Select Action](#scraper--select-action)
   - [Select Content Areas & Filters](#select-content-areas--filters)
   - [Select Models](#select-models)
-  - [Scraper Running](#scraper-running)
+  - [Scraping page](#scraping-page)
+  - [Confirm scrape (pre-start review)](#confirm-scrape-pre-start-review-3147)
   - [Check Mode](#check-mode-3143-3145-and-3147)
   - [Authentication](#authentication)
   - [Configuration](#configuration)
@@ -176,22 +177,78 @@ A searchable, filterable table of all creators you are subscribed to. From here 
 - The footer shows how many rows are displayed vs the total (e.g. `42 / 1200 rows (filtered)`)
 - **Reload Models** *(3.14.5 and 3.14.7)* — a **Reload Models** button appears in the navigation bar after models load, letting you re-fetch the model list without going back to the Select Action page
 
-Click **Start Scrape** when you have selected the creators you want to download from.
+Click **Next >>** when you have selected the creators you want to process. That opens the **Scraping page** (media table), where you review filters and start the job.
 
 ---
 
-### Scraper Running
+### Scraping page
 
-<img src="https://github.com/user-attachments/assets/a82fb3e6-0ef3-4a45-a94e-6321530ce3ec" width="600" alt="Scraper Running">
+<img src="https://github.com/user-attachments/assets/a82fb3e6-0ef3-4a45-a94e-6321530ce3ec" width="600" alt="Scraping page — media table">
 
-Shows live output from the scraper while it runs:
+The main scrape workspace after models are selected. Until you press **Start Scraping >>**, the table may show **Ready to scrape** with guidance to begin fetching media for your selected models and areas.
 
-- **Log panel** — streams all output from OF-Scraper in real time so you can see what is happening
-- **Progress bar** (footer) — shows overall download progress and a running total of bytes downloaded. The bytes counter only ever increases — it never drops back down mid-scrape
-- **Cart counter** (toolbar) — shows how many items are queued for download
-- **Open Downloads Folder** button — opens your configured download folder directly in File Explorer
-- **Stop / New Scrape** buttons — stop the current run or start fresh
-- **Scrape summary** *(3.14.7)* — at the end of each run a TUI-style summary is shown in the log panel: a per-model action line followed by a **GLOBAL RUN TOTALS** block showing total items, data transferred, videos, audios, images, skipped, and failed counts across all models
+**Toolbar**
+- **Filters** — show/hide the left filter sidebar *(3.14.7: collapsible; remembers width)*
+- **Reset** / **Apply Filters** — clear or apply table filters
+- **Start Scraping >>** — begin the scrape for the selected models/areas (may open **Confirm scrape** first — see below)
+- **New Scrape** — return to the start of the wizard (asks to cancel first if a run is active)
+- **Open Downloads Folder** — opens your configured Save Location in the file manager
+- **History** *(3.14.7)* — recent scrape / check runs (Details, Re-run, delete)
+- **Export CSV** *(3.14.7)* — export visible (or selected) rows; respects Privacy mode usernames
+- Check-mode-only cart actions (**Select All**, **Add Selected**, **>> Send Downloads**) appear only in check modes
+
+**While a scrape runs**
+- **Log panel** — streams OF-Scraper output in real time
+- **Progress bar** (footer) — overall download progress and a running total of bytes downloaded (bytes only ever increase mid-scrape)
+- **Cart counter** (toolbar) — items queued for download (especially useful in check mode)
+- **Cancel** — cooperative stop (API pagination, mid-file chunks, and between models); shows **Cancelling…** until the worker exits
+- **Per-model badge bar** *(3.14.7)* — live status chips above the table
+- **Scrape summary** *(3.14.7)* — at the end of each run, a TUI-style summary in the log: per-model action line plus **GLOBAL RUN TOTALS** (items, data transferred, videos/audios/images, skipped, failed)
+
+**Table**
+- Filter sidebar: text search, media type, response type, downloaded/unlocked status, post date range, duration, price, IDs, and more
+- **Filter presets** *(3.14.7)* — save / rename / delete named filter sets; last-used restored on startup
+- Sort by column header; right-click a cell to filter by that value
+- **Duplicate** column *(3.14.7)* — highlights repeated `media_id` rows that the download pipeline will skip when Allow duplicates is off
+- Sticky columns, remembered column layout, and empty-table guidance overlay *(3.14.7)*
+
+See also [Table page](#table-page) under GUI features for sticky columns, CSV, History, and Duplicate-column details.
+
+---
+
+### Confirm scrape (pre-start review) *(3.14.7)*
+
+<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Confirm%20Scrape.png" width="600" alt="Confirm scrape — Review this scrape before starting">
+
+Before a larger or high-impact job starts, **Start Scraping >>** opens a **Confirm scrape** dialog titled **Review this scrape before starting**. Use it to double-check the job, then **Start Scraping** or **Cancel**.
+
+The summary includes:
+- **Actions** — e.g. download, like/unlike, metadata, or a check mode
+- **Models** — count and names (shown as `[Hidden for Privacy]` when Privacy mode is on)
+- **Areas** — content areas selected on the Areas page (Timeline, Messages, Labels, …)
+- **Media types** — Images / Videos / Audios (or config default)
+- **Options** — high-impact flags when enabled, for example:
+  - Allow duplicates
+  - **Rescrape everything** (emphasized)
+  - Scrape entire paid page / Scrape labels
+  - Daemon interval
+  - Date filter range
+  - Manual URL/ID count (manual scrape)
+  - **Delete model DB** / **Delete downloaded files** (emphasized as destructive)
+- **Rough ETA** — a low–high minute band (e.g. `~5–60 min (large job — time varies with content volume)`), with a note that ETA is only a guide until the scrape measures real media volume
+
+**When the dialog appears**
+- Always for **destructive** options (delete DB / delete downloads)
+- Also for high-impact jobs: rescrape everything, allow duplicates, scrape paid page, daemon mode
+- Also for multi-model runs (2+ models), many areas (4+), check mode, or large manual URL lists (10+)
+- Small single-model jobs with no high-impact flags may start without prompting
+
+**Don't ask again**
+- Checkbox: **Don't ask again for typical jobs (still warn for delete DB/files)**
+- Saves `skip_scrape_confirm` in `gui_settings.json` and skips typical confirms afterward
+- Destructive delete-DB / delete-files jobs **always** confirm, even after opting out
+
+Related prompts on the same page: **disk space** check against Save Location before start, and **Confirm downloads** when a check-mode cart has 25+ items (see [Safer cancel & confirms](#safer-cancel--confirms-3147)).
 
 ---
 
@@ -389,15 +446,14 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 
 ### Scraper workflow
 - **Area Selector page**: models are loaded from the API in the background while you configure options; an inline progress indicator shows loading state
-- Filters configured on the Area Selector page are automatically carried over to the Table page sidebar when models are confirmed
+- Filters configured on the Area Selector page are automatically carried over to the Scraping page sidebar when models are confirmed
 - **Username filter** on the Area Selector page pre-narrows the Model Selector list
+- After models: **Scraping page** → **Start Scraping >>** → optional **Confirm scrape** review → run
 
 ### Safer cancel & confirms *(3.14.7)*
 
-<!-- Screenshot placeholder: Confirm scrape dialog with ETA summary -->
-
 - **Cancel** shows a Cancelling… state and cooperatively stops API pagination, mid-file chunk downloads, and between models — not only between queued media items
-- **Confirm scrape** for larger / high-impact jobs (multi-model, rescrape, delete DB/files, daemon) with a rough ETA; destructive options always confirm
+- **Confirm scrape** — for larger / high-impact jobs, a pre-start **Review this scrape before starting** dialog summarizes actions, models, areas, media types, options (rescrape, allow duplicates, daemon, deletes, …), and a rough ETA. Full details: [Confirm scrape (pre-start review)](#confirm-scrape-pre-start-review-3147)
 - **Confirm downloads** when the check-mode cart has 25+ items
 - **Disk space check** before scrape / Send Downloads against Save Location
 - **Config validation** on Save and before scrape (File Format uniqueness tokens, Directory Format under Save Location, FFmpeg path, etc.)
@@ -922,6 +978,7 @@ Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.
 | CLI auto-start with `--ul` | ❌ | ❌ | ✅ | ✅ |
 | Video quality selector (`-q` / `--quality`) | ❌ | ❌ | ❌ | ✅ |
 | Login in Browser (embedded auth) | ❌ | ❌ | ❌ | ✅ |
+| Confirm scrape (pre-start review + ETA) | ❌ | ❌ | ❌ | ✅ |
 | Duplicate column in content table | ❌ | ❌ | ❌ | ✅ |
 | Save/Reset Settings confirmation dialogs | ❌ | ❌ | ❌ | ✅ |
 | TUI-style scrape summary with global totals | ❌ | ❌ | ❌ | ✅ |
@@ -1027,13 +1084,4 @@ All destructive options require explicit confirmation before proceeding. Options
 
 1. This tool is not affiliated, associated, or partnered with OnlyFans in any way. We are not authorized, endorsed, or sponsored by OnlyFans. All OnlyFans trademarks remain the property of Fenix International Limited.
 2. This is a theoretical program only and is for educational purposes. If you choose to use it then it may or may not work. You solely accept full responsibility and indemnify the creator, hosts, contributors and all other involved persons from any and all responsibility.
-# OF-Scraper GUI Patch
-
-A self-contained Python script that patches an installed (non-binary) copy of [OF-Scraper](https://github.com/datawhores/OF-Scraper) to add a full **PyQt6 GUI** accessible via the `--gui` flag.
-
-**Supported versions:** `3.12.9`, `3.14.3`, `3.14.5`, and `3.14.7`
-
-> **Python version requirement**
-> Python **3.11.x** or **3.12.x** is required. Python 3.13+ and versions below 3.11 are **not supported** and may cause issues with OF-Scraper or this patch.
-> Recommended: [Python 3.11.6](https://www.python.org/downloads/release/python-3116/)
 
