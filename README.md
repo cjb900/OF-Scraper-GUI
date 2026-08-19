@@ -184,7 +184,7 @@ Click **Next >>** when you have selected the creators you want to process. That 
 ### Scraping page
 
 <img src="https://github.com/user-attachments/assets/aea045bf-0d96-4067-b2af-02d641e4ceae" width="600" alt="Scraping page — media table">
-<img src="https://github.com/user-attachments/assets/adcbd093-ad62-47f7-84ca-1ec6ff0a9aa5" width="600" alt="Scraping page — media table">
+
 
 The main scrape workspace after models are selected. Until you press **Start Scraping >>**, the table may show **Ready to scrape** with guidance to begin fetching media for your selected models and areas.
 
@@ -219,7 +219,7 @@ See also [Table page](#table-page) under GUI features for sticky columns, CSV, H
 
 ### Confirm scrape (pre-start review) *(3.14.7)*
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Confirm%20Scrape.png" width="600" alt="Confirm scrape — Review this scrape before starting">
+<img src="https://github.com/user-attachments/assets/adcbd093-ad62-47f7-84ca-1ec6ff0a9aa5" width="600" alt="Confirm scrape — Review this scrape before starting">
 
 Before a larger or high-impact job starts, **Start Scraping >>** opens a **Confirm scrape** dialog titled **Review this scrape before starting**. Use it to double-check the job, then **Start Scraping** or **Cancel**.
 
