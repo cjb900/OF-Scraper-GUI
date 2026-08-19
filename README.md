@@ -113,7 +113,7 @@ A visual walkthrough of each page in the GUI.
 ### Scraper — Select Action
 
 <img src="https://github.com/user-attachments/assets/7af89ebd-5fa8-4ee3-8ce5-2932839f1a28" width="600" alt="Main Window — Select Action">
-<img src="https://github.com/user-attachments/assets/7633c9ce-70e6-41c4-9171-c0a81c55dbf4" width="600" alt="Main Window — User List">
+<img src="https://github.com/user-attachments/assets/b4e80358-4355-47e8-965b-34dcc411b6e1" width="600" alt="Main Window — User List">
 
 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
