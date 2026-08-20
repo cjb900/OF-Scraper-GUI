@@ -498,26 +498,26 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 <table>
   <tr>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/fac18d75-e745-4dc4-b763-6593cececf94" width="150%" alt="Duplicate Column">
+      <img src="https://github.com/user-attachments/assets/fac18d75-e745-4dc4-b763-6593cececf94" width="100%" alt="Duplicate Column">
     </td>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/3f92f720-a6e5-4a4b-9c22-77645e81857b" width="150%" alt="Table with sticky columns">
+      <img src="https://github.com/user-attachments/assets/3f92f720-a6e5-4a4b-9c22-77645e81857b" width="100%" alt="Table with sticky columns">
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/65a16b67-ec55-40c0-a221-d4f912cc7b66" width="150%" alt="Post ID / Media ID link cells opening OnlyFans">
+      <img src="https://github.com/user-attachments/assets/65a16b67-ec55-40c0-a221-d4f912cc7b66" width="100%" alt="Post ID / Media ID link cells opening OnlyFans">
     </td>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="150%" alt="History toolbar">
+      <img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="100%" alt="History toolbar">
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/25f71ae1-884d-4142-8fa7-d20c19da216a" width="150%" alt="Export CSV">
+      <img src="https://github.com/user-attachments/assets/25f71ae1-884d-4142-8fa7-d20c19da216a" width="100%" alt="Export CSV">
     </td>
-    <td><td align="center">
-      <img src="https://github.com/user-attachments/assets/16f6141f-9e31-4db9-855c-bd56b164f6f7" width="150%" alt="Cancel">
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/16f6141f-9e31-4db9-855c-bd56b164f6f7" width="100%" alt="Cancel">
     </td>
   </tr>
 </table>
