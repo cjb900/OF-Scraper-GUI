@@ -506,10 +506,10 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
   </tr>
   <tr>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/65a16b67-ec55-40c0-a221-d4f912cc7b66" width="100%" alt="Post ID / Media ID link cells opening OnlyFans">
+      <img src="https://github.com/user-attachments/assets/231d0e8a-74fd-4f5a-a4cf-acf24bfe474e" width="100%" alt="History toolbar">
     </td>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="100%" alt="History toolbar">
+      <img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="100%" alt="Post ID / Media ID link cells opening OnlyFans">
     </td>
   </tr>
   <tr>
@@ -522,7 +522,6 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
   </tr>
 </table>
 
-<img width="1706" height="960" alt="image" src="https://github.com/user-attachments/assets/231d0e8a-74fd-4f5a-a4cf-acf24bfe474e" />
 
 
 
