@@ -495,7 +495,7 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 - Check-mode cart actions (Select All / Add Selected / Send Downloads) only appear in check mode *(3.14.7)*
 - **Duplicate column** *(3.14.7)* — shown between **Downloaded** and **Unlocked**. When the same `media_id` appears more than once in the API response (e.g. a post indexed in both Timeline and Archived), every occurrence after the first shows **Duplicate** highlighted in orange with a tooltip explaining the row will be skipped by the download pipeline. When **Allow duplicates** is disabled (the default), duplicate rows also show `Downloaded: False` to make clear those specific rows were not downloaded
 
-<img src="https://github.com/user-attachments/assets/8ce2a867-08fa-4e0c-bde5-0480fa33ae99" width="600" alt="Duplicate Colmn">
+<img src="https://github.com/user-attachments/assets/fac18d75-e745-4dc4-b763-6593cececf94" width="600" alt="Duplicate Colmn">
 
 <!-- Screenshot placeholder: Table with sticky columns + Export CSV / History toolbar -->
 <!-- Screenshot placeholder: Post ID / Media ID link cells opening OnlyFans -->
