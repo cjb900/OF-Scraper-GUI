@@ -285,7 +285,7 @@ Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a
 - **Import Cookies** *(recommended when already logged in)* — read allowlisted cookies from the selected browser profile on disk (Zen/Firefox on Windows; any listed browser on Linux). Chrome-family **Import Cookies** is Linux-only on Windows builds
 <img src="https://github.com/user-attachments/assets/8c9ffc39-e068-43b8-a4f5-90488ef2a01e" width="600" alt="Import Cookied Dropdown">
 <img src="https://github.com/user-attachments/assets/3319440f-69dd-44fe-afd3-0f0508225b9a" width="600" alt="Import Cookies loading">
-<img src="https://github.com/user-attachments/assets9f407216-bcdc-4c7c-a11d-c00fd9c5dfc1" width="600" alt="Imported Cookies">
+<img src="https://github.com/user-attachments/assets/9f407216-bcdc-4c7c-a11d-c00fd9c5dfc1" width="600" alt="Imported Cookies">
 
 - 
 - **Login in System Browser…** *(3.14.7)* — opens a temporary copy of any browser from the dropdown (including Chrome on Windows) and captures credentials after you log in
