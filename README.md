@@ -522,6 +522,7 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
   </tr>
 </table>
 
+<img width="1706" height="960" alt="image" src="https://github.com/user-attachments/assets/231d0e8a-74fd-4f5a-a4cf-acf24bfe474e" />
 
 
 
