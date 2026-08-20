@@ -422,7 +422,7 @@ Built-in documentation available at any time without leaving the app:
 - Clicking a **?** button navigates directly to the matching section in the Help / README page
 - Authentication options (Credentials, Import Cookies, System Browser, App Browser) each have dedicated Help sections *(3.14.7)*
 
-## Welcome to OF_Scraper GUI
+### Welcome to OF-Scraper GUI
 - An initial start-up window welcoming you to OF_Scraper GUI with some brief helpful information
 <img src="https://github.com/user-attachments/assets/83a54dac-b131-459e-8383-3c441811532e" width="600" alt="Welcome to OF_Scraper GUI">
 
