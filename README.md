@@ -255,7 +255,7 @@ Related prompts on the same page: **disk space** check against Save Location bef
 
 ### Check Mode *(3.14.3, 3.14.5, and 3.14.7)*
 
-<img src="https://github.com/user-attachments/assets/1c83ce37-e1b3-4e9f-bdc1-8dfedbbffc5d" width="600" alt="Check Mode table">
+<img src="https://github.com/user-attachments/assets/7e3eefea-b118-4f7f-aa17-fa73434269be" width="600" alt="Check Mode table">
 
 Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**) let you browse every piece of media for a creator before committing to a download. Instead of queuing everything at once, you see a full table first and pick exactly what to save.
 
@@ -495,12 +495,30 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 - Check-mode cart actions (Select All / Add Selected / Send Downloads) only appear in check mode *(3.14.7)*
 - **Duplicate column** *(3.14.7)* — shown between **Downloaded** and **Unlocked**. When the same `media_id` appears more than once in the API response (e.g. a post indexed in both Timeline and Archived), every occurrence after the first shows **Duplicate** highlighted in orange with a tooltip explaining the row will be skipped by the download pipeline. When **Allow duplicates** is disabled (the default), duplicate rows also show `Downloaded: False` to make clear those specific rows were not downloaded
 
-<img src="https://github.com/user-attachments/assets/fac18d75-e745-4dc4-b763-6593cececf94" width="600" alt="Duplicate Colmn">
-
-<img src="https://github.com/user-attachments/assets/3f92f720-a6e5-4a4b-9c22-77645e81857b" width="600" alt="Table with sticky columns">
-<img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="600" alt="Post ID / Media ID link cells opening OnlyFans">
-<img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="600" alt="History toolbar">
-<img src="https://github.com/user-attachments/assets/25f71ae1-884d-4142-8fa7-d20c19da216a" width="600" alt="Export CSV">
+<table>
+  <tr>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/fac18d75-e745-4dc4-b763-6593cececf94" width="100%" alt="Duplicate Column">
+    </td>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/3f92f720-a6e5-4a4b-9c22-77645e81857b" width="100%" alt="Table with sticky columns">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="100%" alt="Post ID / Media ID link cells opening OnlyFans">
+    </td>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="100%" alt="History toolbar">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/25f71ae1-884d-4142-8fa7-d20c19da216a" width="100%" alt="Export CSV">
+    </td>
+    <td></td>
+  </tr>
+</table>
 
 
 
