@@ -498,10 +498,9 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 <img src="https://github.com/user-attachments/assets/fac18d75-e745-4dc4-b763-6593cececf94" width="600" alt="Duplicate Colmn">
 
 <img src="https://github.com/user-attachments/assets/3f92f720-a6e5-4a4b-9c22-77645e81857b" width="600" alt="Table with sticky columns">
-<!-- Screenshot placeholder: Post ID / Media ID link cells opening OnlyFans -->
-<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" />
-<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/89675acd-9bf3-4734-aaf4-3fce165095f0" />
-<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/25f71ae1-884d-4142-8fa7-d20c19da216a" />
+<img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="600" alt="Post ID / Media ID link cells opening OnlyFans">
+<img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="600" alt="History toolbar">
+<img src="https://github.com/user-attachments/assets/25f71ae1-884d-4142-8fa7-d20c19da216a" width="600" alt="Export CSV">
 
 
 
