@@ -341,6 +341,7 @@ Each tab has a **?** button that jumps to the matching section in the built-in H
 
 <img src="https://github.com/user-attachments/assets/f79e77f1-5269-4687-8014-60b716a3e86c" width="600" alt="DRM Key Creation">
 <img src="https://github.com/user-attachments/assets/a519873d-c641-4c77-a42e-6307739d676a" width="600" alt="DRM Key Created">
+<img src="https://github.com/user-attachments/assets/a6a7e04c-3e19-45be-95c9-6ddc5e11ef03" width="600" alt="DRM Key Creation Clean up">
 
 A built-in tool for generating the DRM decryption keys required to download protected (DRM-locked) content. You need these keys if you want to download videos that are encrypted with Widevine DRM.
 
