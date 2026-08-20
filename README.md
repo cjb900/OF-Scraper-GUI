@@ -358,7 +358,7 @@ A built-in tool for generating the DRM decryption keys required to download prot
 
 ### Profile Manager
 
-<img src="https://github.com/user-attachments/assets/8e7b0f2e-db10-479c-bec4-b2e6027b9727" width="600" alt="Profile Manager">
+<img src="https://github.com/user-attachments/assets/65e4ac3d-bd8c-408a-8a5a-278a0079c7d1" width="600" alt="Profile Manager">
 
 Profiles let you maintain completely separate configurations and credentials — useful if you manage multiple accounts or want different download settings for different use cases.
 
@@ -371,7 +371,7 @@ Profiles let you maintain completely separate configurations and credentials —
 
 ### Merge Databases
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Merge%20Databases.jpg" width="600" alt="Merge Databases">
+<img src="https://github.com/user-attachments/assets/0f1d3dbc-384d-4ac5-8e26-5ede5499f885" width="600" alt="Merge Database">
 
 Merge data from one OF-Scraper database into another. This is useful if you have downloaded content across multiple profiles or machines and want to consolidate your records.
 
@@ -383,7 +383,7 @@ Merge data from one OF-Scraper database into another. This is useful if you have
 
 ### Help / README
 
-<img src="https://github.com/user-attachments/assets/f17dac11-34ae-49d0-a9d7-f8d60cad227b" width="600" alt="Help / README">
+<img src="https://github.com/user-attachments/assets/05e37742-bbf7-4d5a-a381-a832ad3123c7" width="600" alt="Help / README">
 
 Built-in documentation available at any time without leaving the app:
 
@@ -411,7 +411,7 @@ Built-in documentation available at any time without leaving the app:
 
 ### Privacy / demo mode *(3.14.7)*
 
-<!-- Screenshot placeholder: Privacy mode ON — masked auth fields and hidden usernames -->
+<img src="https://github.com/user-attachments/assets/f91773a7-e92c-4c35-8404-0c7c25ffacba" width="600" alt="Privacy / Demo Mode">
 
 - Toggle **Privacy** in the bottom of the sidebar for safe screenshots / demos
 - Masks auth fields, Save Location / webhook / FFmpeg / CDM paths, model names, and table usernames
@@ -421,6 +421,10 @@ Built-in documentation available at any time without leaving the app:
 - Every section and option throughout the GUI has a small **?** button next to it
 - Clicking a **?** button navigates directly to the matching section in the Help / README page
 - Authentication options (Credentials, Import Cookies, System Browser, App Browser) each have dedicated Help sections *(3.14.7)*
+
+## Welcome to OF_Scraper GUI
+- An initial start-up window welcoming you to OF_Scraper GUI with some brief helpful information
+<img src="https://github.com/user-attachments/assets/83a54dac-b131-459e-8383-3c441811532e" width="600" alt="Welcome to OF_Scraper GUI">
 
 ### Startup dependency check
 - On launch, the GUI checks whether **FFmpeg** and **CDM key paths** are configured
@@ -440,9 +444,8 @@ Built-in documentation available at any time without leaving the app:
 
 ### Login in Browser *(3.14.7)*
 
-<img src="https://github.com/user-attachments/assets/1a9f099e-2425-482b-a9c2-abf2b4c480a9" width="600" alt="Login in Browser">
+<img src="https://github.com/user-attachments/assets/6c2b7e08-2076-440e-a962-6ca78e5e80cf" width="600" alt="Login in App Browser">
 
-<!-- Screenshot placeholder: Login in System Browser temporary profile window -->
 
 Two ways to capture credentials by logging in (plus Import Cookies / manual paste):
 
