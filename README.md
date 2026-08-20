@@ -304,18 +304,33 @@ If scraping fails with an auth error, the GUI will offer a direct link to jump t
 
 ### Configuration
 
-<img src="https://github.com/cjb900/OF-Scraper-GUI/blob/main/.github/Screenshots/OF-Scraper-GUI%20-%20Configuration.jpg" width="600" alt="Configuration">
 
 Edit all OF-Scraper settings without touching `config.json` directly. Settings are organized into tabs:
 
 - **General** — profile name, metadata path, Discord webhook
+<img src="https://github.com/user-attachments/assets/4f45876d-4d71-49cf-b8de-1982dcb461cf" width="600" alt="Configuration">
+  
 - **File Options** — where files are saved, folder and filename format, date format, text length
+<img src="https://github.com/user-attachments/assets/62cd108c-81c5-484d-bc54-8e871f5cb140" width="600" alt="File Options">
+
 - **Download** — free space minimum, auto-resume, post count limit, media type filter (Images / Audios / Videos / Text); *(3.14.7)* **DRM Duration Match %**, Verify All Integrity
+<img src="https://github.com/user-attachments/assets/cac3e11a-9dc7-4f12-96d0-07b6482e6e52" width="600" alt="Downloads">
+
 - **Performance** — concurrent downloads, thread count, speed limit
+<img src="https://github.com/user-attachments/assets/902a066a-da84-4a72-b2e9-bbcff9cc57db" width="600" alt="Performance">
+
 - **Content** — file size limits, duration limits, ad blocking
+<img src="https://github.com/user-attachments/assets/8c7d4abf-6df9-421b-a433-1eba0538914b" width="600" alt="Content">
+
 - **CDM** — DRM key mode and key file paths (needed for protected content); *(3.14.7)* new installs default to **manual**; remote modes warn and never send session cookies
+<img src="https://github.com/user-attachments/assets/2feed263-94cb-46b1-89c4-2fc84b723f91" width="600" alt="CDM">
+
 - **Advanced** — dynamic mode, cache mode, download bars, logging options, and more
+<img src="https://github.com/user-attachments/assets/7a9307f5-1ad3-4315-bcf3-b16697d27dfb" width="600" alt="Advanced">
+
 - **Response Type** — customize how content type folders are named
+<img src="https://github.com/user-attachments/assets/b62ad094-4947-4d43-9ca7-371208e74e09" width="600" alt="Response Type">
+
 - **Overwrites** *(3.12.9 only)* — per-media-type overrides for file format, size limits, and more
 
 Each tab has a **?** button that jumps to the matching section in the built-in Help page. Click **Save** to write changes back to `config.json`. *(3.14.7: Save and scrape start validate File Format uniqueness, Directory Format under Save Location, and related settings.)*
