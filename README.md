@@ -286,9 +286,12 @@ Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a
 <img src="https://github.com/user-attachments/assets/6e9a5ee2-37b5-4253-8997-5a9cdfc1ea33" width="600" alt="Import Cookied Dropdown">
 <img src="https://github.com/user-attachments/assets/b2eb0592-5328-47c4-88bc-955cbd270802" width="600" alt="Import Cookies loading">
 <img src="https://github.com/user-attachments/assets/9f407216-bcdc-4c7c-a11d-c00fd9c5dfc1" width="600" alt="Imported Cookies">
-
-- 
+ 
 - **Login in System Browser…** *(3.14.7)* — opens a temporary copy of any browser from the dropdown (including Chrome on Windows) and captures credentials after you log in
+<img src="https://github.com/user-attachments/assets/f665c742-1ad4-419e-9c30-aca78cdc5384" width="600" alt="Import Cookied Dropdown">
+<img src="https://github.com/user-attachments/assets/3ea678e3-e253-400c-8d32-aa6aedf8e04b" width="600" alt="Import Cookied Dropdown">
+<img src="https://github.com/user-attachments/assets/c0f6ead3-1ff6-4ff5-893c-9912f7f69dd0" width="600" alt="Import Cookied Dropdown">
+  
 - **Login in App Browser…** *(3.14.7)* — embedded Chromium window inside the app (`PyQt6-WebEngine`)
 - Cookie allowlist + hardened `auth.json` permissions *(3.14.7)* — only auth cookies/headers are kept; unrelated browser cookies are dropped
 - Cancel support for Import Cookies and browser login, plus an optional hard login timeout *(3.14.7)*
