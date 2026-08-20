@@ -517,7 +517,8 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
       <img src="https://github.com/user-attachments/assets/25f71ae1-884d-4142-8fa7-d20c19da216a" width="150%" alt="Export CSV">
     </td>
     <td><td align="center">
-      <img src="https://github.com/user-attachments/assets/16f6141f-9e31-4db9-855c-bd56b164f6f7" width="150%" alt="Cancel"></td>
+      <img src="https://github.com/user-attachments/assets/16f6141f-9e31-4db9-855c-bd56b164f6f7" width="150%" alt="Cancel">
+    </td>
   </tr>
 </table>
 
