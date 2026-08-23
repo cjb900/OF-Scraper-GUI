@@ -162,7 +162,7 @@ Settings on this page are **not saved automatically**. Use the buttons in the lo
 
 ### Select Models
 
-<img src="https://github.com/user-attachments/assets/754ce7a5-c520-4236-a433-40222a5b3b90" width="600" alt="Select Models">
+<img src="https://github.com/user-attachments/assets/2cec0d50-a4a8-4180-8202-bde316003406" width="600" alt="Select Models">
 
 A searchable, filterable table of all creators you are subscribed to. From here you can:
 
@@ -181,7 +181,7 @@ Click **Next >>** when you have selected the creators you want to process. That 
 
 ### Scraping page
 
-<img src="https://github.com/user-attachments/assets/aea045bf-0d96-4067-b2af-02d641e4ceae" width="600" alt="Scraping page — media table">
+<img src="https://github.com/user-attachments/assets/0d04b396-9ae2-40db-a29e-c40bf6f55f7a" width="600" alt="Scraping page — media table">
 
 
 The main scrape workspace after models are selected. Until you press **Start Scraping >>**, the table may show **Ready to scrape** with guidance to begin fetching media for your selected models and areas.
@@ -217,7 +217,7 @@ See also [Table page](#table-page) under GUI features for sticky columns, CSV, H
 
 ### Confirm scrape (pre-start review) *(3.14.7)*
 
-<img src="https://github.com/user-attachments/assets/adcbd093-ad62-47f7-84ca-1ec6ff0a9aa5" width="600" alt="Confirm scrape — Review this scrape before starting">
+<img src="https://github.com/user-attachments/assets/e66b13cf-45a1-491f-a91c-52cf3a2d3283" width="600" alt="Confirm scrape — Review this scrape before starting">
 
 Before a larger or high-impact job starts, **Start Scraping >>** opens a **Confirm scrape** dialog titled **Review this scrape before starting**. Use it to double-check the job, then **Start Scraping** or **Cancel**.
 
@@ -253,7 +253,7 @@ Related prompts on the same page: **disk space** check against Save Location bef
 
 ### Check Mode *(3.14.3, 3.14.5, and 3.14.7)*
 
-<img src="https://github.com/user-attachments/assets/7e3eefea-b118-4f7f-aa17-fa73434269be" width="600" alt="Check Mode table">
+<img src="https://github.com/user-attachments/assets/9f50a722-4f76-40cb-8367-ab5f2dbe1b1d" width="600" alt="Check Mode table">
 
 Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**) let you browse every piece of media for a creator before committing to a download. Instead of queuing everything at once, you see a full table first and pick exactly what to save.
 
@@ -273,20 +273,20 @@ Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**)
 
 ### Authentication
 
-<img src="https://github.com/user-attachments/assets/b61a6fe7-4427-452d-86f6-834980eadfb2" width="600" alt="Authentication">
+<img src="https://github.com/user-attachments/assets/4213c577-1064-4f38-860a-43c6dbfc80bc" width="600" alt="Authentication">
 
 Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a **?** button that jumps to the matching Help section:
 
 - **Credentials** — paste `sess` / `auth_id` / `auth_uid` / user-agent / `x-bc` manually from DevTools
 - **Import Cookies** *(recommended when already logged in)* — read allowlisted cookies from the selected browser profile on disk (Zen/Firefox on Windows; any listed browser on Linux). Chrome-family **Import Cookies** is Linux-only on Windows builds
-<img src="https://github.com/user-attachments/assets/6e9a5ee2-37b5-4253-8997-5a9cdfc1ea33" width="600" alt="Import Cookies Dropdown">
-<img src="https://github.com/user-attachments/assets/b2eb0592-5328-47c4-88bc-955cbd270802" width="600" alt="Import Cookies loading">
-<img src="https://github.com/user-attachments/assets/9f407216-bcdc-4c7c-a11d-c00fd9c5dfc1" width="600" alt="Imported Cookies">
+<img src="https://github.com/user-attachments/assets/90cb1eec-4f76-46f8-8737-693a3e7836f4" width="600" alt="Import Cookies Dropdown">
+<img src="https://github.com/user-attachments/assets/022e43f2-12b1-4bb3-b27c-4550f543273f" width="600" alt="Import Cookies loading">
+<img src="https://github.com/user-attachments/assets/2a2cce6a-dea1-443f-9efd-56a50cc9f669" width="600" alt="Imported Cookies">
  
 - **Login in System Browser…** *(3.14.7)* — opens a temporary copy of any browser from the dropdown (including Chrome on Windows) and captures credentials after you log in
-<img src="https://github.com/user-attachments/assets/f665c742-1ad4-419e-9c30-aca78cdc5384" width="600" alt="Login System Browser">
+<img src="https://github.com/user-attachments/assets/b18b70c4-c349-435e-be52-0cb398e980a6" width="600" alt="Login System Browser">
 <img src="https://github.com/user-attachments/assets/3ea678e3-e253-400c-8d32-aa6aedf8e04b" width="600" alt="Login System Browser Credentials captured">
-<img src="https://github.com/user-attachments/assets/c0f6ead3-1ff6-4ff5-893c-9912f7f69dd0" width="600" alt="Login System Browser Credentials imported">
+<img src="https://github.com/user-attachments/assets/80ab1b74-a12c-402e-9a5a-4ba085b4e971" width="600" alt="Login System Browser Credentials imported">
   
 - **Login in App Browser…** *(3.14.7)* — embedded Chromium window inside the app (`PyQt6-WebEngine`)
 - Cookie allowlist + hardened `auth.json` permissions *(3.14.7)* — only auth cookies/headers are kept; unrelated browser cookies are dropped
@@ -519,7 +519,7 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 - Optional **@here Discord mention** — when enabled, the Discord scrape summary is prefixed with `@here` only when new content was downloaded in that run. No ping is sent for runs that find nothing new. Requires a Discord webhook to be configured
 - A **Stop Daemon** button appears in the toolbar; clicking it gracefully stops the loop after the current run
 
-### Table page
+### Table page 
 - **Right-click** any cell to instantly filter the table by that cell's value
 - Click any **column header** to sort by that column
 - The footer shows the current row count and filtered vs total count (e.g. `42 / 1200 rows (filtered)`)
@@ -539,26 +539,26 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 <table>
   <tr>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/fac18d75-e745-4dc4-b763-6593cececf94" width="100%" alt="Duplicate Column">
+      <img src="https://github.com/user-attachments/assets/a5903ecf-8192-473c-9bc2-ca8125c4000b" width="100%" alt="Duplicate Column">
     </td>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/3f92f720-a6e5-4a4b-9c22-77645e81857b" width="100%" alt="Table with sticky columns">
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <img src="https://github.com/user-attachments/assets/231d0e8a-74fd-4f5a-a4cf-acf24bfe474e" width="100%" alt="History toolbar">
-    </td>
-    <td align="center">
-      <img src="https://github.com/user-attachments/assets/ef37d6d7-4625-4f4b-8edd-7d1c6689cc32" width="100%" alt="Post ID / Media ID link cells opening OnlyFans">
+      <img src="https://github.com/user-attachments/assets/3d6cdf5a-9208-41e6-9e93-4e08f8514c92" width="100%" alt="Table with sticky columns">
     </td>
   </tr>
   <tr>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/25f71ae1-884d-4142-8fa7-d20c19da216a" width="100%" alt="Export CSV">
+      <img src="https://github.com/user-attachments/assets/ac4bb037-c9e9-481e-bdcf-377ddc470062" width="100%" alt="History toolbar">
     </td>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/16f6141f-9e31-4db9-855c-bd56b164f6f7" width="100%" alt="Cancel">
+      <img src="https://github.com/user-attachments/assets/c180f03f-65bd-43eb-873a-8bf4dde20b26" width="100%" alt="Post ID / Media ID link cells opening OnlyFans">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/b6611159-7970-4556-898f-84e552e2c05f" width="100%" alt="Export CSV">
+    </td>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/b616a244-b630-4654-8980-07a903f28c4a" width="100%" alt="Cancel">
     </td>
   </tr>
 </table>
