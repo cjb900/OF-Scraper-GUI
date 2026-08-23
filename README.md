@@ -895,7 +895,7 @@ The plugin handles its own setup on first enable:
 > pipx inject ofscraper llama-cpp-python huggingface-hub
 > ```
 
----
+--- 
 
 #### Trial Link Scanner (`trial_link_scanner`) *(all versions)*
 
@@ -903,11 +903,7 @@ Automatically scans every direct message collected during a scrape for OnlyFans 
 
 **Screenshots**
 
-<table>
-<tr>
-<td align="center"><img src="https://github.com/user-attachments/assets/5b7e3bab-98aa-4f88-a6ae-1afd1e9dd331" width="600" alt="Help / README"><br><em>Trial Link Scanner plugin page</em></td>
-</tr>
-</table>
+<img src="https://github.com/user-attachments/assets/627fbb66-c941-4754-be64-d7f887c1679b" width="600" alt="Trial Link Scanner">
 
 **How it works**
 
