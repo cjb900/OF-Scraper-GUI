@@ -490,13 +490,13 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 ### Status strip & health chips *(3.14.7)*
 
 - Before Scan
-<img src="https://github.com/user-attachments/assets/3f7e2241-1dbc-45f1-93ab-ea735e9a76c5" height="300" alt="Status Strip Before Scan">
+<img src="https://github.com/user-attachments/assets/3f7e2241-1dbc-45f1-93ab-ea735e9a76c5" height="600" alt="Status Strip Before Scan">
 
 - During Scan
-<img src="https://github.com/user-attachments/assets/53770370-5d6c-4830-9e35-cf25294ff74b" height="300" alt="Status Strip During Scan">
+<img src="https://github.com/user-attachments/assets/53770370-5d6c-4830-9e35-cf25294ff74b" height="600" alt="Status Strip During Scan">
 
 - Scan Finished
-<img src="https://github.com/user-attachments/assets/acc32487-ef11-4796-b06a-1d973f9eeb3b" height="300" alt="Status Strip Scan Finished">
+<img src="https://github.com/user-attachments/assets/acc32487-ef11-4796-b06a-1d973f9eeb3b" height="600" alt="Status Strip Scan Finished">
 
 
 - Unified footer: phase badge (Ready / Running / Cancelling / Daemon / Complete), status text, progress, row count
