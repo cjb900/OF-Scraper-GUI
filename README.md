@@ -293,7 +293,7 @@ Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a
 - Cancel support for Import Cookies and browser login, plus an optional hard login timeout *(3.14.7)*
 - Auth page layout tightened so credential fields stay readable without cramped stacking *(3.14.7)*
 
-<img src="https://github.com/user-attachments/assets/6c2b7e08-2076-440e-a962-6ca78e5e80cf" width="600" alt="Login in App Browser">
+<img src="https://github.com/user-attachments/assets/f2d615cc-5064-4caf-afd7-dca6dcbdb574" width="600" alt="Login in App Browser">
 
 If scraping fails with an auth error, the GUI will offer a direct link to jump to this page. Footer **Auth / Config / Key** health chips also surface auth problems at a glance *(3.14.7)*.
 
@@ -305,28 +305,28 @@ If scraping fails with an auth error, the GUI will offer a direct link to jump t
 Edit all OF-Scraper settings without touching `config.json` directly. Settings are organized into tabs:
 
 - **General** — profile name, metadata path, Discord webhook
-<img src="https://github.com/user-attachments/assets/4f45876d-4d71-49cf-b8de-1982dcb461cf" width="600" alt="Configuration">
+<img src="https://github.com/user-attachments/assets/95876da2-1df5-4287-b8d4-c3706f04e067" width="600" alt="Configuration">
   
 - **File Options** — where files are saved, folder and filename format, date format, text length. *(3.14.7 on Windows: filesystem paths display and save with backslashes; `config.json` stores them as escaped `\\`. Directory/File Format templates still use `/`.)*
-<img src="https://github.com/user-attachments/assets/62cd108c-81c5-484d-bc54-8e871f5cb140" width="600" alt="File Options">
+<img src="https://github.com/user-attachments/assets/9ad13ef4-668e-438f-aa5e-d5bee31ef59b" width="600" alt="File Options">
 
 - **Download** — free space minimum, auto-resume, post count limit, media type filter (Images / Audios / Videos / Text); *(3.14.7)* **DRM Duration Match %**, Verify All Integrity
-<img src="https://github.com/user-attachments/assets/cac3e11a-9dc7-4f12-96d0-07b6482e6e52" width="600" alt="Downloads">
+<img src="https://github.com/user-attachments/assets/e9882535-4823-493d-bfdb-784d1777ceff2" width="600" alt="Downloads">
 
 - **Performance** — concurrent downloads, thread count, speed limit
-<img src="https://github.com/user-attachments/assets/902a066a-da84-4a72-b2e9-bbcff9cc57db" width="600" alt="Performance">
+<img src="https://github.com/user-attachments/assets/82d59dfb-02d4-4ceb-908f-ff9b644774e2" width="600" alt="Performance">
 
 - **Content** — file size limits, duration limits, ad blocking
-<img src="https://github.com/user-attachments/assets/8c7d4abf-6df9-421b-a433-1eba0538914b" width="600" alt="Content">
+<img src="https://github.com/user-attachments/assets/c5f75ab8-070d-4b85-b5c8-327bb6c3ec7d" width="600" alt="Content">
 
 - **CDM** — DRM key mode and key file paths (needed for protected content); *(3.14.7)* new installs default to **manual**; remote modes warn and never send session cookies
-<img src="https://github.com/user-attachments/assets/2feed263-94cb-46b1-89c4-2fc84b723f91" width="600" alt="CDM">
+<img src="https://github.com/user-attachments/assets/f9e7dd9b-82d7-44dd-acb0-968a575bb5f0" width="600" alt="CDM">
 
 - **Advanced** — dynamic mode, cache mode, download bars, logging options, and more
-<img src="https://github.com/user-attachments/assets/7a9307f5-1ad3-4315-bcf3-b16697d27dfb" width="600" alt="Advanced">
+<img src="https://github.com/user-attachments/assets/b176ca45-3649-4bed-a117-5688871f0f42" width="600" alt="Advanced">
 
 - **Response Type** — customize how content type folders are named
-<img src="https://github.com/user-attachments/assets/b62ad094-4947-4d43-9ca7-371208e74e09" width="600" alt="Response Type">
+<img src="https://github.com/user-attachments/assets/298fce77-a1af-4f27-b5e0-2e4abdbac15b" width="600" alt="Response Type">
 
 - **Overwrites** *(3.12.9 only)* — per-media-type overrides for file format, size limits, and more
 
