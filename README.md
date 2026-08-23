@@ -588,10 +588,10 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 <table>
   <tr>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/35f61e72-fab7-46b2-a637-082bfa558cf8" width="100%" alt="Duplicate Column">
+      <img src="https://github.com/user-attachments/assets/35f61e72-fab7-46b2-a637-082bfa558cf8" width="100%" alt="Scrape individual posts">
     </td>
     <td align="center">
-      <img src="https://github.com/user-attachments/assets/b8df0702-ff0a-4fd5-98fc-3ab3cf141c42" width="100%" alt="Table with sticky columns">
+      <img src="https://github.com/user-attachments/assets/b8df0702-ff0a-4fd5-98fc-3ab3cf141c42" width="100%" alt="Scrape individual posts by URL or Post ID">
     </td>
   </tr>
 </table>
@@ -698,7 +698,16 @@ OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your 
 
 ### Plugins page *(3.14.7)*
 
-<!-- Screenshot placeholder: Plugins page — Load now / Unload now -->
+<table>
+  <tr>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/37aa3377-85a4-47d8-85bc-9bb33628863f" width="100%" alt="Plugin Page">
+    </td>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/e491ed59-cd6b-46f9-96d4-b16ad3b3d6a9" width="100%" alt="Plugin Loaded">
+    </td>
+  </tr>
+</table>
 
 - Left-nav **Plugins** page lists installed plugins (name, version, Loaded / Disabled / Not loaded)
 - **Enable / Disable** writes `plugin_enabled` in the plugin’s `main.py`
