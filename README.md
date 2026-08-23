@@ -489,7 +489,15 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 
 ### Status strip & health chips *(3.14.7)*
 
-<!-- Screenshot placeholder: Footer status strip with Auth / Config / Key chips and per-model badges -->
+- Befor Scan
+<img src="https://github.com/user-attachments/assets/3f7e2241-1dbc-45f1-93ab-ea735e9a76c5" width="600" alt="Status Strip Before Scan">
+
+- During Scan
+<img src="https://github.com/user-attachments/assets/53770370-5d6c-4830-9e35-cf25294ff74b" width="600" alt="Status Strip During Scan">
+
+- Scan Finished
+<img src="https://github.com/user-attachments/assets/acc32487-ef11-4796-b06a-1d973f9eeb3b" width="600" alt="Status Strip Scan Finished">
+
 
 - Unified footer: phase badge (Ready / Running / Cancelling / Daemon / Complete), status text, progress, row count
 - Clickable **Auth**, **Config**, and **Key** health chips (green / orange / red) — hover for detail; click to jump to the fix page
