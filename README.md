@@ -280,12 +280,12 @@ Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a
 - **Credentials** — paste `sess` / `auth_id` / `auth_uid` / user-agent / `x-bc` manually from DevTools
 - **Import Cookies** *(recommended when already logged in)* — read allowlisted cookies from the selected browser profile on disk (Zen/Firefox on Windows; any listed browser on Linux). Chrome-family **Import Cookies** is Linux-only on Windows builds
 <img src="https://github.com/user-attachments/assets/90cb1eec-4f76-46f8-8737-693a3e7836f4" width="600" alt="Import Cookies Dropdown">
-<img src="https://github.com/user-attachments/assets/022e43f2-12b1-4bb3-b27c-4550f543273f" width="600" alt="Import Cookies loading">
+<img src="https://github.com/user-attachments/assets/3a825b47-7e8d-4bed-a945-ef132ca01491" width="600" alt="Import Cookies loading">
 <img src="https://github.com/user-attachments/assets/2a2cce6a-dea1-443f-9efd-56a50cc9f669" width="600" alt="Imported Cookies">
  
 - **Login in System Browser…** *(3.14.7)* — opens a temporary copy of any browser from the dropdown (including Chrome on Windows) and captures credentials after you log in
 <img src="https://github.com/user-attachments/assets/b18b70c4-c349-435e-be52-0cb398e980a6" width="600" alt="Login System Browser">
-<img src="https://github.com/user-attachments/assets/3ea678e3-e253-400c-8d32-aa6aedf8e04b" width="600" alt="Login System Browser Credentials captured">
+<img src="https://github.com/user-attachments/assets/1c324b6a-e00d-459b-b85a-29dd183a4963" width="600" alt="Login System Browser Credentials captured">
 <img src="https://github.com/user-attachments/assets/80ab1b74-a12c-402e-9a5a-4ba085b4e971" width="600" alt="Login System Browser Credentials imported">
   
 - **Login in App Browser…** *(3.14.7)* — embedded Chromium window inside the app (`PyQt6-WebEngine`)
