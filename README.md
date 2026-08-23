@@ -51,6 +51,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Plugins page](#plugins-page-3147)
   - [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger-all-versions)
   - [LLM Assistant](#llm-assistant-llm_assistant-all-versions)
+  - [Live Stream Monitor](#live-stream-monitor-live_stream_monitor-all-versions)
   - [Trial Link Scanner](#trial-link-scanner-trial_link_scanner-all-versions)
 - [Docker](#docker)
   - [Running the GUI in Docker](#running-the-gui-in-docker)
@@ -122,8 +123,6 @@ The starting point of every scrape. Choose what you want OF-Scraper to do:
 - **Download** — download media files from your subscribed creators
   - **User Lists** *(3.14.5 and 3.14.7)* — filter which models are loaded by entering one or more OnlyFans list names (comma-separated). Leave blank to load all subscribed models. Equivalent to `--ul` on the command line.
 
-<!-- Screenshot placeholder: Select Action page showing the User Lists field under "Download content from a user" -->
-
 - **Like/Unlike** — automate liking or unliking posts
 - **Metadata** — update your local database without downloading files
 - **Check modes** *(3.14.3, 3.14.5, and 3.14.7)* (Post Check, Message Check, Paid Check, Story Check) — browse all content for a creator in a table view and selectively download individual items
@@ -139,7 +138,7 @@ After selecting an action, click **Next** to move on.
 
 Choose which types of posts to scrape and apply filters before the scrape begins:
 
-- **Content areas** — Timeline, Messages, Archived, Paid, Stories, Highlights, Pinned, Streams
+- **Content areas** — Profile, Timeline, Pinned, Archived, Highlights, Stories, Messages, Purchased, Streams, Labels
 - **Post Date Range** — filter content by post date using independent **After** and **Before** controls; each side can be enabled or disabled independently:
   - **Fixed date** — pick a specific calendar date with the date picker
   - **Relative** — enter a number + unit (e.g. *7 days ago*); the date is computed fresh at each scrape run so saved relative settings always mean the last N days
@@ -150,6 +149,7 @@ Choose which types of posts to scrape and apply filters before the scrape begins
 - **Include Post Text** *(3.14.3, 3.14.5, and 3.14.7)* — when enabled, the text body of each post is included alongside the downloaded media
 - **Video quality** *(3.14.7)* — choose **Default**, **240**, **720**, or **source**; equivalent to the `-q` / `--quality` CLI flag
 - **Daemon Mode** — set a repeat interval (1–1440 minutes) so the scraper runs automatically on a schedule; optional system notification, sound alert, and **@here Discord ping when new content is found**
+- **Allow duplicates** *(3.14.7)* — when enabled, keep multiple copies of the same `media_id` across posts/areas. Optional sub-option: **Also keep Messages + Purchased copies of the same media** (default off) — collapses Messages↔Purchased/Paid to Messages only while still keeping other area reposts
 - **Username filter** — pre-filter the model list to only show specific creators
 
 Once you're happy with your selections, click **Next** to load and choose your models.
@@ -163,8 +163,6 @@ Settings on this page are **not saved automatically**. Use the buttons in the lo
 ### Select Models
 
 <img src="https://github.com/user-attachments/assets/754ce7a5-c520-4236-a433-40222a5b3b90" width="600" alt="Select Models">
-
-<!-- Screenshot placeholder: Select Models — click username to toggle selection -->
 
 A searchable, filterable table of all creators you are subscribed to. From here you can:
 
@@ -277,13 +275,11 @@ Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**)
 
 <img src="https://github.com/user-attachments/assets/b61a6fe7-4427-452d-86f6-834980eadfb2" width="600" alt="Authentication">
 
-<!-- Screenshot placeholder: Authentication page with (?) help buttons on each option -->
-
 Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a **?** button that jumps to the matching Help section:
 
 - **Credentials** — paste `sess` / `auth_id` / `auth_uid` / user-agent / `x-bc` manually from DevTools
 - **Import Cookies** *(recommended when already logged in)* — read allowlisted cookies from the selected browser profile on disk (Zen/Firefox on Windows; any listed browser on Linux). Chrome-family **Import Cookies** is Linux-only on Windows builds
-<img src="https://github.com/user-attachments/assets/6e9a5ee2-37b5-4253-8997-5a9cdfc1ea33" width="600" alt="Import Cookied Dropdown">
+<img src="https://github.com/user-attachments/assets/6e9a5ee2-37b5-4253-8997-5a9cdfc1ea33" width="600" alt="Import Cookies Dropdown">
 <img src="https://github.com/user-attachments/assets/b2eb0592-5328-47c4-88bc-955cbd270802" width="600" alt="Import Cookies loading">
 <img src="https://github.com/user-attachments/assets/9f407216-bcdc-4c7c-a11d-c00fd9c5dfc1" width="600" alt="Imported Cookies">
  
@@ -295,6 +291,7 @@ Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a
 - **Login in App Browser…** *(3.14.7)* — embedded Chromium window inside the app (`PyQt6-WebEngine`)
 - Cookie allowlist + hardened `auth.json` permissions *(3.14.7)* — only auth cookies/headers are kept; unrelated browser cookies are dropped
 - Cancel support for Import Cookies and browser login, plus an optional hard login timeout *(3.14.7)*
+- Auth page layout tightened so credential fields stay readable without cramped stacking *(3.14.7)*
 
 <img src="https://github.com/user-attachments/assets/6c2b7e08-2076-440e-a962-6ca78e5e80cf" width="600" alt="Login in App Browser">
 
@@ -310,7 +307,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 - **General** — profile name, metadata path, Discord webhook
 <img src="https://github.com/user-attachments/assets/4f45876d-4d71-49cf-b8de-1982dcb461cf" width="600" alt="Configuration">
   
-- **File Options** — where files are saved, folder and filename format, date format, text length
+- **File Options** — where files are saved, folder and filename format, date format, text length. *(3.14.7 on Windows: filesystem paths display and save with backslashes; `config.json` stores them as escaped `\\`. Directory/File Format templates still use `/`.)*
 <img src="https://github.com/user-attachments/assets/62cd108c-81c5-484d-bc54-8e871f5cb140" width="600" alt="File Options">
 
 - **Download** — free space minimum, auto-resume, post count limit, media type filter (Images / Audios / Videos / Text); *(3.14.7)* **DRM Duration Match %**, Verify All Integrity
@@ -350,6 +347,7 @@ A built-in tool for generating the DRM decryption keys required to download prot
 - **Fully automated** — downloads the Android SDK, sets up an emulator, and extracts the keys without any manual steps
 - **Streams output** directly into the app so you can follow progress in real time — the Generate Keys button and live console log are immediately visible on page load *(3.14.7: the Requirements & Information panel has been moved below the console so you no longer need to scroll past it)*
 - **Auto-configures** — once keys are generated, the CDM key paths in your config are updated automatically. No need to edit `config.json` manually
+- **Virtualization checks** *(3.14.7)* — a missing/broken `emulator-check` binary (often antivirus quarantine) is repaired when possible and is no longer treated as “CPU has no virtualization” when Hyper-V/BIOS virt is present
 - Accessible from the sidebar or via the quick link in the startup notice if CDM keys are not yet configured
 
 > The key extraction process can take 10–90 minutes depending on your hardware. A progress log is shown throughout.
@@ -401,8 +399,9 @@ Built-in documentation available at any time without leaving the app:
 - On Windows, the correct AppUserModelID is registered so the taskbar groups and identifies the app as OF-Scraper rather than Python
 
 ### Theme
-- Toggle between **Dark** and **Light** mode using the button in the bottom-left navigation bar
+- Toggle between **Dark** and **Light** mode using the button at the bottom of the left sidebar
 - Theme preference is saved to `gui_settings.json` in your ofscraper config directory
+- Left-nav pages use **colored icons** next to each label (Scraper, Authentication, Configuration, …); plugin pages get their own sidebar entry when loaded
 
 ### Verbose Log
 - Toggle **Verbose Log** mode using the button in the bottom-left navigation bar (below the Theme button)
@@ -423,13 +422,14 @@ Built-in documentation available at any time without leaving the app:
 - Authentication options (Credentials, Import Cookies, System Browser, App Browser) each have dedicated Help sections *(3.14.7)*
 
 ### Welcome to OF-Scraper GUI
-- An initial start-up window welcoming you to OF_Scraper GUI with some brief helpful information
+- An initial start-up window welcoming you to OF-Scraper GUI with brief helpful information
+- *(3.14.7)* Shown **before** the Missing FFmpeg/CDM paths dialog so first-run messaging is not buried behind dependency prompts
 <img src="https://github.com/user-attachments/assets/83a54dac-b131-459e-8383-3c441811532e" width="600" alt="Welcome to OF_Scraper GUI">
 
 ### Startup dependency check
-- On launch, the GUI checks whether **FFmpeg** and **CDM key paths** are configured
-- If either is missing, a **non-blocking** notice pops up — the main window remains fully interactive while the dialog is open
-- **Open Config → Download (FFmpeg)** and **Open Config → CDM (Manual keys)** navigate the main window to the relevant config tab while keeping the dialog visible, so the path instructions stay on screen as you fill in the fields
+- On launch (after Welcome when applicable), the GUI checks whether **FFmpeg** and **CDM key paths** are configured
+- If either is missing, a notice appears from **Configuration** (and related entry points) — *(3.14.7)* Areas uses a safer status-tip / dialog flow so dismissing missing-deps cannot crash a model fetch in progress
+- **Open Config → Download (FFmpeg)** and **Open Config → CDM (Manual keys)** navigate the main window to the relevant config tab
 - **Generate DRM Keys** closes the dialog and navigates to the DRM Key Creation page
 
 <img src="https://github.com/user-attachments/assets/e44fddc8-6a46-4112-b9e5-f4527af17cee" width="600" alt="Missing Configuration Paths">
@@ -474,7 +474,7 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 - After models load, a **Reload Models** button appears in the navigation bar so you can re-fetch without going back to the start
 
 ### Scraper workflow
-- **Area Selector page**: models are loaded from the API in the background while you configure options; an inline progress indicator shows loading state
+- **Area Selector page**: models are loaded from the API in the background while you configure options; an inline progress indicator shows loading state. *(3.14.7: model fetch is crash-safer — stale callbacks ignored after navigate-away / reload; load-generation tokens prevent late UI updates after leave)*
 - Filters configured on the Area Selector page are automatically carried over to the Scraping page sidebar when models are confirmed
 - **Username filter** on the Area Selector page pre-narrows the Model Selector list
 - After models: **Scraping page** → **Start Scraping >>** → optional **Confirm scrape** review → run
@@ -503,9 +503,11 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 
 
 - Unified footer: phase badge (Ready / Running / Cancelling / Daemon / Complete), status text, progress, row count
+- Live **elapsed timer** while a scrape is running *(3.14.7)*
 - Clickable **Auth**, **Config**, and **Key** health chips (green / orange / red) — hover for detail; click to jump to the fix page
 - Live **per-model badge bar** above the table during scrapes
 - After a run, a **Download failures** dialog lists failed items (filter table / add to cart in check mode)
+- Console panel **height is remembered** across relaunch / returning to the scrape page *(3.14.7)*
 
 ### Daemon mode (auto-repeat scraping)
 - Enable from **Select Content Areas & Filters → Daemon Mode**
@@ -633,8 +635,6 @@ The GUI includes a Discord webhook toggle that controls whether scraping activit
 
 **Per-run scrape summary** *(all versions)*
 
-<!-- Screenshot placeholder: Discord message showing the "--- Scrape Results ---" summary -->
-
 After each completed scrape run, a summary is automatically posted to your Discord webhook showing what was downloaded in **that run** alongside the cumulative totals from the database:
 
 ```
@@ -662,8 +662,6 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 
 ### Download integrity & security *(3.14.7)*
 
-<!-- Screenshot placeholder: Configuration → Download — DRM Duration Match % -->
-
 - **DRM Duration Match %** (default 98%) — reject empty/tiny muxes and files whose playback duration is too short vs expected; failed checks delete the bad file for retry
 - Download stall watchdog and stricter `.part` finalize (Content-Range aware resume)
 - Media / DRM / license URLs must use allowlisted hosts (`onlyfans.com`, `cloudfront.net`; extend via `OFSC_MEDIA_HOST_SUFFIXES`)
@@ -673,15 +671,17 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 
 ### Recent improvements *(3.14.7 — August 2026)*
 
-Major UX / hardening pass (patch series through `20260816_gui_3_14_7_v270`). Highlights:
+Major UX / hardening pass plus follow-ups (patch series through `20260823_gui_3_14_7_v309`). Highlights:
 
 | Area | What changed |
 |---|---|
-| Auth | System + App browser login, Import Cookies cancel, cookie allowlist, `(?)` help per option |
+| Auth | System + App browser login, Import Cookies cancel, cookie allowlist, denser Auth page, `(?)` help per option |
 | Safety | Cooperative cancel, scrape/cart confirms, disk-space check, config validation, privacy mode |
-| Status | Unified strip, Auth/Config/Key chips, per-model badges, failure summary |
+| Status | Unified strip + elapsed timer, Auth/Config/Key chips, per-model badges, failure summary, remembered console height |
 | Table | History, filter presets, sticky columns, CSV export, Post/Media ID links, check-mode-only cart |
-| Plugins | Sidebar Plugins page with Enable/Disable, **Load now**, **Unload now** |
+| Duplicates | Allow dupes + optional Messages↔Purchased keep-both; multi-area same-post double-queue fixed |
+| Config / DRM | Windows path backslashes; DRM virt / emulator-check repair; Welcome before missing-deps |
+| Plugins | Sidebar Plugins page with Enable/Disable, **Load now**, **Unload now**; Live Stream Monitor v1.1.x |
 | Downloads | DRM duration integrity, stall/`.part` resilience, host allowlist, save-root confinement |
 
 See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full dated changelog.
@@ -737,7 +737,7 @@ For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOP
 
 > **⚠️ Work in progress:** The included plugins are experimental and a work in progress. They may not work 100% reliably. Use them at your own risk and report any issues you encounter.
 
-Two ready-to-use plugins are included. Both are **disabled by default** — enable them by setting `plugin_enabled = 1` in their `main.py`.
+Example plugins are included (see below). They are typically **disabled by default** — enable via `plugin_enabled = 1` in each plugin’s `main.py`, or use the **Plugins** page *(3.14.7)*.
 
 #### JoyCaption Tagger (`joycaption_tagger`) *(all versions)*
 
@@ -846,6 +846,8 @@ This builds a browsable folder structure organized by image content automaticall
 
 Adds a **🤖 AI Assistant** chat panel to the sidebar. Type plain English commands — the assistant translates them into GUI actions such as setting usernames, selecting content areas, and starting downloads.
 
+*(3.14.7)* Compact **Ask AI** bars on Action / Areas / Table pages; Areas state mirror on the AI tab; if you Ask before the model is loaded, the plugin opens the AI page, starts Load Model, and queues your prompt.
+
 **Screenshots**
 
 <table>
@@ -896,6 +898,27 @@ The plugin handles its own setup on first enable:
 > ```
 
 --- 
+
+#### Live Stream Monitor (`live_stream_monitor`) *(all versions)*
+
+Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects when a creator goes live, and captures the stream with Playwright Chromium into `{username}/Live_Streams/`.
+
+This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
+
+**Highlights *(3.14.7 plugin v1.1.x)***
+- Privacy mode masks usernames/paths in the plugin UI and console
+- Windows capture paths use normal backslash display
+- Injects `sess` / `auth_id` / `auth_uid*` from Authentication; Playwright login only when a capture starts and no valid session/profile exists
+- Off-thread Chromium check + install modal; safer Stop/Unload while recording
+- Subscriptions table expands to fill the page; terminal sits full-width at the bottom
+
+**Setup**
+1. Copy `live_stream_monitor` into your plugins folder (or use the copy shipped with the 3.14.7 patch under `ofscraper/plugins/`)
+2. Enable via Plugins page or `plugin_enabled = 1`, then Load now / restart
+3. Install Chromium from the Live Monitor page if prompted
+4. Enable Auto-Capture — polling uses normal GUI auth; Chromium opens only when someone goes live
+
+---
 
 #### Trial Link Scanner (`trial_link_scanner`) *(all versions)*
 
@@ -1052,12 +1075,18 @@ Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.
 | Video quality selector (`-q` / `--quality`) | ❌ | ❌ | ❌ | ✅ |
 | Login in Browser (embedded auth) | ❌ | ❌ | ❌ | ✅ |
 | Confirm scrape (pre-start review + ETA) | ❌ | ❌ | ❌ | ✅ |
+| Privacy / demo mode | ❌ | ❌ | ❌ | ✅ |
+| Status strip + Auth/Config/Key health chips | ❌ | ❌ | ❌ | ✅ |
+| Plugins page (Load / Unload now) | ❌ | ❌ | ❌ | ✅ |
+| History / filter presets / sticky columns / CSV | ❌ | ❌ | ❌ | ✅ |
+| Allow duplicates + Messages/Purchased keep-both | ❌ | ❌ | ❌ | ✅ |
+| Windows path backslashes in Config | ❌ | ❌ | ❌ | ✅ |
 | Duplicate column in content table | ❌ | ❌ | ❌ | ✅ |
 | Save/Reset Settings confirmation dialogs | ❌ | ❌ | ❌ | ✅ |
 | TUI-style scrape summary with global totals | ❌ | ❌ | ❌ | ✅ |
 | Collapsible filter sidebar | ❌ | ❌ | ❌ | ✅ |
 | Non-blocking startup dependency popup | ✅ | ✅ | ✅ | ✅ |
-| Plugin system (JoyCaption, LLM Assistant, Trial Link Scanner) | ✅ | ✅ | ✅ | ✅ |
+| Plugin system (JoyCaption, LLM, Live Monitor, Trial Links) | ✅ | ✅ | ✅ | ✅ |
 
 ## Supported platforms and install methods
 
