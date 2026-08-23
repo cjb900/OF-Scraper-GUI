@@ -581,15 +581,19 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 - `--ul` user list auto-start *(3.14.5 and 3.14.7)*: `ofscraper --gui --ul testing -a download -o all`
 - This is also how the Docker container starts a scrape automatically via the `GUI_ARGS` environment variable (see [Docker](#docker))
 
----
+--- 
 
 ### Scrape individual posts by URL or Post ID *(3.14.5 and 3.14.7)*
 
 <table>
-<tr>
-<td align="center"><img src="https://github.com/user-attachments/assets/cc2522e6-c96c-42e2-be40-c11c610e3a10" width="380"><br><em>Scrape individual posts by URL or Post ID</em></td>
-<td align="center"><img src="https://github.com/user-attachments/assets/5a4335a6-3c53-499f-b8de-5bbeec82c183" width="380"><br><em>Manual Scrapping</em></td>
-</tr>
+  <tr>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/35f61e72-fab7-46b2-a637-082bfa558cf8" width="100%" alt="Duplicate Column">
+    </td>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/b8df0702-ff0a-4fd5-98fc-3ab3cf141c42" width="100%" alt="Table with sticky columns">
+    </td>
+  </tr>
 </table>
 
 
