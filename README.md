@@ -336,9 +336,9 @@ Each tab has a **?** button that jumps to the matching section in the built-in H
 
 ### DRM Key Creation
 
-<img src="https://github.com/user-attachments/assets/f79e77f1-5269-4687-8014-60b716a3e86c" width="600" alt="DRM Key Creation">
-<img src="https://github.com/user-attachments/assets/a519873d-c641-4c77-a42e-6307739d676a" width="600" alt="DRM Key Created">
-<img src="https://github.com/user-attachments/assets/a6a7e04c-3e19-45be-95c9-6ddc5e11ef03" width="600" alt="DRM Key Creation Clean up">
+<img src="https://github.com/user-attachments/assets/cedb95a7-0aa7-4f1b-97cb-17e71cc3175b" width="600" alt="DRM Key Creation">
+<img src="https://github.com/user-attachments/assets/71750dba-0777-4c4a-b5c6-3228caea5bdf" width="600" alt="DRM Key Created">
+<img src="https://github.com/user-attachments/assets/f862e757-df08-444a-95de-65010bfe6def" width="600" alt="DRM Key Creation Clean up">
 
 A built-in tool for generating the DRM decryption keys required to download protected (DRM-locked) content. You need these keys if you want to download videos that are encrypted with Widevine DRM.
 
@@ -356,7 +356,7 @@ A built-in tool for generating the DRM decryption keys required to download prot
 
 ### Profile Manager
 
-<img src="https://github.com/user-attachments/assets/65e4ac3d-bd8c-408a-8a5a-278a0079c7d1" width="600" alt="Profile Manager">
+<img src="https://github.com/user-attachments/assets/003fe840-0604-4c58-b16d-05c496639718" width="600" alt="Profile Manager">
 
 Profiles let you maintain completely separate configurations and credentials — useful if you manage multiple accounts or want different download settings for different use cases.
 
@@ -369,7 +369,7 @@ Profiles let you maintain completely separate configurations and credentials —
 
 ### Merge Databases
 
-<img src="https://github.com/user-attachments/assets/0f1d3dbc-384d-4ac5-8e26-5ede5499f885" width="600" alt="Merge Database">
+<img src="https://github.com/user-attachments/assets/c7916662-5dc8-4f7d-a81a-47a136f93643" width="600" alt="Merge Database">
 
 Merge data from one OF-Scraper database into another. This is useful if you have downloaded content across multiple profiles or machines and want to consolidate your records.
 
@@ -381,7 +381,7 @@ Merge data from one OF-Scraper database into another. This is useful if you have
 
 ### Help / README
 
-<img src="https://github.com/user-attachments/assets/05e37742-bbf7-4d5a-a381-a832ad3123c7" width="600" alt="Help / README">
+<img src="https://github.com/user-attachments/assets/fd82cfcc-6ca4-4fba-9099-e9d1b0515b52" width="600" alt="Help / README">
 
 Built-in documentation available at any time without leaving the app:
 
@@ -410,7 +410,16 @@ Built-in documentation available at any time without leaving the app:
 
 ### Privacy / demo mode *(3.14.7)*
 
-<img src="https://github.com/user-attachments/assets/f91773a7-e92c-4c35-8404-0c7c25ffacba" width="600" alt="Privacy / Demo Mode">
+<table>
+  <tr>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/07de2297-8a07-412c-9247-a23baac8d5f5" width="100%" alt="Privacy Mode Off">
+    </td>
+    <td align="center">
+      <img src="https://github.com/user-attachments/assets/9ea980c7-328c-423d-8557-ea5d2c1daf59" width="100%" alt="Privacy Mode On">
+    </td>
+  </tr>
+</table>
 
 - Toggle **Privacy** in the bottom of the sidebar for safe screenshots / demos
 - Masks auth fields, Save Location / webhook / FFmpeg / CDM paths, model names, and table usernames
@@ -424,7 +433,7 @@ Built-in documentation available at any time without leaving the app:
 ### Welcome to OF-Scraper GUI
 - An initial start-up window welcoming you to OF-Scraper GUI with brief helpful information
 - *(3.14.7)* Shown **before** the Missing FFmpeg/CDM paths dialog so first-run messaging is not buried behind dependency prompts
-<img src="https://github.com/user-attachments/assets/83a54dac-b131-459e-8383-3c441811532e" width="600" alt="Welcome to OF_Scraper GUI">
+<img src="https://github.com/user-attachments/assets/5bc8e9d4-7619-4475-9873-be4f6c14546d" width="600" alt="Welcome to OF_Scraper GUI">
 
 ### Startup dependency check
 - On launch (after Welcome when applicable), the GUI checks whether **FFmpeg** and **CDM key paths** are configured
@@ -432,7 +441,7 @@ Built-in documentation available at any time without leaving the app:
 - **Open Config → Download (FFmpeg)** and **Open Config → CDM (Manual keys)** navigate the main window to the relevant config tab
 - **Generate DRM Keys** closes the dialog and navigates to the DRM Key Creation page
 
-<img src="https://github.com/user-attachments/assets/e44fddc8-6a46-4112-b9e5-f4527af17cee" width="600" alt="Missing Configuration Paths">
+<img src="https://github.com/user-attachments/assets/3ad709d5-6bbd-429c-b772-1f75c2217172" width="600" alt="Missing Configuration Paths">
 
 ### Auth failure handling
 - When the model list cannot be loaded (auth error), a dialog appears offering:
@@ -444,7 +453,7 @@ Built-in documentation available at any time without leaving the app:
 
 ### Login in Browser *(3.14.7)*
 
-<img src="https://github.com/user-attachments/assets/6c2b7e08-2076-440e-a962-6ca78e5e80cf" width="600" alt="Login in App Browser">
+<img src="https://github.com/user-attachments/assets/f2d615cc-5064-4caf-afd7-dca6dcbdb574" width="600" alt="Login in App Browser">
 
 
 Two ways to capture credentials by logging in (plus Import Cookies / manual paste):
