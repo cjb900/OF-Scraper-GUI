@@ -114,8 +114,8 @@ A visual walkthrough of each page in the GUI.
 
 ### Scraper — Select Action
 
-<img src="https://github.com/user-attachments/assets/7af89ebd-5fa8-4ee3-8ce5-2932839f1a28" width="600" alt="Main Window — Select Action">
-<img src="https://github.com/user-attachments/assets/b4e80358-4355-47e8-965b-34dcc411b6e1" width="600" alt="Main Window — User List">
+<img src="https://github.com/user-attachments/assets/e7c590a6-3b05-4e93-9d8c-f35eb673aa46" width="600" alt="Main Window — Select Action">
+<img src="https://github.com/user-attachments/assets/98ef9690-5594-4ff8-b5e0-222e7fe53525" width="600" alt="Main Window — User List">
 
 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
@@ -130,11 +130,11 @@ The starting point of every scrape. Choose what you want OF-Scraper to do:
 
 After selecting an action, click **Next** to move on.
 
----
+--- 
 
 ### Select Content Areas & Filters
 
-<img src="https://github.com/user-attachments/assets/a63b77e2-2cc6-4ceb-892f-897d6459bc05" width="600" alt="Select Content Areas & Filters">
+<img src="https://github.com/user-attachments/assets/bd4c6ed1-7b4a-44f9-a81e-7b14168d64c4" width="600" alt="Select Content Areas & Filters">
 
 Choose which types of posts to scrape and apply filters before the scrape begins:
 
