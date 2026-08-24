@@ -935,7 +935,7 @@ Automatically scans every direct message collected during a scrape for OnlyFans 
 
 **Screenshots**
 
-<img src="https://github.com/user-attachments/assets/627fbb66-c941-4754-be64-d7f887c1679b" width="600" alt="Trial Link Scanner">
+<img src="https://github.com/user-attachments/assets/f2e08ad4-a335-47ea-8275-13c34c64d01d" width="600" alt="Trial Link Scanner">
 
 **How it works**
 
