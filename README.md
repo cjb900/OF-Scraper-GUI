@@ -41,6 +41,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Check mode](#check-mode-3143-3145-and-3147)
   - [Progress bar](#progress-bar)
   - [CLI auto-start](#cli-auto-start)
+  - [Crash diagnostics](#crash-diagnostics-3147)
   - [Scrape individual posts by URL or Post ID](#scrape-individual-posts-by-url-or-post-id-3145-and-3147)
   - [Discord webhook integration](#discord-webhook-integration)
   - [User Lists](#user-lists-3145-and-3147)
@@ -57,6 +58,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Running the GUI in Docker](#running-the-gui-in-docker)
   - [Auto-starting a scrape on container startup](#auto-starting-a-scrape-on-container-startup)
   - [Selecting the patch version at build time](#selecting-the-patch-version-at-build-time)
+  - [Volumes, CDM keys, and crash logs](#volumes-cdm-keys-and-crash-logs)
 - [Supported versions](#supported-versions)
 - [Supported platforms and install methods](#supported-platforms-and-install-methods)
   - [Platform notes](#platform-notes)
@@ -312,6 +314,15 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 
 - **Download** — free space minimum, auto-resume, post count limit, media type filter (Images / Audios / Videos / Text); *(3.14.7)* **DRM Duration Match %**, Verify All Integrity
 <img src="https://github.com/user-attachments/assets/e9882535-4823-493d-bfdb-784d1777ceff2" width="600" alt="Downloads">
+
+- **Scripts** *(3.14.7)* — optional external scripts under `script_options` in `config.json` (leave paths empty/`null` to disable):
+  - **After Action Script** — runs after an action for each model has completed
+  - **Post Script** — runs after all actions for all models have completed
+  - **Naming Script** — can rewrite the final filename/path before download (disabled by default)
+  - **Preferred file extensions** — optional override (off by default) for Images / Videos / Audios; remaps only the `{ext}` part of the saved filename (no convert/remux). Stored under `file_options` (`override_file_extensions`, `image_extension`, `video_extension`, `audio_extension`)
+  - **After Download Script** — runs after each individual media download completes
+  - **Skip Download Script** — runs before a download; return `"False"` or empty stdout to skip that file
+  - Saving migrates any legacy `scripts_options` typo key into `script_options`
 
 - **Performance** — concurrent downloads, thread count, speed limit
 <img src="https://github.com/user-attachments/assets/82d59dfb-02d4-4ceb-908f-ff9b644774e2" width="600" alt="Performance">
@@ -590,7 +601,15 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 ### CLI auto-start
 - If launched with `ofscraper --gui` together with action, area, and username flags, the GUI wizard is skipped and scraping begins automatically — matching the TUI behavior for scripted/automated workflows
 - `--ul` user list auto-start *(3.14.5 and 3.14.7)*: `ofscraper --gui --ul testing -a download -o all`
+- *(3.14.7)* Unattended CLI / Docker `GUI_ARGS` auto-start skips interactive scrape-confirm / disk / remote-key dialogs so a container can start without a click
 - This is also how the Docker container starts a scrape automatically via the `GUI_ARGS` environment variable (see [Docker](#docker))
+
+### Crash diagnostics *(3.14.7)*
+- Hard GUI crashes (for example during model fetch while navigating elsewhere) write breadcrumb / fault logs under your ofscraper config directory:
+  - `~/.config/ofscraper/gui_crash_logs/model_fetch_breadcrumbs.log` (last stage before a hang/crash)
+  - `~/.config/ofscraper/gui_crash_logs/faulthandler.log` (native / fatal traceback dumps when available)
+- When reporting a crash, include the last breadcrumb lines and your GUI patch id (sidebar version → About)
+- In Docker these files live on the mounted config volume (see [Docker](#docker))
 
 --- 
 
@@ -680,18 +699,19 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 
 ### Recent improvements *(3.14.7 — August 2026)*
 
-Major UX / hardening pass plus follow-ups (patch series through `20260823_gui_3_14_7_v309`). Highlights:
+Major UX / hardening pass plus follow-ups (patch series through `20260823_gui_3_14_7_v326`). Highlights:
 
 | Area | What changed |
 |---|---|
 | Auth | System + App browser login, Import Cookies cancel, cookie allowlist, denser Auth page, `(?)` help per option |
-| Safety | Cooperative cancel, scrape/cart confirms, disk-space check, config validation, privacy mode |
+| Safety | Cooperative cancel, scrape/cart confirms, disk-space check, config validation, privacy mode; crash breadcrumbs + faulthandler under `gui_crash_logs/` |
 | Status | Unified strip + elapsed timer, Auth/Config/Key chips, per-model badges, failure summary, remembered console height |
 | Table | History, filter presets, sticky columns, CSV export, Post/Media ID links, check-mode-only cart |
 | Duplicates | Allow dupes + optional Messages↔Purchased keep-both; multi-area same-post double-queue fixed |
-| Config / DRM | Windows path backslashes; DRM virt / emulator-check repair; Welcome before missing-deps |
+| Config / DRM | **Scripts** tab + preferred file extensions; Windows path backslashes; DRM virt / emulator-check repair; Welcome before missing-deps |
 | Plugins | Sidebar Plugins page with Enable/Disable, **Load now**, **Unload now**; Live Stream Monitor v1.1.x |
 | Downloads | DRM duration integrity, stall/`.part` resilience, host allowlist, save-root confinement |
+| Docker | noVNC on **6699** (not 6969); use image FFmpeg (avoid host `ffmpeg` bind); CDM keys via config/`device/` mount |
 
 See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full dated changelog.
 
@@ -997,6 +1017,11 @@ Each Discord message includes:
 
 A Docker setup is included for running the GUI in a headless environment, accessible from any browser or VNC client — no display required on the host machine.
 
+> **Notes**
+> - DRM key generation is **not supported in Docker** — generate keys on a desktop host and mount them (see below).
+> - Embedded browser login is limited in Docker; prefer Import Cookies / System Browser on a desktop, or paste credentials.
+> - FFmpeg is installed **inside the image**. Do **not** bind-mount a host `/usr/bin/ffmpeg` — host binaries often fail against container libraries and leave DRM downloads stuck as `.part` files.
+
 ### Running the GUI in Docker
 
 ```bash
@@ -1007,7 +1032,7 @@ docker compose build ofscraper-gui
 docker compose up ofscraper-gui
 ```
 
-Once running, open **[http://localhost:6969/?autoconnect=true&resize=scale](http://localhost:6969/?autoconnect=true&resize=scale)** in your browser to access the GUI via noVNC. You can also connect with any VNC client on port `5900`.
+Once running, open **[http://localhost:6699/](http://localhost:6699/)** (or `http://<host>:6699/`) in your browser for noVNC. You can also connect with any VNC client on port `5900`.
 
 <!-- Screenshot placeholder: noVNC browser view showing the OF-Scraper GUI -->
 
@@ -1020,6 +1045,7 @@ build:
     GUI_PATCH_VERSION: "3.14.7"   # which patch to apply at build time
 environment:
   - GUI_ARGS=                     # leave blank to just open the GUI
+  - NOVNC_PORT=6699               # noVNC (websockify) listen port
 ```
 
 ### Auto-starting a scrape on container startup
@@ -1031,16 +1057,24 @@ environment:
   - GUI_ARGS=--daemon 120 --username ALL --sub-status active --posts all --discord low
 ```
 
-This is equivalent to running `ofscraper --gui --daemon 120 --username ALL ...` on the command line. The GUI wizard pages are skipped and the scrape starts automatically.
+This is equivalent to running `ofscraper --gui --daemon 120 --username ALL ...` on the command line. The GUI wizard pages are skipped and the scrape starts automatically. *(3.14.7)* Unattended auto-start also skips scrape-confirm / disk / remote-key dialogs.
 
-Volumes in `docker-compose.yml` map your host config and download directories into the container so all settings, auth tokens, and downloaded files are stored on the host:
+### Volumes, CDM keys, and crash logs
+
+Map host config and media so settings, auth, databases, crash logs, and downloads persist:
 
 ```yaml
 volumes:
-  - /home/cjb900/.config/ofscraper:/root/.config/ofscraper
-  - /home/cjb900/Photos/OnlyFans:/home/cjb900/Photos/OnlyFans
-  - /usr/bin/ffmpeg:/usr/bin/ffmpeg:ro
+  # Config, auth.json, SQLite DBs, gui_crash_logs/, device/ (CDM keys)
+  - /home/you/.config/ofscraper:/root/.config/ofscraper
+  - /home/you/Photos/OnlyFans:/home/you/Photos/OnlyFans
+  # Prefer the image FFmpeg — do not bind-mount host ffmpeg
 ```
+
+| Path under config | Purpose |
+|---|---|
+| `gui_crash_logs/` | Breadcrumbs + faulthandler dumps (same as desktop) |
+| `device/` | Typical location for `client_id.bin` / `private_key.pem` after desktop keygen |
 
 ### Selecting the patch version at build time
 
@@ -1090,6 +1124,8 @@ Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.
 | History / filter presets / sticky columns / CSV | ❌ | ❌ | ❌ | ✅ |
 | Allow duplicates + Messages/Purchased keep-both | ❌ | ❌ | ❌ | ✅ |
 | Windows path backslashes in Config | ❌ | ❌ | ❌ | ✅ |
+| Scripts tab + preferred file extensions | ❌ | ❌ | ❌ | ✅ |
+| Crash diagnostics (`gui_crash_logs/`) | ❌ | ❌ | ❌ | ✅ |
 | Duplicate column in content table | ❌ | ❌ | ❌ | ✅ |
 | Save/Reset Settings confirmation dialogs | ❌ | ❌ | ❌ | ✅ |
 | TUI-style scrape summary with global totals | ❌ | ❌ | ❌ | ✅ |
