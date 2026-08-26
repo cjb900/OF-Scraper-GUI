@@ -330,7 +330,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 <img src="https://github.com/user-attachments/assets/4575261f-3377-497a-baad-a6d4105e2335" width="600" alt="Performance">
 
 - **Content** — file size limits, duration limits, ad blocking
-<img src="https://github.com/user-attachments/assets/assets/71b71f09-e35f-4390-9753-1ff80f6f6ce1" width="600" alt="Content">
+<img src="https://github.com/user-attachments/assets/71b71f09-e35f-4390-9753-1ff80f6f6ce1" width="600" alt="Content">
 
 - **CDM** — DRM key mode and key file paths (needed for protected content); *(3.14.7)* new installs default to **manual**; remote modes warn and never send session cookies
 <img src="https://github.com/user-attachments/assets/1745e364-f032-4760-9a1a-c6a0e3b40c3b" width="600" alt="CDM">
