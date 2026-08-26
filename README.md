@@ -307,7 +307,7 @@ If scraping fails with an auth error, the GUI will offer a direct link to jump t
 Edit all OF-Scraper settings without touching `config.json` directly. Settings are organized into tabs:
 
 - **General** — profile name, metadata path, Discord webhook
-<img src="https://github.com/user-attachments/assets/95876da2-1df5-4287-b8d4-c3706f04e067" width="600" alt="Configuration">
+<img src="https://github.com/user-attachments/assets/99b30f74-3a1e-4ee8-94bc-6b523cd3ed81" width="600" alt="Configuration">
   
 - **File Options** — where files are saved, folder and filename format, date format, text length. *(3.14.7 on Windows: filesystem paths display and save with backslashes; `config.json` stores them as escaped `\\`. Directory/File Format templates still use `/`.)*
 <img src="https://github.com/user-attachments/assets/9ad13ef4-668e-438f-aa5e-d5bee31ef59b" width="600" alt="File Options">
