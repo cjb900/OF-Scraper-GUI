@@ -317,7 +317,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 <img src="https://github.com/user-attachments/assets/f9ff5b18-f616-44f2-8014-fcc940c56b93" width="600" alt="Downloads">
 
 - **Scripts** *(3.14.7)* — optional external scripts under `script_options` in `config.json` (leave paths empty/`null` to disable):
-  <img src="https://github.com/user-attachments/assets/ca9e90a8-1429-4089-adbf-2c87a5f665ae" width="600" alt="Scripts">
+<img src="https://github.com/user-attachments/assets/ca9e90a8-1429-4089-adbf-2c87a5f665ae" width="600" alt="Scripts">
   - **After Action Script** — runs after an action for each model has completed
   - **Post Script** — runs after all actions for all models have completed
   - **Naming Script** — can rewrite the final filename/path before download (disabled by default)
