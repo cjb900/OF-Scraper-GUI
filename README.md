@@ -301,6 +301,7 @@ If scraping fails with an auth error, the GUI will offer a direct link to jump t
 
 ---
 
+
 ### Configuration
 
 
@@ -310,12 +311,13 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 <img src="https://github.com/user-attachments/assets/99b30f74-3a1e-4ee8-94bc-6b523cd3ed81" width="600" alt="Configuration">
   
 - **File Options** — where files are saved, folder and filename format, date format, text length. *(3.14.7 on Windows: filesystem paths display and save with backslashes; `config.json` stores them as escaped `\\`. Directory/File Format templates still use `/`.)*
-<img src="https://github.com/user-attachments/assets/9ad13ef4-668e-438f-aa5e-d5bee31ef59b" width="600" alt="File Options">
+<img src="https://github.com/user-attachments/assets/0c83a457-b49a-4ffb-95b6-7fdc6f90aa07" width="600" alt="File Options">
 
 - **Download** — free space minimum, auto-resume, post count limit, media type filter (Images / Audios / Videos / Text); *(3.14.7)* **DRM Duration Match %**, Verify All Integrity
-<img src="https://github.com/user-attachments/assets/e9882535-4823-493d-bfdb-784d1777ceff2" width="600" alt="Downloads">
+<img src="https://github.com/user-attachments/assets/f9ff5b18-f616-44f2-8014-fcc940c56b93" width="600" alt="Downloads">
 
 - **Scripts** *(3.14.7)* — optional external scripts under `script_options` in `config.json` (leave paths empty/`null` to disable):
+  <img src="https://github.com/user-attachments/assets/ca9e90a8-1429-4089-adbf-2c87a5f665ae" width="600" alt="Scripts">
   - **After Action Script** — runs after an action for each model has completed
   - **Post Script** — runs after all actions for all models have completed
   - **Naming Script** — can rewrite the final filename/path before download (disabled by default)
@@ -325,19 +327,19 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
   - Saving migrates any legacy `scripts_options` typo key into `script_options`
 
 - **Performance** — concurrent downloads, thread count, speed limit
-<img src="https://github.com/user-attachments/assets/82d59dfb-02d4-4ceb-908f-ff9b644774e2" width="600" alt="Performance">
+<img src="https://github.com/user-attachments/assets/4575261f-3377-497a-baad-a6d4105e2335" width="600" alt="Performance">
 
 - **Content** — file size limits, duration limits, ad blocking
-<img src="https://github.com/user-attachments/assets/c5f75ab8-070d-4b85-b5c8-327bb6c3ec7d" width="600" alt="Content">
+<img src="https://github.com/user-attachments/assets/assets/71b71f09-e35f-4390-9753-1ff80f6f6ce1" width="600" alt="Content">
 
 - **CDM** — DRM key mode and key file paths (needed for protected content); *(3.14.7)* new installs default to **manual**; remote modes warn and never send session cookies
-<img src="https://github.com/user-attachments/assets/f9e7dd9b-82d7-44dd-acb0-968a575bb5f0" width="600" alt="CDM">
+<img src="https://github.com/user-attachments/assets/1745e364-f032-4760-9a1a-c6a0e3b40c3b" width="600" alt="CDM">
 
 - **Advanced** — dynamic mode, cache mode, download bars, logging options, and more
-<img src="https://github.com/user-attachments/assets/b176ca45-3649-4bed-a117-5688871f0f42" width="600" alt="Advanced">
+<img src="https://github.com/user-attachments/assets/cfcf5aff-3cbb-409c-bef9-44e93115e9e9" width="600" alt="Advanced">
 
 - **Response Type** — customize how content type folders are named
-<img src="https://github.com/user-attachments/assets/298fce77-a1af-4f27-b5e0-2e4abdbac15b" width="600" alt="Response Type">
+<img src="https://github.com/user-attachments/assets/277d208c-cfe4-432a-850c-2a4e51841f54" width="600" alt="Response Type">
 
 - **Overwrites** *(3.12.9 only)* — per-media-type overrides for file format, size limits, and more
 
