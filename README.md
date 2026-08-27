@@ -47,7 +47,6 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [User Lists](#user-lists-3145-and-3147)
   - [Login in Browser](#login-in-browser-3147)
   - [Download integrity & security](#download-integrity--security-3147)
-  - [Recent improvements (August 2026)](#recent-improvements-3147--august-2026)
 - [Plugin system](#plugin-system-all-versions)
   - [Plugins page](#plugins-page-3147)
   - [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger-all-versions)
@@ -284,6 +283,7 @@ Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a
 <img src="https://github.com/user-attachments/assets/90cb1eec-4f76-46f8-8737-693a3e7836f4" width="600" alt="Import Cookies Dropdown">
 <img src="https://github.com/user-attachments/assets/3a825b47-7e8d-4bed-a945-ef132ca01491" width="600" alt="Import Cookies loading">
 <img src="https://github.com/user-attachments/assets/2a2cce6a-dea1-443f-9efd-56a50cc9f669" width="600" alt="Imported Cookies">
+  - **User-Agent *(3.14.7)*** — filled to match the selected browser: live `navigator.userAgent` when the browser is available via remote debugging, otherwise the install / profile Gecko user agent
  
 - **Login in System Browser…** *(3.14.7)* — opens a temporary copy of any browser from the dropdown (including Chrome on Windows) and captures credentials after you log in
 <img src="https://github.com/user-attachments/assets/b18b70c4-c349-435e-be52-0cb398e980a6" width="600" alt="Login System Browser">
@@ -291,9 +291,8 @@ Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a
 <img src="https://github.com/user-attachments/assets/80ab1b74-a12c-402e-9a5a-4ba085b4e971" width="600" alt="Login System Browser Credentials imported">
   
 - **Login in App Browser…** *(3.14.7)* — embedded Chromium window inside the app (`PyQt6-WebEngine`)
-- Cookie allowlist + hardened `auth.json` permissions *(3.14.7)* — only auth cookies/headers are kept; unrelated browser cookies are dropped
+- Cookie allowlist + restrictive `auth.json` file permissions *(3.14.7)* — only auth cookies/headers are kept; unrelated browser cookies are dropped
 - Cancel support for Import Cookies and browser login, plus an optional hard login timeout *(3.14.7)*
-- Auth page layout tightened so credential fields stay readable without cramped stacking *(3.14.7)*
 
 <img src="https://github.com/user-attachments/assets/f2d615cc-5064-4caf-afd7-dca6dcbdb574" width="600" alt="Login in App Browser">
 
@@ -321,10 +320,9 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
   - **After Action Script** — runs after an action for each model has completed
   - **Post Script** — runs after all actions for all models have completed
   - **Naming Script** — can rewrite the final filename/path before download (disabled by default)
-  - **Preferred file extensions** — optional override (off by default) for Images / Videos / Audios; remaps only the `{ext}` part of the saved filename (no convert/remux). Stored under `file_options` (`override_file_extensions`, `image_extension`, `video_extension`, `audio_extension`)
+  - **Preferred file extensions** — optional per-type remaps (each type off by default). Check **Images**, **Videos**, and/or **Audios** to replace only that type’s `{ext}` in the saved filename (no convert/remux). Click **Save** to write `config.json`. Settings live under `file_options` (`override_image_extension`, `override_video_extension`, `override_audio_extension`, plus `image_extension` / `video_extension` / `audio_extension`)
   - **After Download Script** — runs after each individual media download completes
   - **Skip Download Script** — runs before a download; return `"False"` or empty stdout to skip that file
-  - Saving migrates any legacy `scripts_options` typo key into `script_options`
 
 - **Performance** — concurrent downloads, thread count, speed limit
 <img src="https://github.com/user-attachments/assets/4575261f-3377-497a-baad-a6d4105e2335" width="600" alt="Performance">
@@ -358,9 +356,9 @@ A built-in tool for generating the DRM decryption keys required to download prot
 > **Note:** DRM key generation is **not supported in Docker**. Use the GUI on a normal host system (Windows/Linux desktop) instead of a container when generating `client_id.bin` and `private_key.pem`.
 
 - **Fully automated** — downloads the Android SDK, sets up an emulator, and extracts the keys without any manual steps
-- **Streams output** directly into the app so you can follow progress in real time — the Generate Keys button and live console log are immediately visible on page load *(3.14.7: the Requirements & Information panel has been moved below the console so you no longer need to scroll past it)*
+- **Streams output** directly into the app so you can follow progress in real time — the Generate Keys button and live console are at the top of the page; Requirements & Information sits below the console *(3.14.7)*
 - **Auto-configures** — once keys are generated, the CDM key paths in your config are updated automatically. No need to edit `config.json` manually
-- **Virtualization checks** *(3.14.7)* — a missing/broken `emulator-check` binary (often antivirus quarantine) is repaired when possible and is no longer treated as “CPU has no virtualization” when Hyper-V/BIOS virt is present
+- **Virtualization checks** *(3.14.7)* — checks that CPU virtualization / Hyper-V is available before running the Android emulator used for key extraction
 - Accessible from the sidebar or via the quick link in the startup notice if CDM keys are not yet configured
 
 > The key extraction process can take 10–90 minutes depending on your hardware. A progress log is shown throughout.
@@ -415,6 +413,7 @@ Built-in documentation available at any time without leaving the app:
 - Toggle between **Dark** and **Light** mode using the button at the bottom of the left sidebar
 - Theme preference is saved to `gui_settings.json` in your ofscraper config directory
 - Left-nav pages use **colored icons** next to each label (Scraper, Authentication, Configuration, …); plugin pages get their own sidebar entry when loaded
+- *(3.14.7)* While a model list is loading or a scrape is running, theme changes wait until that work finishes
 
 ### Verbose Log
 - Toggle **Verbose Log** mode using the button in the bottom-left navigation bar (below the Theme button)
@@ -450,7 +449,7 @@ Built-in documentation available at any time without leaving the app:
 
 ### Startup dependency check
 - On launch (after Welcome when applicable), the GUI checks whether **FFmpeg** and **CDM key paths** are configured
-- If either is missing, a notice appears from **Configuration** (and related entry points) — *(3.14.7)* Areas uses a safer status-tip / dialog flow so dismissing missing-deps cannot crash a model fetch in progress
+- If either is missing, a notice appears from **Configuration** (and related entry points). On the Areas page, missing paths are shown as a status tip so you can keep configuring while models load
 - **Open Config → Download (FFmpeg)** and **Open Config → CDM (Manual keys)** navigate the main window to the relevant config tab
 - **Generate DRM Keys** closes the dialog and navigates to the DRM Key Creation page
 
@@ -496,7 +495,7 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 - After models load, a **Reload Models** button appears in the navigation bar so you can re-fetch without going back to the start
 
 ### Scraper workflow
-- **Area Selector page**: models are loaded from the API in the background while you configure options; an inline progress indicator shows loading state. *(3.14.7: model fetch is crash-safer — stale callbacks ignored after navigate-away / reload; load-generation tokens prevent late UI updates after leave)*
+- **Area Selector page**: models are loaded from the API in the background while you configure options; an inline progress indicator shows loading state
 - Filters configured on the Area Selector page are automatically carried over to the Scraping page sidebar when models are confirmed
 - **Username filter** on the Area Selector page pre-narrows the Model Selector list
 - After models: **Scraping page** → **Start Scraping >>** → optional **Confirm scrape** review → run
@@ -526,7 +525,7 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 
 - Unified footer: phase badge (Ready / Running / Cancelling / Daemon / Complete), status text, progress, row count
 - Live **elapsed timer** while a scrape is running *(3.14.7)*
-- Clickable **Auth**, **Config**, and **Key** health chips (green / orange / red) — hover for detail; click to jump to the fix page
+- Clickable **Auth**, **Config**, and **Key** health chips (green / orange / red) — hover for detail; click to open the matching settings page
 - Live **per-model badge bar** above the table during scrapes
 - After a run, a **Download failures** dialog lists failed items (filter table / add to cart in check mode)
 - Console panel **height is remembered** across relaunch / returning to the scrape page *(3.14.7)*
@@ -607,10 +606,10 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 - This is also how the Docker container starts a scrape automatically via the `GUI_ARGS` environment variable (see [Docker](#docker))
 
 ### Crash diagnostics *(3.14.7)*
-- Hard GUI crashes (for example during model fetch while navigating elsewhere) write breadcrumb / fault logs under your ofscraper config directory:
-  - `~/.config/ofscraper/gui_crash_logs/model_fetch_breadcrumbs.log` (last stage before a hang/crash)
-  - `~/.config/ofscraper/gui_crash_logs/faulthandler.log` (native / fatal traceback dumps when available)
-- When reporting a crash, include the last breadcrumb lines and your GUI patch id (sidebar version → About)
+- If the GUI exits unexpectedly, diagnostic files are written under your ofscraper config directory:
+  - `~/.config/ofscraper/gui_crash_logs/model_fetch_breadcrumbs.log` — recent UI / scrape stage markers (includes whether a model fetch or scrape was in progress)
+  - `~/.config/ofscraper/gui_crash_logs/faulthandler.log` — native / fatal dumps when available
+- When reporting a problem, include the last ~30 breadcrumb lines and your GUI patch id (sidebar version → About)
 - In Docker these files live on the mounted config volume (see [Docker](#docker))
 
 --- 
@@ -698,24 +697,6 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 - Download paths confined under Save Location (and temp root for `.part` files)
 - Remote Key Mode (`cdrm` / `cdrm2` / `keydb`) warnings; new installs default to **manual** CDM; remote helpers never send session cookies
 - About / sidebar version check against PyPI; first-run welcome for `--gui` and plugins
-
-### Recent improvements *(3.14.7 — August 2026)*
-
-Major UX / hardening pass plus follow-ups (patch series through `20260823_gui_3_14_7_v326`). Highlights:
-
-| Area | What changed |
-|---|---|
-| Auth | System + App browser login, Import Cookies cancel, cookie allowlist, denser Auth page, `(?)` help per option |
-| Safety | Cooperative cancel, scrape/cart confirms, disk-space check, config validation, privacy mode; crash breadcrumbs + faulthandler under `gui_crash_logs/` |
-| Status | Unified strip + elapsed timer, Auth/Config/Key chips, per-model badges, failure summary, remembered console height |
-| Table | History, filter presets, sticky columns, CSV export, Post/Media ID links, check-mode-only cart |
-| Duplicates | Allow dupes + optional Messages↔Purchased keep-both; multi-area same-post double-queue fixed |
-| Config / DRM | **Scripts** tab + preferred file extensions; Windows path backslashes; DRM virt / emulator-check repair; Welcome before missing-deps |
-| Plugins | Sidebar Plugins page with Enable/Disable, **Load now**, **Unload now**; Live Stream Monitor v1.1.x |
-| Downloads | DRM duration integrity, stall/`.part` resilience, host allowlist, save-root confinement |
-| Docker | noVNC on **6699** (not 6969); use image FFmpeg (avoid host `ffmpeg` bind); CDM keys via config/`device/` mount |
-
-See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full dated changelog.
 
 ---
 
@@ -940,7 +921,7 @@ This is **separate** from the Areas checkbox **Streams** (API VODs / stream post
 - Privacy mode masks usernames/paths in the plugin UI and console
 - Windows capture paths use normal backslash display
 - Injects `sess` / `auth_id` / `auth_uid*` from Authentication; Playwright login only when a capture starts and no valid session/profile exists
-- Off-thread Chromium check + install modal; safer Stop/Unload while recording
+- Chromium install prompt when needed; Stop / Unload while a capture is running
 - Subscriptions table expands to fill the page; terminal sits full-width at the bottom
 
 **Setup**
