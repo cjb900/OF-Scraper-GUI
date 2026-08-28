@@ -333,7 +333,12 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 - **CDM** — DRM key mode and key file paths (needed for protected content); *(3.14.7)* new installs default to **manual**; remote modes warn and never send session cookies
 <img src="https://github.com/user-attachments/assets/1745e364-f032-4760-9a1a-c6a0e3b40c3b" width="600" alt="CDM">
 
-- **Advanced** — dynamic mode, cache mode, download bars, logging options, and more
+- **Advanced** — dynamic mode, cache mode, download bars, logging options, and more. *(3.14.7)* **OnlyFans API resilience** settings:
+  - **API Path** — change the `/api2/v2` prefix globally if OnlyFans renames the API path (`OFSC_API_PATH`)
+  - **Manual Dynamic Rules** — paste / load local signing-rules JSON when Dynamic Mode is `manual` (`OFSC_DYNAMIC_RULE_MANUAL`)
+  - **Dynamic Rules URL** — custom remote rules JSON URL when Dynamic Mode is `generic` (`OF_DYNAMIC_GENERIC_URL` / `OFSC_DYNAMIC_GENERIC_URL`)
+  - **API Endpoint Overrides** — JSON map of individual endpoint keys (e.g. `meEP`) to full URL templates (`OFSC_API_*` env still wins when set)
+  - **Media Host Suffixes** — extra allowed media/DRM CDN hosts beyond `onlyfans.com` / `cloudfront.net` (`OFSC_MEDIA_HOST_SUFFIXES`)
 <img src="https://github.com/user-attachments/assets/cfcf5aff-3cbb-409c-bef9-44e93115e9e9" width="600" alt="Advanced">
 
 - **Response Type** — customize how content type folders are named
@@ -400,6 +405,7 @@ Built-in documentation available at any time without leaving the app:
 - **Jump to…** dropdown for fast navigation to any section by name
 - **Additional Help** button links to the project Discord if you need further assistance
 - Every **?** button throughout the GUI links directly to the relevant section here
+- *(3.14.7)* Configuration → Advanced **API resilience** settings (API Path, Manual Dynamic Rules, Dynamic Rules URL, API Endpoint Overrides, Media Host Suffixes) are documented under **Advanced** in this Help page and in the GUI patch highlights
 
 ---
 
@@ -693,10 +699,11 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 
 - **DRM Duration Match %** (default 98%) — reject empty/tiny muxes and files whose playback duration is too short vs expected; failed checks delete the bad file for retry
 - Download stall watchdog and stricter `.part` finalize (Content-Range aware resume)
-- Media / DRM / license URLs must use allowlisted hosts (`onlyfans.com`, `cloudfront.net`; extend via `OFSC_MEDIA_HOST_SUFFIXES`)
+- Media / DRM / license URLs must use allowlisted hosts (`onlyfans.com`, `cloudfront.net`; extend via Configuration → Advanced → **Media Host Suffixes** or `OFSC_MEDIA_HOST_SUFFIXES`)
 - Download paths confined under Save Location (and temp root for `.part` files)
 - Remote Key Mode (`cdrm` / `cdrm2` / `keydb`) warnings; new installs default to **manual** CDM; remote helpers never send session cookies
 - About / sidebar version check against PyPI; first-run welcome for `--gui` and plugins
+- **API resilience** (Configuration → Advanced) — **API Path**, **Manual Dynamic Rules**, **Dynamic Rules URL**, **API Endpoint Overrides**, and **Media Host Suffixes** so many OnlyFans signing/path/CDN breaks can be handled from config without a code patch (see [Configuration](#configuration))
 
 ---
 
