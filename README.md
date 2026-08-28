@@ -303,17 +303,32 @@ If scraping fails with an auth error, the GUI will offer a direct link to jump t
 
 ### Configuration
 
+Edit all OF-Scraper settings without touching `config.json` directly. Settings are organized into tabs. Each tab’s **?** button jumps to the matching section in the built-in Help page (full field reference, placeholders, and examples).
 
-Edit all OF-Scraper settings without touching `config.json` directly. Settings are organized into tabs:
+**Save** and scrape start both validate key settings (Save Location, File Format uniqueness, Directory Format under Save Location, length bounds, FFmpeg path, empty download filters). **Errors block** save/start; **warnings** ask whether to continue.
 
 - **General** — profile name, metadata path, Discord webhook
 <img src="https://github.com/user-attachments/assets/99b30f74-3a1e-4ee8-94bc-6b523cd3ed81" width="600" alt="Configuration">
-  
+
+  - **Main Profile** / **Metadata Path** — default profile and where model DB/metadata files live (supports placeholders)
+  - **Discord Webhook URL** — optional; [Discord webhook setup](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks). Enable sending from **Select Content Areas → Additional Options** after pasting the URL
+
 - **File Options** — where files are saved, folder and filename format, date format, text length. *(3.14.7 on Windows: filesystem paths display and save with backslashes; `config.json` stores them as escaped `\\`. Directory/File Format templates still use `/`.)*
 <img src="https://github.com/user-attachments/assets/0c83a457-b49a-4ffb-95b6-7fdc6f90aa07" width="600" alt="File Options">
 
-- **Download** — free space minimum, auto-resume, post count limit, media type filter (Images / Audios / Videos / Text); *(3.14.7)* **DRM Duration Match %**, Verify All Integrity
+  - **Save Location** — root download directory
+  - **Directory Format** — folder template under Save Location (must stay **relative**; no absolute paths or `..`). Invalid templates are blocked on Save / scrape start
+  - **File Format** — must include a uniqueness token: `{filename}`, `{media_id}`, or `{original_filename}`
+  - **Date Format** — Arrow/Moment-style tokens (e.g. `YYYY-MM-DD`); avoid Windows-illegal characters like `:`
+  - **Text Length / Space Replacer / Truncation** — caption length in names, space substitution, OS path truncation
+  - Full placeholder list: in-app **Help → Configuration → File Options**
+
+- **Download** — free space minimum, auto-resume, post count limit, media type filter (Images / Audios / Videos / Text); *(3.14.7)* **DRM Duration Match %**, Verify All Integrity, FFmpeg path
 <img src="https://github.com/user-attachments/assets/f9ff5b18-f616-44f2-8014-fcc940c56b93" width="600" alt="Downloads">
+
+  - **DRM Duration Match %** (default **98**) — after remux, rejects truncated/empty files vs expected duration (higher = stricter). DRM merges always use this gate; enable **Verify All Integrity** to apply it to non-DRM media too
+  - **FFmpeg Path** — required to merge DRM audio/video and for duration checks; recommended **FFmpeg 7.1.1 or lower**
+  - Automatic resilience: stall timeout/retry, stricter `.part` finalize, media/DRM host allowlist (`onlyfans.com` / `cloudfront.net` + **Media Host Suffixes**), paths confined under Save Location
 
 - **Scripts** *(3.14.7)* — optional external scripts under `script_options` in `config.json` (leave paths empty/`null` to disable):
 <img src="https://github.com/user-attachments/assets/ca9e90a8-1429-4089-adbf-2c87a5f665ae" width="600" alt="Scripts">
@@ -321,36 +336,55 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
   - **After Action Script** — runs after an action for each model has completed
   - **Post Script** — runs after all actions for all models have completed
   - **Naming Script** — can rewrite the final filename/path before download (disabled by default)
-  - **Preferred file extensions** — optional per-type remaps (each type off by default). Check **Images**, **Videos**, and/or **Audios** to replace only that type’s `{ext}` in the saved filename (no convert/remux). Click **Save** to write `config.json`. Settings live under `file_options` (`override_image_extension`, `override_video_extension`, `override_audio_extension`, plus `image_extension` / `video_extension` / `audio_extension`)
+  - **Preferred file extensions** — optional per-type remaps (each type off by default). Check **Images**, **Videos**, and/or **Audios** to replace only that type’s `{ext}` in the saved filename (**no convert/remux**). Settings live under `file_options` (`override_*_extension` + `image_extension` / `video_extension` / `audio_extension`)
   - **After Download Script** — runs after each individual media download completes
   - **Skip Download Script** — runs before a download; return `"False"` or empty stdout to skip that file
+  - Older builds used typo key `scripts_options`; current **Save** migrates values into `script_options`
 
 - **Performance** — concurrent downloads, thread count, speed limit
 <img src="https://github.com/user-attachments/assets/4575261f-3377-497a-baad-a6d4105e2335" width="600" alt="Performance">
 
+  - **Thread Count**, **Download Semaphores** (downloader concurrency), **Download Speed Limit** (KB/s; `0` = unlimited)
+
 - **Content** — file size limits, duration limits, ad blocking
 <img src="https://github.com/user-attachments/assets/71b71f09-e35f-4390-9753-1ff80f6f6ce1" width="600" alt="Content">
+
+  - **Block Ads**; min/max file size (e.g. `500MB`, `2GB`, or `0` for no limit); min/max length in **seconds**
 
 - **CDM** — DRM key mode and key file paths (needed for protected content); *(3.14.7)* new installs default to **manual**; remote modes warn and never send session cookies
 <img src="https://github.com/user-attachments/assets/1745e364-f032-4760-9a1a-c6a0e3b40c3b" width="600" alt="CDM">
 
+  - Prefer **manual** + local `client_id.bin` / `private_key.pem` (use **DRM Key Creation**). Remote modes (`cdrm` / `cdrm2` / `keydb`) are opt-in and may fail on OnlyFans licenses
+  - **KeyDB** is currently not working — avoid for now
+  - Existing configs keep their saved key mode (new-install default does not rewrite `config.json`)
+
 - **Advanced** — dynamic mode, cache mode, download bars, logging options, and more. *(3.14.7)* **OnlyFans API resilience** settings:
 <img src="https://github.com/user-attachments/assets/e6d7c171-79e9-404d-8ae6-2cc7ce81d4e2" width="600" alt="Advanced">
 
+  - **Dynamic Mode** — signing-rules source (`datawhores`, `digitalcriminals` / `dc`, `xagler`, `rafa`, `generic`, `manual`). Try switching on 401/403 or signature failures
   - **API Path** — change the `/api2/v2` prefix globally if OnlyFans renames the API path (`OFSC_API_PATH`)
   - **Manual Dynamic Rules** — paste / load local signing-rules JSON when Dynamic Mode is `manual` (`OFSC_DYNAMIC_RULE_MANUAL`)
   - **Dynamic Rules URL** — custom remote rules JSON URL when Dynamic Mode is `generic` (`OF_DYNAMIC_GENERIC_URL` / `OFSC_DYNAMIC_GENERIC_URL`)
   - **API Endpoint Overrides** — JSON map of individual endpoint keys (e.g. `meEP`) to full URL templates (`OFSC_API_*` env still wins when set)
   - **Media Host Suffixes** — extra allowed media/DRM CDN hosts beyond `onlyfans.com` / `cloudfront.net` (`OFSC_MEDIA_HOST_SUFFIXES`)
+  - **Backend** — `aio` (aiohttp) or `httpx`; switch if proxy/TLS issues
+  - **Cache Mode** — `sqlite` / `json` / `disabled` (prefer GUI rescrape over disabling cache globally)
+  - **Code Execution** — enables `eval()` in placeholders; leave off for untrusted content
+  - **Download Bars / Append Log / Sanitize Text** — console bars (can slow high thread counts); daily vs per-run logs; clean text before DB insert
+  - **Remove Hash Match** — skip hash / hash only / hash + **delete** duplicate files (deletion is permanent)
+  - **Enable Auto After** — speeds rescrapes via cutoff; disable temporarily if older content seems missing
+  - **Temp Directory** — optional temp/`.part` root; empty = default
+  - **Infinite Loop (Action Mode)** / **Default User & Black Lists** — mainly CLI/automation defaults (comma-separated list names)
 
 - **Response Type** — customize how content type folders are named
 <img src="https://github.com/user-attachments/assets/277d208c-cfe4-432a-850c-2a4e51841f54" width="600" alt="Response Type">
 
+  - Rename aliases for posts / messages / paid / archived / etc. These pair with `{responsetype}` / `{response_type}` in Directory Format
+
 - **Overwrites** *(3.12.9 only)* — per-media-type overrides for file format, size limits, and more
 
-Each tab has a **?** button that jumps to the matching section in the built-in Help page. Click **Save** to write changes back to `config.json`. *(3.14.7: Save and scrape start validate File Format uniqueness, Directory Format under Save Location, and related settings.)*
+Deep field docs, placeholders, and DRM Match % details: in-app **Help / README → Configuration**. Background: [OF-Scraper GitBook](https://of-scraper.gitbook.io/of-scraper).
 
----
 
 ### DRM Key Creation
 
@@ -407,7 +441,7 @@ Built-in documentation available at any time without leaving the app:
 - **Jump to…** dropdown for fast navigation to any section by name
 - **Additional Help** button links to the project Discord if you need further assistance
 - Every **?** button throughout the GUI links directly to the relevant section here
-- *(3.14.7)* Configuration → Advanced **API resilience** settings (API Path, Manual Dynamic Rules, Dynamic Rules URL, API Endpoint Overrides, Media Host Suffixes) are documented under **Advanced** in this Help page and in the GUI patch highlights
+- *(3.14.7)* **Configuration** in this Help page and the public GUI README are kept in sync for each config tab (General through Response Type), including Advanced **API resilience** settings
 
 ---
 
