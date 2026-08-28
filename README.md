@@ -334,12 +334,12 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 <img src="https://github.com/user-attachments/assets/1745e364-f032-4760-9a1a-c6a0e3b40c3b" width="600" alt="CDM">
 
 - **Advanced** — dynamic mode, cache mode, download bars, logging options, and more. *(3.14.7)* **OnlyFans API resilience** settings:
+<img src="https://github.com/user-attachments/assets/e6d7c171-79e9-404d-8ae6-2cc7ce81d4e2" width="600" alt="Advanced">
   - **API Path** — change the `/api2/v2` prefix globally if OnlyFans renames the API path (`OFSC_API_PATH`)
   - **Manual Dynamic Rules** — paste / load local signing-rules JSON when Dynamic Mode is `manual` (`OFSC_DYNAMIC_RULE_MANUAL`)
   - **Dynamic Rules URL** — custom remote rules JSON URL when Dynamic Mode is `generic` (`OF_DYNAMIC_GENERIC_URL` / `OFSC_DYNAMIC_GENERIC_URL`)
   - **API Endpoint Overrides** — JSON map of individual endpoint keys (e.g. `meEP`) to full URL templates (`OFSC_API_*` env still wins when set)
   - **Media Host Suffixes** — extra allowed media/DRM CDN hosts beyond `onlyfans.com` / `cloudfront.net` (`OFSC_MEDIA_HOST_SUFFIXES`)
-<img src="https://github.com/user-attachments/assets/cfcf5aff-3cbb-409c-bef9-44e93115e9e9" width="600" alt="Advanced">
 
 - **Response Type** — customize how content type folders are named
 <img src="https://github.com/user-attachments/assets/277d208c-cfe4-432a-850c-2a4e51841f54" width="600" alt="Response Type">
