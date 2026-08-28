@@ -317,6 +317,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 
 - **Scripts** *(3.14.7)* — optional external scripts under `script_options` in `config.json` (leave paths empty/`null` to disable):
 <img src="https://github.com/user-attachments/assets/ca9e90a8-1429-4089-adbf-2c87a5f665ae" width="600" alt="Scripts">
+
   - **After Action Script** — runs after an action for each model has completed
   - **Post Script** — runs after all actions for all models have completed
   - **Naming Script** — can rewrite the final filename/path before download (disabled by default)
@@ -335,6 +336,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 
 - **Advanced** — dynamic mode, cache mode, download bars, logging options, and more. *(3.14.7)* **OnlyFans API resilience** settings:
 <img src="https://github.com/user-attachments/assets/e6d7c171-79e9-404d-8ae6-2cc7ce81d4e2" width="600" alt="Advanced">
+
   - **API Path** — change the `/api2/v2` prefix globally if OnlyFans renames the API path (`OFSC_API_PATH`)
   - **Manual Dynamic Rules** — paste / load local signing-rules JSON when Dynamic Mode is `manual` (`OFSC_DYNAMIC_RULE_MANUAL`)
   - **Dynamic Rules URL** — custom remote rules JSON URL when Dynamic Mode is `generic` (`OF_DYNAMIC_GENERIC_URL` / `OFSC_DYNAMIC_GENERIC_URL`)
