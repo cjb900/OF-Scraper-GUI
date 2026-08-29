@@ -466,6 +466,8 @@ Built-in documentation available at any time without leaving the app:
 
 Click the sidebar version button (e.g. **`v3.14.7`**) — or **Help / README → About** — to open **About OF-Scraper**. Opening it again focuses the same window (it does not stack duplicates).
 
+<img src="https://github.com/user-attachments/assets/ba6fbb2e-1638-481d-9d6e-6e2159ee1bde" width="600" alt="About">
+
 **About shows**
 - **App version** — installed OF-Scraper version
 - **GUI patch** — applied patch id (useful when reporting issues)
