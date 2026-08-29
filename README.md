@@ -28,6 +28,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 - [GUI features](#gui-features)
   - [Application icon](#application-icon)
   - [Theme](#theme)
+  - [About & text size](#about--text-size-3147)
   - [Verbose Log](#verbose-log)
   - [Privacy / demo mode](#privacy--demo-mode-3147)
   - [Context-sensitive help](#context-sensitive-help)
@@ -362,6 +363,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 <img src="https://github.com/user-attachments/assets/e6d7c171-79e9-404d-8ae6-2cc7ce81d4e2" width="600" alt="Advanced">
 
   - **Dynamic Mode** — signing-rules source (`datawhores`, `digitalcriminals` / `dc`, `xagler`, `rafa`, `generic`, `manual`). Try switching on 401/403 or signature failures
+  - **SSL Verify** — `custom` (built-in CA bundle), `true` (system certs), or `false` (disable verification). If auth/model load fails with good credentials (proxies / TLS-inspecting AV / broken CA store), try **`false`**, Save, then Retry — less secure; use only when needed
   - **API Path** — change the `/api2/v2` prefix globally if OnlyFans renames the API path (`OFSC_API_PATH`)
   - **Manual Dynamic Rules** — paste / load local signing-rules JSON when Dynamic Mode is `manual` (`OFSC_DYNAMIC_RULE_MANUAL`)
   - **Dynamic Rules URL** — custom remote rules JSON URL when Dynamic Mode is `generic` (`OF_DYNAMIC_GENERIC_URL` / `OFSC_DYNAMIC_GENERIC_URL`)
@@ -439,9 +441,12 @@ Built-in documentation available at any time without leaving the app:
 
 - **Table of contents** with clickable links — each entry scrolls directly to the matching section
 - **Jump to…** dropdown for fast navigation to any section by name
+- **About** and **Text size** — see [About & text size](#about--text-size-3147); Help toolbar also has **A−** / **A+** / size dropdown / **Reset**
+- **Show Welcome** — reopen the first-run welcome tip
 - **Additional Help** button links to the project Discord if you need further assistance
 - Every **?** button throughout the GUI links directly to the relevant section here
 - *(3.14.7)* **Configuration** in this Help page and the public GUI README are kept in sync for each config tab (General through Response Type), including Advanced **API resilience** settings
+- *(3.14.7)* **Auth Issues** walks built-in capture methods first, then **manual DevTools copy** (Network → filter **`init`** → main timeline → refresh → Request Headers) if Import/Login fail, then a **Wrong user / sess–auth_id** section, then Dynamic Mode / SSL Verify and related tips
 
 ---
 
@@ -456,6 +461,25 @@ Built-in documentation available at any time without leaving the app:
 - Theme preference is saved to `gui_settings.json` in your ofscraper config directory
 - Left-nav pages use **colored icons** next to each label (Scraper, Authentication, Configuration, …); plugin pages get their own sidebar entry when loaded
 - *(3.14.7)* While a model list is loading or a scrape is running, theme changes wait until that work finishes
+
+### About & text size *(3.14.7)*
+
+Click the sidebar version button (e.g. **`v3.14.7`**) — or **Help / README → About** — to open **About OF-Scraper**. Opening it again focuses the same window (it does not stack duplicates).
+
+**About shows**
+- **App version** — installed OF-Scraper version
+- **GUI patch** — applied patch id (useful when reporting issues)
+- **Operating system**, **FFmpeg**, and **FFprobe** paths/status
+- **Updates** — status line after you run **Check for updates** (PyPI, same source as the CLI), plus **Open PyPI** when a newer release is available
+- On startup the GUI also quietly checks PyPI; if a newer release exists you get a one-time prompt (Open PyPI / Dismiss this version / Later)
+
+**Text size (global GUI scaling)**
+- Controls live in **About** and on the **Help / README** toolbar: **A−**, size dropdown, **A+**, and **Reset**
+- Sizes: **12**, **13** (default), **14**, **16**, **18**, **20** px
+- Scales the whole app (theme, pages, dialogs, Help). Preference is saved as `gui_font_size` in `gui_settings.json` (legacy `help_font_size` is migrated)
+- **Reset** restores the default **13** px
+- The sidebar ASCII logo stays at a fixed size and is **not** scaled with text size
+- Like the theme toggle, size changes wait if a model list is loading or a scrape is running
 
 ### Verbose Log
 - Toggle **Verbose Log** mode using the button in the bottom-left navigation bar (below the Theme button)
@@ -502,8 +526,10 @@ Built-in documentation available at any time without leaving the app:
   - **Retry** — re-fetch models without leaving the page
   - **Go to Authentication** — jump directly to the auth page
   - **Dynamic Mode (Config)** — jump directly to Configuration → Advanced → Dynamic Mode field
+  - **SSL Verify (Config)** — jump to Configuration → Advanced → SSL Verify (try **`false`** if credentials are correct but TLS/proxy issues persist; less secure)
   - **Help / README** — navigate to the Auth Issues section of the built-in help
 - A **Retry** button also appears inline in the navigation bar
+- Dialog text also suggests trying Dynamic Mode and/or SSL Verify → `false` when auth looks correct but model load still fails
 
 ### Login in Browser *(3.14.7)*
 
@@ -958,8 +984,6 @@ The plugin handles its own setup on first enable:
 
 Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects when a creator goes live, and captures the stream with Playwright Chromium into `{username}/Live_Streams/`.
 
-<img src="https://github.com/user-attachments/assets/d8fc7a5f-0b24-48a9-85b5-a425b54129c8" width="600" alt="Live Stream">
-
 This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
 
 **Highlights *(3.14.7 plugin v1.3.x)***
@@ -1160,6 +1184,7 @@ Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.
 | Windows path backslashes in Config | ❌ | ❌ | ❌ | ✅ |
 | Scripts tab + preferred file extensions | ❌ | ❌ | ❌ | ✅ |
 | Crash diagnostics (`gui_crash_logs/`) | ❌ | ❌ | ❌ | ✅ |
+| About dialog (sidebar `v…`) + global text size | ❌ | ❌ | ❌ | ✅ |
 | Duplicate column in content table | ❌ | ❌ | ❌ | ✅ |
 | Save/Reset Settings confirmation dialogs | ❌ | ❌ | ❌ | ✅ |
 | TUI-style scrape summary with global totals | ❌ | ❌ | ❌ | ✅ |
