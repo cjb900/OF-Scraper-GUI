@@ -958,6 +958,8 @@ The plugin handles its own setup on first enable:
 
 Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects when a creator goes live, and captures the stream with Playwright Chromium into `{username}/Live_Streams/`.
 
+<img src="https://github.com/user-attachments/assets/d8fc7a5f-0b24-48a9-85b5-a425b54129c8" width="600" alt="Live Stream">
+
 This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
 
 **Highlights *(3.14.7 plugin v1.3.x)***
