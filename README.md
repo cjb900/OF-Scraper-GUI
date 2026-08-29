@@ -960,12 +960,18 @@ Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects
 
 This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
 
-**Highlights *(3.14.7 plugin v1.1.x)***
+**Highlights *(3.14.7 plugin v1.3.x)***
 - Privacy mode masks usernames/paths in the plugin UI and console
 - Windows capture paths use normal backslash display
 - Injects `sess` / `auth_id` / `auth_uid*` from Authentication; Playwright login only when a capture starts and no valid session/profile exists
 - Chromium install prompt when needed; Stop / Unload while a capture is running
-- Subscriptions table expands to fill the page; terminal sits full-width at the bottom
+- Subscriptions table expands to fill the page (resizable columns); terminal sits full-width at the bottom
+- **Capture selected** plus **Stop selected** / **Stop all** / per-row **Stop** (poller can keep running)
+- Capture cooldown after stop/fail so Auto-Capture does not immediately re-spawn the same creator
+- **Show diagnostics** (off by default) reveals optional tools:
+  - *Diagnostics probe only* / **Probe selected…** — join live ~45s, redacted HLS/WebRTC/API evidence under `live_probe_reports/` (no WebM)
+  - **Fetch live API dump…** — redacted `/streams/active` + `/streams/active/url` JSON under `live_api_dumps/`
+- Native Agora Server SDK joins are **not** supported (OF rejects them); Playwright is the capture path on Windows and Linux
 
 **Setup**
 1. Copy `live_stream_monitor` into your plugins folder (or use the copy shipped with the 3.14.7 patch under `ofscraper/plugins/`)
