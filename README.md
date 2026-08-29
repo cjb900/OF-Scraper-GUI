@@ -773,7 +773,7 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 
 ## Plugin system *(all versions)*
 
-> **⚠️ Experimental:** Plugins are experimental and a work in progress. They are **not guaranteed to work 100%** in every environment. Use them at your own risk and report issues you encounter. The Plugins page and host hooks are part of the GUI patch; optional plugin packages (e.g. Live Stream Monitor) are separate installs.
+> **⚠️ Experimental:** Plugins are experimental and a work in progress. They are **not guaranteed to work 100%** in every environment. Use them at your own risk and report issues you encounter. The Plugins page and host hooks are part of the GUI patch; optional plugin packages (e.g. Trial Link Scanner) are separate installs.
 
 OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your ofscraper config directory and are loaded automatically on startup.
 
