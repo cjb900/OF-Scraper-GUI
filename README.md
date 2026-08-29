@@ -10,6 +10,9 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 
 ## Table of Contents
 
+- [Supported platforms and install methods](#supported-platforms-and-install-methods)
+  - [Platform notes](#platform-notes)
+  - [Python version](#python-version)
 - [Usage](#usage)
 - [After patching](#after-patching)
 - [Pages](#pages)
@@ -60,15 +63,38 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Selecting the patch version at build time](#selecting-the-patch-version-at-build-time)
   - [Volumes, CDM keys, and crash logs](#volumes-cdm-keys-and-crash-logs)
 - [Supported versions](#supported-versions)
-- [Supported platforms and install methods](#supported-platforms-and-install-methods)
-  - [Platform notes](#platform-notes)
-  - [Python version](#python-version)
 - [How it detects your installation](#how-it-detects-your-installation)
   - [Broken installation detection](#broken-installation-detection)
 - [If OF-Scraper is not detected](#if-of-scraper-is-not-detected)
 - [OF-Scraper Tools](#of-scraper-tools)
 - [Notes](#notes)
 - [Disclaimer](#disclaimer)
+
+## Supported platforms and install methods
+
+Check this **before** installing or patching. Unsupported or untested platforms may fail in ways that are hard to diagnose.
+
+| Platform | pip | pipx | uv |
+|----------|:---:|:----:|:--:|
+| Windows  | ✅  | ✅   | ✅ |
+| Linux (Debian-based) | ❌  | ✅   | ✅ |
+| Mac OS   | ❌ | ❌  | ❌ |
+| Docker   | ✅ | — | — |
+* ❌ not tested
+
+### Platform notes
+
+- **Windows**: Tested on **Windows 11** but should work on Windows 10 and other versions
+- **Linux**: Only **Debian-based** distributions are supported (Ubuntu, Debian, Linux Mint, KDE Neon, Pop!_OS, etc.). Other distributions (Arch, Fedora, etc.) have not been tested and may require additional setup
+- **Mac**: Mac OS has not been tested with this GUI patch
+- **Docker**: Runs on any host that supports Docker. The container uses Ubuntu 24.04 with Xvfb and noVNC — no display required on the host. See [Docker](#docker)
+
+### Python version
+
+- **Supported**: Python **3.11.x** and **3.12.x**
+- **Recommended**: Python **3.11.6** ([download here](https://www.python.org/downloads/release/python-3116/))
+- Python versions below 3.11 or 3.13+ are **not supported** and may cause issues with OF-Scraper or this patch
+- The patch script will warn you if an unsupported Python version is detected
 
 ## Usage
 
@@ -1191,30 +1217,6 @@ Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.
 | Collapsible filter sidebar | ❌ | ❌ | ❌ | ✅ |
 | Non-blocking startup dependency popup | ✅ | ✅ | ✅ | ✅ |
 | Plugin system (JoyCaption, LLM, Live Monitor, Trial Links) | ✅ | ✅ | ✅ | ✅ |
-
-## Supported platforms and install methods
-
-| Platform | pip | pipx | uv |
-|----------|:---:|:----:|:--:|
-| Windows  | ✅  | ✅   | ✅ |
-| Linux (Debian-based) | ❌  | ✅   | ✅ |
-| Mac OS   | ❌ | ❌  | ❌ |
-| Docker   | ✅ | — | — |
-* ❌ not tested
-
-### Platform notes
-
-- **Windows**: Tested on **Windows 11** but should work on Windows 10 and other versions
-- **Linux**: Only **Debian-based** distributions are supported (Ubuntu, Debian, Linux Mint, KDE Neon, Pop!_OS, etc.). Other distributions (Arch, Fedora, etc.) have not been tested and may require additional setup
-- **Mac**: Mac OS has not been tested with this GUI patch
-- **Docker**: Runs on any host that supports Docker. The container uses Ubuntu 24.04 with Xvfb and noVNC — no display required on the host. See [Docker](#docker)
-
-### Python version
-
-- **Supported**: Python **3.11.x** and **3.12.x**
-- **Recommended**: Python **3.11.6** ([download here](https://www.python.org/downloads/release/python-3116/))
-- Python versions below 3.11 or 3.13+ are **not supported** and may cause issues with OF-Scraper or this patch
-- The patch script will warn you if an unsupported Python version is detected
 
 ## How it detects your installation
 
