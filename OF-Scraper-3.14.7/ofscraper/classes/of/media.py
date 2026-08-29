@@ -265,7 +265,7 @@ class Media(base.base):
     def formatted_date(self):
         date_val = self._media.get("createdAt") or self._media.get("postedAt")
         if date_val:
-            return arrow.get(date_val).format("YYYY-MM-DD hh:mm:ss")
+            return arrow.get(date_val).to("local").format("YYYY-MM-DD hh:mm:ss")
         return None
 
     @property
@@ -411,7 +411,7 @@ class Media(base.base):
         filename = re.sub(r"\.mpd$", "", filename_part)
 
         if self.responsetype == "Profile":
-            date_str = arrow.get(self.date).format("YYYY_MM_DD")
+            date_str = arrow.get(self.date).to("local").format("YYYY_MM_DD")
             return f"{filename}_{date_str}"
         return filename
 
@@ -572,10 +572,10 @@ class Media(base.base):
 
     def get_text(self):
         if self.responsetype != "Profile":
-            date_str = arrow.get(self.date).format(data.get_date())
+            date_str = arrow.get(self.date).to("local").format(data.get_date())
             text = self._post.file_sanitized_text or self.filename or date_str
         else:
-            date_str = arrow.get(self.date).format()
+            date_str = arrow.get(self.date).to("local").format()
             text = f"{date_str} {self.text or self.filename}"
         return text
 

@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.utils.ui_scale import apply_font, scale_px
 from ofscraper.gui.styles import c
 from ofscraper.gui.utils.thread_worker import Worker
 from ofscraper.gui.widgets.styled_button import StyledButton
@@ -111,6 +112,11 @@ class ModelSelectorPage(QWidget):
         self._filtered_names = []
         self._avatar_cache: dict[str, QIcon] = {}
         self._show_avatars = False
+        self._models_load_gen = 0
+        self._models_worker = None
+        self._models_poll_timer = None
+        self._models_env_prepared = False
+        self._models_finish_scheduled = False
         self._avatar_signals = _AvatarSignals()
         # Dedicated thread pool for avatar downloads — isolated from Qt's global pool
         self._avatar_pool = QThreadPool()
@@ -131,7 +137,7 @@ class ModelSelectorPage(QWidget):
 
         # Header
         header = QLabel("Select Models")
-        header.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
+        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
         header.setProperty("heading", True)
         layout.addWidget(header)
 
@@ -208,12 +214,24 @@ class ModelSelectorPage(QWidget):
         self.retry_btn.hide()
         left_layout.addWidget(self.retry_btn, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        # Model list
+        # Model list — monospace via stylesheet (global QSS prefers Segoe UI,
+        # which breaks fixed-width column padding).
         self.model_list = QListWidget()
         self.model_list.setAlternatingRowColors(True)
+        apply_font(self.model_list, "Consolas", 11)
+        self.model_list.setStyleSheet(
+            f'QListWidget {{ font-family: Consolas, "Courier New", monospace; font-size: {scale_px(11)}pt; }}'
+        )
         self.model_list.itemChanged.connect(self._update_count)
         self.model_list.viewport().installEventFilter(self)
+
+        self._list_name_width = 28
+        self._model_list_header = QLabel("")
+        apply_font(self._model_list_header, "Consolas", 11, QFont.Weight.Bold)
+        self._model_list_header.setProperty("muted", True)
+        left_layout.addWidget(self._model_list_header)
         left_layout.addWidget(self.model_list)
+        self._sync_model_list_header()
 
         splitter.addWidget(left_widget)
 
@@ -224,7 +242,7 @@ class ModelSelectorPage(QWidget):
         right_layout.setContentsMargins(8, 0, 0, 0)
 
         filter_label = QLabel("Filters")
-        filter_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        apply_font(filter_label, "Segoe UI", 14, QFont.Weight.Bold)
         right_layout.addWidget(filter_label)
 
         # Subscription type
@@ -359,33 +377,52 @@ class ModelSelectorPage(QWidget):
         # show progress next to the "Next: Select Models" button.
         # Keep this page passive and only populate from the manager.
         app_signals.theme_changed.connect(self._apply_theme)
+        app_signals.privacy_mode_changed.connect(self._on_privacy_mode_changed)
         self._avatar_signals.loaded.connect(self._on_avatar_loaded)
 
     def eventFilter(self, obj, event):
-        """Detect left-clicks on the avatar icon area and open the model's OnlyFans page."""
+        """Row click zones: checkbox (native), avatar (open profile), username (toggle)."""
         if (
-            self._show_avatars
-            and obj is self.model_list.viewport()
+            obj is self.model_list.viewport()
             and event.type() == QEvent.Type.MouseButtonPress
             and event.button() == Qt.MouseButton.LeftButton
         ):
             item = self.model_list.itemAt(event.pos())
             if item:
                 item_rect = self.model_list.visualItemRect(item)
-                icon_w = self.model_list.iconSize().width()
                 rel_x = event.pos().x() - item_rect.left()
                 # Checkbox indicator is ~0-20 px — let those clicks through so
                 # the checkbox can be toggled normally.
-                # Only consume clicks that land in the icon zone (20 px to icon right edge).
                 checkbox_w = 20
-                if checkbox_w < rel_x <= checkbox_w + icon_w + 4:
+                icon_w = (
+                    self.model_list.iconSize().width() if self._show_avatars else 0
+                )
+                icon_end = checkbox_w + icon_w + 4 if self._show_avatars else checkbox_w
+
+                if self._show_avatars and checkbox_w < rel_x <= icon_end:
                     name = item.data(Qt.ItemDataRole.UserRole)
                     if name:
                         QDesktopServices.openUrl(QUrl(f"https://onlyfans.com/{name}"))
-                        return True  # consume — don't toggle the checkbox
+                        return True  # consume — open profile, don't toggle
+
+                # Username / label area (and empty space to the right) toggles selection.
+                if rel_x > icon_end:
+                    new_state = (
+                        Qt.CheckState.Unchecked
+                        if item.checkState() == Qt.CheckState.Checked
+                        else Qt.CheckState.Checked
+                    )
+                    item.setCheckState(new_state)
+                    return True
         return super().eventFilter(obj, event)
 
     def _apply_theme(self, _is_dark=True):
+        try:
+            self.model_list.setStyleSheet(
+                f'QListWidget {{ font-family: Consolas, "Courier New", monospace; font-size: {scale_px(11)}pt; }}'
+            )
+        except Exception:
+            pass
         self.retry_btn.setStyleSheet(
             f"QPushButton {{ background-color: {c('blue')}; color: {c('base')}; "
             f"padding: 8px 16px; border-radius: 4px; font-weight: bold; }}"
@@ -429,100 +466,228 @@ class ModelSelectorPage(QWidget):
             self.retry_btn.show()
             self.next_btn.setEnabled(False)
 
+    def _widget_alive(self) -> bool:
+        """False if this page's Qt widgets were deleted (navigate-away / shutdown)."""
+        try:
+            _ = self.next_btn.isEnabled()
+            return True
+        except RuntimeError:
+            return False
+        except Exception:
+            return False
+
+    def _cancel_models_worker(self):
+        """Ignore any in-flight worker; stop poll timer; clean fetch environment."""
+        self._models_load_gen = int(getattr(self, "_models_load_gen", 0) or 0) + 1
+        timer = getattr(self, "_models_poll_timer", None)
+        if timer is not None:
+            try:
+                timer.stop()
+            except Exception:
+                pass
+        self._models_worker = None
+        try:
+            from ofscraper.gui.utils.model_fetch import clear_handoff
+
+            clear_handoff()
+        except Exception:
+            pass
+        if getattr(self, "_models_env_prepared", False):
+            self._models_env_prepared = False
+            try:
+                from ofscraper.gui.utils.model_fetch import cleanup_model_fetch_environment
+
+                cleanup_model_fetch_environment()
+            except Exception:
+                pass
+
     def _load_models(self):
         """Load models from the manager by triggering the API fetch in a background thread."""
-        self.model_list.clear()
-        self.retry_btn.hide()
-        self.loading_label.setText("Loading models from API...")
-        self.loading_label.show()
-        self.next_btn.setEnabled(False)
-
-        if not (self.manager and self.manager.model_manager):
-            self.loading_label.setText(
-                "Model manager not available. Showing empty list."
-            )
-            self.next_btn.setEnabled(True)
+        self._cancel_models_worker()
+        try:
+            self.model_list.clear()
+            self.retry_btn.hide()
+            self.loading_label.setText("Loading models from API...")
+            self.loading_label.show()
+            self.next_btn.setEnabled(False)
+        except RuntimeError:
             return
 
-        worker = Worker(self._fetch_models)
-        worker.signals.finished.connect(self._on_models_loaded)
-        worker.signals.error.connect(self._on_models_error)
-        QThreadPool.globalInstance().start(worker)
-
-    def _fetch_models(self):
-        """Fetch models via the API (runs in background thread).
-        Uses a fresh event loop directly to avoid stale loop state
-        from the @run decorator on retries."""
-        import asyncio
-        import logging
-        import ofscraper.data.models.utils.retriver as retriver
-        import ofscraper.utils.paths.common as common_paths
-        import ofscraper.utils.auth.utils.dict as auth_dict_mod
-
-        _log = logging.getLogger("shared")
-
-        # Log the auth file path and contents for debugging
-        try:
-            auth_path = common_paths.get_auth_file()
-            _log.info(f"[GUI retry] Auth file path: {auth_path}")
-            auth_data = auth_dict_mod.get_auth_dict()
-            filled = {k: ("set" if v else "EMPTY") for k, v in auth_data.items()}
-            _log.info(f"[GUI retry] Auth field status: {filled}")
-
-            # Bail out early if required auth fields are empty
-            required = ["sess", "auth_id", "user_agent", "x-bc"]
-            missing = [k for k in required if not auth_data.get(k)]
-            if missing:
-                raise Exception(
-                    f"Auth fields not configured: {', '.join(missing)}. "
-                    "Please fill in your auth credentials first."
+        if not (self.manager and self.manager.model_manager):
+            try:
+                self.loading_label.setText(
+                    "Model manager not available. Showing empty list."
                 )
-        except Exception as e:
-            _log.warning(f"[GUI retry] Auth check failed: {e}")
-            raise
+                self.next_btn.setEnabled(True)
+            except RuntimeError:
+                pass
+            return
 
-        # Clear cached data so we actually re-fetch from the API
-        self.manager.model_manager._all_subs_dict = {}
-
-        # Clear the profile/user info cache so stale None values from
-        # a previous failed auth attempt don't poison the retry.
-        import ofscraper.utils.profiles.data as profile_data
-        profile_data.currentData = None
-        profile_data.currentProfile = None
-
-        loop = asyncio.new_event_loop()
+        # Clear profile cache on the UI thread only (not from the worker).
         try:
-            asyncio.set_event_loop(loop)
-            data = loop.run_until_complete(retriver.get_models())
-            self.manager.model_manager.all_subs_dict = data
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
+            import ofscraper.utils.profiles.data as profile_data
 
-        return self.manager.model_manager.all_subs_obj
+            profile_data.currentData = None
+            profile_data.currentProfile = None
+        except Exception:
+            pass
 
-    def _on_models_loaded(self, models):
-        """Handle successful model fetch — populate the list."""
-        self.loading_label.hide()
-        self.retry_btn.hide()
-        self.next_btn.setEnabled(True)
-        if models:
-            self._all_models = {m.name: m for m in models}
-            self._populate_list(sorted(self._all_models.keys()))
-            app_signals.status_message.emit(
-                f"Loaded {len(models)} models"
+        self._models_load_gen = int(getattr(self, "_models_load_gen", 0) or 0) + 1
+        load_gen = self._models_load_gen
+
+        def _job():
+            from ofscraper.gui.utils.model_fetch import (
+                fetch_subscription_models,
+                publish_handoff,
+                wait_for_ui_ack,
             )
-        else:
-            self._all_models = {}
-            self._show_auth_failure_prompt()
 
-    def _on_models_error(self, error_msg):
+            try:
+                dicts = fetch_subscription_models()
+                publish_handoff(gen=load_gen, payload=dicts)
+                wait_for_ui_ack()
+                return len(dicts or [])
+            except Exception as e:
+                publish_handoff(gen=load_gen, error=str(e))
+                wait_for_ui_ack()
+                raise
+
+        try:
+            from ofscraper.gui.utils.model_fetch import (
+                clear_handoff,
+                prepare_model_fetch_environment,
+            )
+
+            clear_handoff()
+            prepare_model_fetch_environment()
+            self._models_env_prepared = True
+        except Exception as e:
+            log.warning(f"[GUI] prepare_model_fetch_environment failed: {e}")
+
+        self._models_worker = Worker(_job, emit_signals=False)
+        from PyQt6.QtCore import QThreadPool
+
+        if self._models_poll_timer is None:
+            self._models_poll_timer = QTimer(self)
+            self._models_poll_timer.setInterval(50)
+            self._models_poll_timer.timeout.connect(self._poll_models_worker)
+
+        QThreadPool.globalInstance().start(self._models_worker)
+        self._models_poll_timer.start()
+
+    def _poll_models_worker(self):
+        worker = getattr(self, "_models_worker", None)
+        load_gen = getattr(self, "_models_load_gen", None)
+        ready = False
+        try:
+            from ofscraper.gui.utils.model_fetch import handoff_ready
+
+            ready = handoff_ready(int(load_gen or 0))
+        except Exception:
+            ready = False
+        if not ready and (worker is None or not getattr(worker, "done", False)):
+            return
+        if getattr(self, "_models_finish_scheduled", False):
+            return
+        self._models_finish_scheduled = True
+        timer = getattr(self, "_models_poll_timer", None)
+        if timer is not None:
+            try:
+                timer.stop()
+            except Exception:
+                pass
+        from PyQt6.QtCore import QTimer
+
+        QTimer.singleShot(150, lambda g=load_gen: self._finish_models_load(g))
+
+    def _finish_models_load(self, load_gen=None):
+        self._models_finish_scheduled = False
+        if load_gen is not None and load_gen != getattr(self, "_models_load_gen", None):
+            return
+
+        from ofscraper.gui.utils.model_fetch import dicts_to_models, take_handoff
+
+        handoff = take_handoff(int(load_gen or 0))
+        worker = getattr(self, "_models_worker", None)
+        self._models_worker = None
+        if getattr(self, "_models_env_prepared", False):
+            self._models_env_prepared = False
+            try:
+                from ofscraper.gui.utils.model_fetch import cleanup_model_fetch_environment
+
+                cleanup_model_fetch_environment()
+            except Exception:
+                pass
+
+        if handoff is None:
+            err = getattr(worker, "error_msg", None) if worker else "handoff missing"
+            if err:
+                self._on_models_error(err, load_gen)
+            else:
+                self._apply_models_loaded([], load_gen)
+            return
+
+        if handoff.get("error"):
+            self._on_models_error(handoff["error"], load_gen)
+            return
+
+        from PyQt6.QtCore import QTimer
+
+        payload = handoff.get("payload")
+
+        def _build_and_apply():
+            self._apply_models_loaded(dicts_to_models(payload), load_gen)
+
+        QTimer.singleShot(0, _build_and_apply)
+
+    def _apply_models_loaded(self, models, load_gen=None):
+        if load_gen is not None and load_gen != getattr(self, "_models_load_gen", None):
+            return
+        if not self._widget_alive():
+            return
+
+        self._models_worker = None
+        try:
+            if self.manager and getattr(self.manager, "model_manager", None) is not None:
+                self.manager.model_manager.all_subs_dict = models or []
+            self.loading_label.hide()
+            self.retry_btn.hide()
+            self.next_btn.setEnabled(True)
+            if models:
+                self._all_models = {m.name: m for m in models}
+                self._populate_list(sorted(self._all_models.keys()))
+                app_signals.status_message.emit(f"Loaded {len(models)} models")
+            else:
+                self._all_models = {}
+                self._show_auth_failure_prompt()
+        except RuntimeError:
+            log.debug("[GUI] Select Models load UI update skipped (widget deleted)")
+        except Exception as e:
+            log.warning(f"[GUI] Select Models load UI update failed: {e}")
+            try:
+                self._on_models_error(str(e), load_gen)
+            except Exception:
+                pass
+
+    def _on_models_error(self, error_msg, load_gen=None):
         """Handle model fetch failure."""
+        if load_gen is not None and load_gen != getattr(self, "_models_load_gen", None):
+            log.debug("[GUI] Ignoring stale Select Models load error")
+            return
+        if not self._widget_alive():
+            return
+
+        self._models_worker = None
         log.error(f"Model fetch error: {error_msg}")
-        self._show_auth_failure_prompt(error_msg)
+        try:
+            self._show_auth_failure_prompt(error_msg)
+        except RuntimeError:
+            log.debug("[GUI] Select Models error UI update skipped (widget deleted)")
 
     def _show_auth_failure_prompt(self, detail=None):
         """Show a dialog when models can't be loaded, offering to go to auth settings."""
+        if not self._widget_alive():
+            return
         self.loading_label.setText("Unable to get list of models.")
         self.loading_label.show()
         self.retry_btn.show()
@@ -531,58 +696,265 @@ class ModelSelectorPage(QWidget):
         msg = QMessageBox(self)
         msg.setIcon(QMessageBox.Icon.Warning)
         msg.setWindowTitle("Unable to Load Models")
-        msg.setText("Unable to get list of models.\nPlease check your auth information.")
-        if detail:
-            msg.setDetailedText(str(detail))
+        from ofscraper.gui.utils.auth_errors import model_load_failure_dialog_text
+
+        main_text, detail_text = model_load_failure_dialog_text(detail)
+        msg.setText(main_text)
+        if detail_text:
+            msg.setDetailedText(detail_text)
         retry_btn = msg.addButton("Retry", QMessageBox.ButtonRole.AcceptRole)
         auth_btn = msg.addButton("Go to Authentication", QMessageBox.ButtonRole.ActionRole)
+        dynamic_btn = msg.addButton(
+            "Dynamic Mode (Config)", QMessageBox.ButtonRole.ActionRole
+        )
+        ssl_btn = msg.addButton("SSL Verify (Config)", QMessageBox.ButtonRole.ActionRole)
+        help_btn = msg.addButton("Help / README", QMessageBox.ButtonRole.ActionRole)
         msg.addButton("Close", QMessageBox.ButtonRole.RejectRole)
         msg.exec()
 
-        if msg.clickedButton() == retry_btn:
+        if not self._widget_alive():
+            return
+        clicked = msg.clickedButton()
+        if clicked == retry_btn:
             self._load_models()
-        elif msg.clickedButton() == auth_btn:
+        elif clicked == auth_btn:
             app_signals.navigate_to_page.emit("auth")
+        elif clicked == dynamic_btn:
+            self._go_to_advanced_config_field("dynamic-mode-default")
+        elif clicked == ssl_btn:
+            self._go_to_advanced_config_field("ssl_verify")
+        elif clicked == help_btn:
+            self._go_to_auth_help()
+
+    def _go_to_advanced_config_field(self, field_key: str):
+        """Navigate to Configuration → Advanced and focus a field by key."""
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QApplication
+
+        app_signals.navigate_to_page.emit("config")
+
+        def _focus_field():
+            try:
+                for w in QApplication.topLevelWidgets():
+                    pages = getattr(w, "_pages", None)
+                    if pages and "config" in pages:
+                        cfg_page = pages["config"]
+                        if hasattr(cfg_page, "go_to_config_field"):
+                            cfg_page.go_to_config_field("Advanced", field_key)
+                        break
+            except Exception:
+                pass
+
+        QTimer.singleShot(100, _focus_field)
+
+    def _go_to_auth_help(self):
+        """Navigate to Help / README and scroll to the Auth Issues section."""
+        from PyQt6.QtCore import QTimer
+        from PyQt6.QtWidgets import QApplication
+
+        app_signals.navigate_to_page.emit("help")
+
+        def _scroll_to_anchor():
+            try:
+                for w in QApplication.topLevelWidgets():
+                    pages = getattr(w, "_pages", None)
+                    if pages and "help" in pages:
+                        help_page = pages["help"]
+                        if hasattr(help_page, "scroll_to_anchor"):
+                            help_page.scroll_to_anchor("auth-issues")
+                        break
+            except Exception:
+                pass
+
+        QTimer.singleShot(200, _scroll_to_anchor)
 
     def _populate_list(self, names):
         """Populate the list widget with model names and details."""
+        # Remember order for privacy-mode refresh; preserve checks across rebuild.
+        self._filtered_names = list(names)
+        previously_checked = set()
+        try:
+            previously_checked = set(self._get_selected_names())
+        except Exception:
+            previously_checked = set()
+
         self.model_list.blockSignals(True)
         self.model_list.clear()
+        # Name column width from this list (capped) so short names still align.
+        try:
+            name_width = max((len(str(n or "")) for n in names), default=12)
+            name_width = max(12, min(name_width, 32))
+        except Exception:
+            name_width = 28
+        self._list_name_width = name_width
+        self._sync_model_list_header(name_width)
         for name in names:
             model = self._all_models.get(name)
             if model:
                 sub_date = getattr(model, "subscribed_string", None) or "N/A"
                 price = getattr(model, "final_current_price", 0) or 0
-                display = f"{name}  =>  subscribed date: {sub_date} | current_price: {price}"
+                try:
+                    from ofscraper.gui.utils.privacy_mode import format_model_list_line
+
+                    display = format_model_list_line(
+                        name,
+                        sub_date=sub_date,
+                        price=price,
+                        style="page",
+                        name_width=name_width,
+                    )
+                except Exception:
+                    display = (
+                        f"{str(name):<{name_width}}  {str(sub_date):<10}  {str(price):>8}"
+                    )
             else:
-                display = name
+                try:
+                    from ofscraper.gui.utils.privacy_mode import mask_username
+
+                    display = mask_username(name) or name
+                except Exception:
+                    display = name
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, name)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Unchecked)
+            if name in previously_checked:
+                item.setCheckState(Qt.CheckState.Checked)
+            else:
+                item.setCheckState(Qt.CheckState.Unchecked)
             self.model_list.addItem(item)
         self.model_list.blockSignals(False)
         self._update_count()
-        # Re-apply avatars for any already-cached items
-        if self._show_avatars:
+        # Re-apply avatars for any already-cached items (skip when privacy on)
+        try:
+            from ofscraper.gui.utils.privacy_mode import is_privacy_mode
+
+            privacy_on = is_privacy_mode()
+        except Exception:
+            privacy_on = False
+        if self._show_avatars and not privacy_on:
             self._apply_avatars_to_list()
+            QTimer.singleShot(0, self._sync_model_list_header)
+        elif privacy_on:
+            self._clear_avatars()
+            QTimer.singleShot(0, self._sync_model_list_header)
         # Re-apply any active search text (e.g. pre-set by username filter from area page)
         current_text = self.search_input.text()
         if current_text:
             self._filter_list(current_text)
 
+    def _on_privacy_mode_changed(self, _enabled: bool):
+        """Refresh list labels when Privacy / demo mode toggles."""
+        if self._filtered_names:
+            self._populate_list(self._filtered_names)
+        elif self._all_models:
+            self._populate_list(sorted(self._all_models.keys()))
+
     # ------------------------------------------------------------------
     # Avatar loading
     # ------------------------------------------------------------------
 
+    def _measure_model_list_text_inset(self) -> int:
+        """Pixels from the list widget's left edge to where row text begins.
+
+        Uses Qt style layout (checkbox + decoration) instead of guessing widths,
+        so the header lines up with Username when Show Avatars is on.
+        """
+        from PyQt6.QtWidgets import QStyle, QStyleOptionViewItem
+
+        lw = self.model_list
+        style = lw.style()
+        option = QStyleOptionViewItem()
+        try:
+            lw.initViewItemOption(option)
+        except Exception:
+            pass
+        option.decorationSize = lw.iconSize()
+        option.features = QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
+        show_av = bool(getattr(self, "_show_avatars", False)) and lw.iconSize().width() > 0
+        if show_av:
+            option.features |= QStyleOptionViewItem.ViewItemFeature.HasDecoration
+
+        if lw.count() > 0:
+            item = lw.item(0)
+            index = lw.indexFromItem(item)
+            option.rect = lw.visualRect(index)
+            option.index = index
+            option.checkState = item.checkState()
+            option.text = item.text() or "M"
+            if not item.icon().isNull():
+                option.icon = item.icon()
+                option.features |= QStyleOptionViewItem.ViewItemFeature.HasDecoration
+            elif show_av:
+                # Reserve decoration space before icons finish downloading.
+                option.features |= QStyleOptionViewItem.ViewItemFeature.HasDecoration
+        else:
+            option.rect = lw.viewport().rect()
+            option.rect.setHeight(max(int(lw.iconSize().height() or 24), 24) + 8)
+            option.checkState = Qt.CheckState.Unchecked
+            option.text = "M"
+            if show_av:
+                option.features |= QStyleOptionViewItem.ViewItemFeature.HasDecoration
+
+        text_rect = style.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemText, option, lw
+        )
+        # option.rect / text_rect are viewport-relative; header is above the list widget.
+        try:
+            inset = int(lw.viewport().mapTo(lw, text_rect.topLeft()).x())
+        except Exception:
+            inset = int(text_rect.left()) + int(lw.frameWidth())
+        return max(0, inset)
+
+    def _sync_model_list_header(self, name_width=None):
+        """Keep column header text aligned with list text (incl. avatar offset)."""
+        if name_width is None:
+            name_width = getattr(self, "_list_name_width", 28)
+        try:
+            from ofscraper.gui.utils.privacy_mode import model_list_header_line
+
+            hdr = model_list_header_line(name_width)
+        except Exception:
+            hdr = ""
+        try:
+            left_pad = self._measure_model_list_text_inset()
+        except Exception:
+            left_pad = 28
+            if getattr(self, "_show_avatars", False):
+                left_pad += 48
+        try:
+            self._model_list_header.setText(hdr)
+            self._model_list_header.setStyleSheet(
+                f'QLabel {{ font-family: Consolas, "Courier New", monospace; font-size: {scale_px(11)}pt;'
+                f" font-weight: bold; color: {c('subtext')};"
+                f" padding: 2px 4px 2px {left_pad}px; }}"
+            )
+            self._model_list_header.show()
+        except Exception:
+            pass
+
     def _toggle_avatars(self, checked: bool):
         self._show_avatars = checked
+        try:
+            from ofscraper.gui.utils.privacy_mode import is_privacy_mode
+
+            if checked and is_privacy_mode():
+                app_signals.status_message.emit(
+                    "Avatars hidden while Privacy mode is on"
+                )
+                self._clear_avatars()
+                self.model_list.setIconSize(QSize(0, 0))
+                QTimer.singleShot(0, self._sync_model_list_header)
+                return
+        except Exception:
+            pass
         if checked:
             self.model_list.setIconSize(QSize(40, 40))
             self._load_avatars()
         else:
             self._clear_avatars()
             self.model_list.setIconSize(QSize(0, 0))
+        # Defer until the view applies the new decoration size.
+        QTimer.singleShot(0, self._sync_model_list_header)
 
     def _load_avatars(self):
         """Queue background downloads for any model whose avatar isn't cached yet."""
@@ -627,6 +999,8 @@ class ModelSelectorPage(QWidget):
         self.model_list.setUpdatesEnabled(True)
         if not self._pending_avatar_names:
             self._avatar_flush_timer.stop()
+        # Icons can change row layout slightly — re-align header after paint.
+        QTimer.singleShot(0, self._sync_model_list_header)
 
     def _apply_avatars_to_list(self):
         """Set cached icons on all current list items (single suppressed-repaint pass)."""
@@ -652,7 +1026,10 @@ class ModelSelectorPage(QWidget):
 
     def _filter_list(self, text):
         """Filter visible items based on search text.
-        Supports comma-separated values (e.g. 'user1, user2')."""
+        Supports comma-separated values (e.g. 'user1, user2').
+        Matches against the real username (UserRole), so Privacy mode
+        does not break search.
+        """
         if "," in text:
             terms = [t.strip().lower() for t in text.split(",") if t.strip()]
         else:
@@ -663,8 +1040,10 @@ class ModelSelectorPage(QWidget):
             if not terms:
                 item.setHidden(False)
             else:
-                item_text = item.text().lower()
-                item.setHidden(not any(term in item_text for term in terms))
+                real = str(item.data(Qt.ItemDataRole.UserRole) or "").lower()
+                shown = item.text().lower()
+                haystack = f"{real} {shown}"
+                item.setHidden(not any(term in haystack for term in terms))
 
     def _select_all(self):
         self.model_list.blockSignals(True)

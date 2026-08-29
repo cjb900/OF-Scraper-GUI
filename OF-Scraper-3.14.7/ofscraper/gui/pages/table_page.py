@@ -4,12 +4,17 @@ import os
 import subprocess as _subprocess
 import sys as _sys
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSlot
+from PyQt6.QtCore import QEvent, Qt, QTimer, QUrl, pyqtSlot
 from PyQt6.QtGui import QDesktopServices, QFont
 from PyQt6.QtWidgets import (
+    QFileDialog,
+    QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QMessageBox,
+    QScrollArea,
+    QSizePolicy,
     QSplitter,
     QTabWidget,
     QToolButton,
@@ -18,14 +23,22 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.utils.ui_scale import apply_font, scale_px
 from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.console_log import ConsoleLogWidget
 from ofscraper.gui.widgets.data_table import MediaDataTable
-from ofscraper.gui.widgets.progress_panel import ProgressSummaryBar
+from ofscraper.gui.widgets.flow_layout import FlowLayout
+from ofscraper.gui.widgets.model_badge_bar import ModelBadgeBar
 from ofscraper.gui.widgets.sidebar import FilterSidebar
+from ofscraper.gui.widgets.status_strip import StatusStrip
 from ofscraper.gui.widgets.styled_button import StyledButton
 
 log = logging.getLogger("shared")
+
+# Cart / Send Downloads toolbar is only for check modes (manual queue).
+_CHECK_MODES = {"post_check", "msg_check", "paid_check", "story_check"}
+# Default console pane height (matches initial splitter sizes / old fixed panel).
+_DEFAULT_CONSOLE_HEIGHT = 180
 
 def _help_btn_qss():
     return (
@@ -54,18 +67,28 @@ class TablePage(QWidget):
         super().__init__(parent)
         self.manager = manager
         self._scrape_active = False
+        self._cancelling = False
         self._pending_new_scrape_nav = False
         self._pending_reset = False
         self._live_rows_loaded = False
+        self._check_mode_active = False
         self._setup_ui()
         self._connect_signals()
+        self._update_cart_toolbar_visibility()
 
     def _reset_scrape_controls(self):
         """Reset toolbar state to a ready-to-scrape baseline."""
         try:
             self._scrape_active = False
+            self._cancelling = False
             self.start_scraping_btn.setEnabled(True)
             self.start_scraping_btn.setText("Start Scraping >>")
+        except Exception:
+            pass
+        try:
+            self.cancel_scrape_btn.hide()
+            self.cancel_scrape_btn.setEnabled(True)
+            self.cancel_scrape_btn.setText("Cancel")
         except Exception:
             pass
         try:
@@ -76,6 +99,37 @@ class TablePage(QWidget):
             pass
         try:
             self.daemon_status_label.hide()
+        except Exception:
+            pass
+        try:
+            self._check_mode_active = False
+            self._update_cart_toolbar_visibility()
+        except Exception:
+            pass
+
+    def _enter_cancelling_ui(self, status_text="Cancelling… finishing current work"):
+        """Disable Start and show Cancelling state until scraping_finished."""
+        self._cancelling = True
+        self._scrape_active = True
+        try:
+            self.start_scraping_btn.setEnabled(False)
+            self.start_scraping_btn.setText("Cancelling...")
+        except Exception:
+            pass
+        try:
+            self.cancel_scrape_btn.show()
+            self.cancel_scrape_btn.setEnabled(False)
+            self.cancel_scrape_btn.setText("Cancelling...")
+        except Exception:
+            pass
+        try:
+            self.daemon_status_label.setText(status_text)
+            self.daemon_status_label.show()
+        except Exception:
+            pass
+        try:
+            app_signals.scrape_phase_changed.emit("cancelling")
+            app_signals.status_message.emit(status_text)
         except Exception:
             pass
 
@@ -90,87 +144,156 @@ class TablePage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # -- Top toolbar --
+        # -- Top toolbar (flow layout wraps to extra rows on narrow displays) --
         self._toolbar = toolbar = QWidget()
-        toolbar.setFixedHeight(48)
         toolbar.setStyleSheet(f"background-color: {c('mantle')};")
-        toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(12, 4, 12, 4)
+        self._toolbar_flow = FlowLayout(toolbar, margin=8, h_spacing=6, v_spacing=4)
 
         self.toggle_sidebar_btn = StyledButton("◀  Filters")
         self.toggle_sidebar_btn.setCheckable(True)
         self.toggle_sidebar_btn.setChecked(True)
         self.toggle_sidebar_btn.setToolTip("Click to hide the filter sidebar")
         self.toggle_sidebar_btn.clicked.connect(self._toggle_sidebar)
-        toolbar_layout.addWidget(self.toggle_sidebar_btn)
-
-        toolbar_layout.addSpacing(12)
+        self._toolbar_flow.addWidget(self.toggle_sidebar_btn)
 
         self.reset_btn = StyledButton("Reset")
         self.reset_btn.clicked.connect(self._on_reset)
-        toolbar_layout.addWidget(self.reset_btn)
+        self._toolbar_flow.addWidget(self.reset_btn)
 
         self.filter_btn = StyledButton("Apply Filters", primary=True)
         self.filter_btn.clicked.connect(self._on_filter)
-        toolbar_layout.addWidget(self.filter_btn)
-
-        toolbar_layout.addSpacing(12)
+        self._toolbar_flow.addWidget(self.filter_btn)
 
         self.start_scraping_btn = StyledButton("Start Scraping >>", primary=True)
         self.start_scraping_btn.setFixedHeight(36)
-        self.start_scraping_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        apply_font(self.start_scraping_btn, "Segoe UI", 12, QFont.Weight.Bold)
         self.start_scraping_btn.clicked.connect(self._on_start_scraping)
-        toolbar_layout.addWidget(self.start_scraping_btn)
+        self._toolbar_flow.addWidget(self.start_scraping_btn)
+
+        self.cancel_scrape_btn = StyledButton("Cancel")
+        self.cancel_scrape_btn.setFixedHeight(36)
+        self.cancel_scrape_btn.setToolTip(
+            "Stop the current scrape. Waits for in-flight work, then force-stops if needed."
+        )
+        self.cancel_scrape_btn.clicked.connect(self._on_cancel_scrape_clicked)
+        self.cancel_scrape_btn.hide()
+        self._toolbar_flow.addWidget(self.cancel_scrape_btn)
 
         self.new_scrape_btn = StyledButton("New Scrape")
         self.new_scrape_btn.setFixedHeight(36)
         self.new_scrape_btn.clicked.connect(self._on_new_scrape)
-        toolbar_layout.addWidget(self.new_scrape_btn)
+        self._toolbar_flow.addWidget(self.new_scrape_btn)
 
         self.open_folder_btn = StyledButton("Open Downloads Folder")
         self.open_folder_btn.setFixedHeight(36)
-        self.open_folder_btn.setToolTip("Open the configured download save location in your file manager")
+        self.open_folder_btn.setToolTip(
+            "Open the configured download save location in your file manager"
+        )
         self.open_folder_btn.clicked.connect(self._on_open_downloads_folder)
-        toolbar_layout.addWidget(self.open_folder_btn)
+        self._toolbar_flow.addWidget(self.open_folder_btn)
 
-        # Stop Daemon button (hidden until daemon is running)
+        self.history_btn = StyledButton("History")
+        self.history_btn.setFixedHeight(36)
+        self.history_btn.setToolTip(
+            "Browse recent scrape runs — filter, details, re-run, or delete"
+        )
+        self.history_btn.clicked.connect(self._on_history_clicked)
+        self._toolbar_flow.addWidget(self.history_btn)
+
+        self.export_csv_btn = StyledButton("Export CSV")
+        self.export_csv_btn.setFixedHeight(36)
+        self.export_csv_btn.setToolTip(
+            "Export visible (filtered) table rows to a CSV file — "
+            "or only the current selection if you choose"
+        )
+        self.export_csv_btn.clicked.connect(self._on_export_csv)
+        self._toolbar_flow.addWidget(self.export_csv_btn)
+
         self.stop_daemon_btn = StyledButton("Stop Daemon")
         self.stop_daemon_btn.setFixedHeight(36)
         self.stop_daemon_btn.clicked.connect(self._on_stop_daemon)
         self.stop_daemon_btn.hide()
-        toolbar_layout.addWidget(self.stop_daemon_btn)
+        self._toolbar_flow.addWidget(self.stop_daemon_btn)
 
-        toolbar_layout.addSpacing(8)
-
-        # Daemon countdown label (hidden until daemon is waiting)
         self.daemon_status_label = QLabel("")
-        self.daemon_status_label.setFont(QFont("Segoe UI", 10))
+        apply_font(self.daemon_status_label, "Segoe UI", 10)
         self.daemon_status_label.hide()
-        toolbar_layout.addWidget(self.daemon_status_label)
+        self._toolbar_flow.addWidget(self.daemon_status_label)
 
-        toolbar_layout.addStretch()
-
+        # Check-mode cart controls (hidden for normal scrapes)
         self.cart_label = QLabel("Cart: 0 items")
         self.cart_label.setProperty("subheading", True)
-        toolbar_layout.addWidget(self.cart_label)
-
-        toolbar_layout.addSpacing(8)
+        self._toolbar_flow.addWidget(self.cart_label)
 
         self.select_all_cart_btn = StyledButton("Select All")
+        self.select_all_cart_btn.setToolTip(
+            "Add all visible unlocked rows to the download cart"
+        )
         self.select_all_cart_btn.clicked.connect(self._on_select_all_cart)
-        toolbar_layout.addWidget(self.select_all_cart_btn)
+        self._toolbar_flow.addWidget(self.select_all_cart_btn)
 
         self.deselect_all_cart_btn = StyledButton("Deselect All")
+        self.deselect_all_cart_btn.setToolTip(
+            "Clear the download cart for all visible rows"
+        )
         self.deselect_all_cart_btn.clicked.connect(self._on_deselect_all_cart)
-        toolbar_layout.addWidget(self.deselect_all_cart_btn)
+        self._toolbar_flow.addWidget(self.deselect_all_cart_btn)
 
-        toolbar_layout.addSpacing(12)
+        self.add_selected_cart_btn = StyledButton("Add Selected")
+        self.add_selected_cart_btn.setToolTip(
+            "Add highlighted table rows to the cart "
+            "(Ctrl/Shift-click to multi-select; Space toggles)"
+        )
+        self.add_selected_cart_btn.clicked.connect(self._on_add_selected_cart)
+        self._toolbar_flow.addWidget(self.add_selected_cart_btn)
+
+        self.remove_selected_cart_btn = StyledButton("Remove Selected")
+        self.remove_selected_cart_btn.setToolTip(
+            "Remove highlighted table rows from the cart"
+        )
+        self.remove_selected_cart_btn.clicked.connect(self._on_remove_selected_cart)
+        self._toolbar_flow.addWidget(self.remove_selected_cart_btn)
 
         self.send_btn = StyledButton(">> Send Downloads", primary=True)
+        self.send_btn.setToolTip(
+            "Download cart items (check mode). Not used for normal scrapes."
+        )
         self.send_btn.clicked.connect(self._on_send_downloads)
-        toolbar_layout.addWidget(self.send_btn)
+        self._toolbar_flow.addWidget(self.send_btn)
 
-        layout.addWidget(toolbar)
+        self._cart_widgets = [
+            self.cart_label,
+            self.select_all_cart_btn,
+            self.deselect_all_cart_btn,
+            self.add_selected_cart_btn,
+            self.remove_selected_cart_btn,
+            self.send_btn,
+        ]
+        for w in self._cart_widgets:
+            w.hide()
+
+        self._toolbar_scroll = QScrollArea()
+        self._toolbar_scroll.setWidget(toolbar)
+        self._toolbar_scroll.setWidgetResizable(True)
+        self._toolbar_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._toolbar_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._toolbar_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        self._toolbar_scroll.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum
+        )
+        self._toolbar_scroll.setStyleSheet(
+            f"QScrollArea {{ background-color: {c('mantle')}; border: none; }}"
+        )
+        self._sync_toolbar_scroll_geometry()
+        layout.addWidget(self._toolbar_scroll)
+
+        # -- Per-model live result badges (shown during / after scrape) --
+        self.model_badge_bar = ModelBadgeBar()
+        layout.addWidget(self.model_badge_bar)
 
         # -- Main content area: sidebar + table --
         self._content_splitter = content_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -189,14 +312,75 @@ class TablePage(QWidget):
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(0)
 
-        # Data table
-        self.data_table = MediaDataTable()
-        right_layout.addWidget(self.data_table, stretch=3)
+        # Data table with centered empty-state guidance overlay
+        self._table_host = QWidget()
+        table_host_layout = QGridLayout(self._table_host)
+        table_host_layout.setContentsMargins(0, 0, 0, 0)
+        table_host_layout.setSpacing(0)
 
-        # Bottom console (keep logs available, but avoid a large empty panel)
+        self.data_table = MediaDataTable()
+        table_host_layout.addWidget(self.data_table, 0, 0)
+
+        self._empty_guide = QLabel()
+        self._empty_guide.setObjectName("tableEmptyGuide")
+        self._empty_guide.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_guide.setWordWrap(True)
+        self._empty_guide.setTextFormat(Qt.TextFormat.RichText)
+        self._empty_guide.setMaximumWidth(520)
+        self._empty_guide.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+
+        self._empty_guide_wrap = QWidget()
+        self._empty_guide_wrap.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
+        )
+        self._empty_guide_wrap.setStyleSheet("background: transparent;")
+        self._empty_guide_wrap.hide()
+        guide_layout = QVBoxLayout(self._empty_guide_wrap)
+        guide_layout.setContentsMargins(24, 24, 24, 24)
+        guide_layout.addStretch(1)
+        guide_layout.addWidget(
+            self._empty_guide, 0, Qt.AlignmentFlag.AlignHCenter
+        )
+        guide_layout.addStretch(1)
+        table_host_layout.addWidget(self._empty_guide_wrap, 0, 0)
+
+        # Vertical splitter: table on top, console below — drag the handle to resize.
+        self._vertical_splitter = QSplitter(Qt.Orientation.Vertical)
+        self._vertical_splitter.setObjectName("tableConsoleSplitter")
+        self._vertical_splitter.setChildrenCollapsible(False)
+        self._vertical_splitter.setHandleWidth(8)
+        self._table_host.setMinimumHeight(120)
+        self._vertical_splitter.addWidget(self._table_host)
+
         self.console_widget = ConsoleLogWidget()
-        self.console_widget.setMaximumHeight(220)
-        right_layout.addWidget(self.console_widget, stretch=1)
+        self.console_widget.setMinimumHeight(72)
+        self._vertical_splitter.addWidget(self.console_widget)
+        # Table stretches on window resize; console keeps its absolute height.
+        self._vertical_splitter.setStretchFactor(0, 1)
+        self._vertical_splitter.setStretchFactor(1, 0)
+        # Default similar to the old fixed ~220px console.
+        self._vertical_splitter.setSizes([520, _DEFAULT_CONSOLE_HEIGHT])
+        self._vertical_splitter.splitterMoved.connect(self._on_console_splitter_moved)
+        self._console_save_timer = QTimer(self)
+        self._console_save_timer.setSingleShot(True)
+        self._console_save_timer.setInterval(1000)  # save ~1s after drag settles
+        self._console_save_timer.timeout.connect(self._persist_console_height)
+        self._pending_console_height = None
+        self._console_restore_scheduled = False
+        # Double-click the handle to restore the default console height.
+        try:
+            handle = self._vertical_splitter.handle(1)
+            handle.setToolTip(
+                "Drag to resize console · Double-click to reset to default height"
+            )
+            handle.installEventFilter(self)
+            self._console_splitter_handle = handle
+        except Exception:
+            self._console_splitter_handle = None
+
+        right_layout.addWidget(self._vertical_splitter, stretch=1)
 
         content_splitter.addWidget(right_widget)
         content_splitter.setStretchFactor(0, 0)
@@ -206,41 +390,128 @@ class TablePage(QWidget):
 
         layout.addWidget(content_splitter)
 
-        # -- Status info at bottom --
-        self._status_bar_widget = status_bar = QWidget()
-        status_bar.setFixedHeight(34)
-        status_bar.setStyleSheet(f"background-color: {c('mantle')};")
-        status_layout = QHBoxLayout(status_bar)
-        status_layout.setContentsMargins(12, 2, 12, 2)
-        status_layout.setSpacing(10)
-
-        self.row_count_label = QLabel("0 rows")
-        self.row_count_label.setProperty("muted", True)
-        status_layout.addWidget(self.row_count_label)
-
-        # Overall progress embedded in the footer to use the empty space.
-        self.progress_summary = ProgressSummaryBar()
-        status_layout.addWidget(self.progress_summary, stretch=1)
-
-        hint_label = QLabel(
-            "Click Download_Cart cell to toggle  |  Right-click cell to filter  |  Click header to sort"
-        )
-        hint_label.setProperty("muted", True)
-        status_layout.addWidget(hint_label)
-
-        # Quick link to table column/label documentation
-        status_layout.addWidget(_make_help_btn("table-columns"))
-
-        layout.addWidget(status_bar)
+        # -- Unified status strip (phase + message + progress + daemon + rows) --
+        self.status_strip = StatusStrip()
+        self._status_bar_widget = self.status_strip
+        self.progress_summary = self.status_strip.progress_summary
+        self.row_count_label = self.status_strip.row_count_label
+        layout.addWidget(self.status_strip)
 
         # Apply themed styles (must be after all widgets are created)
         self._apply_toolbar_theme()
+        self._refresh_empty_guide()
+        # Construction-time restore often runs before the stack gives us a real
+        # height; showEvent re-applies when the scrape page is actually shown.
+        QTimer.singleShot(0, self._restore_console_splitter)
+
+    def _apply_empty_guide_theme(self):
+        """Theme the empty-table guidance label."""
+        try:
+            self._empty_guide.setStyleSheet(
+                f"QLabel#tableEmptyGuide {{"
+                f" color: {c('subtext')};"
+                f" background-color: transparent;"
+                f" font-size: {scale_px(13)}px;"
+                f" }}"
+            )
+        except Exception:
+            pass
+
+    def _refresh_empty_guide(self):
+        """Show/hide contextual tip when the media table has nothing visible."""
+        guide = getattr(self, "_empty_guide", None)
+        wrap = getattr(self, "_empty_guide_wrap", None)
+        if guide is None or wrap is None:
+            return
+        try:
+            table = self.data_table
+            raw = len(getattr(table, "_raw_data", None) or [])
+            visible = int(table.rowCount())
+            deferred = bool(getattr(table, "_deferred", False))
+        except Exception:
+            wrap.hide()
+            guide.hide()
+            return
+
+        # Visible rows mean the grid is useful — hide the tip and overlay.
+        if visible > 0 and not deferred:
+            wrap.hide()
+            guide.hide()
+            try:
+                table.raise_()
+            except Exception:
+                pass
+            return
+
+        if deferred and raw > 0:
+            title = "Loading table…"
+            body = (
+                f"Collected <b>{raw}</b> items so far — the grid fills when "
+                "this scrape finishes."
+            )
+        elif self._scrape_active or self._cancelling:
+            title = "Scraping in progress…"
+            body = "Media rows will appear here as models are processed."
+        elif raw > 0 and visible == 0:
+            title = "No rows match the current filters"
+            body = "Try <b>Reset</b> or adjust the Filters sidebar."
+        elif self._live_rows_loaded and raw == 0:
+            title = "No media found"
+            body = (
+                "Try different areas, date range, or models — "
+                "or verify authentication."
+            )
+        else:
+            title = "Ready to scrape"
+            body = (
+                "Click <b>Start Scraping &gt;&gt;</b> to fetch media for your "
+                "selected models and areas.<br/><br/>"
+                "Rows show up here as they are found. Use <b>Filters</b> on the "
+                "left, then <b>Select All</b> / <b>&gt;&gt; Send Downloads</b> "
+                "to download chosen items."
+            )
+
+        try:
+            accent = c("text")
+            muted = c("subtext")
+        except Exception:
+            accent, muted = "#cdd6f4", "#a6adc8"
+
+        guide.setText(
+            f"<p style='color:{accent}; font-size: {scale_px(16)}px; font-weight:600; "
+            f"margin:0 0 10px 0;'>{title}</p>"
+            f"<p style='color:{muted}; margin:0; line-height:1.45;'>{body}</p>"
+        )
+        guide.show()
+        wrap.show()
+        try:
+            wrap.raise_()
+        except Exception:
+            pass
 
     def _apply_toolbar_theme(self):
         """Apply themed colors to toolbar buttons and bars."""
         base = c('base')
         self._toolbar.setStyleSheet(f"background-color: {c('mantle')};")
-        self._status_bar_widget.setStyleSheet(f"background-color: {c('mantle')};")
+        try:
+            self._toolbar_scroll.setStyleSheet(
+                f"QScrollArea {{ background-color: {c('mantle')}; border: none; }}"
+            )
+        except Exception:
+            pass
+        try:
+            self.status_strip.apply_theme()
+        except Exception:
+            self._status_bar_widget.setStyleSheet(f"background-color: {c('mantle')};")
+        try:
+            self.model_badge_bar.apply_theme()
+        except Exception:
+            pass
+        try:
+            self._apply_empty_guide_theme()
+            self._refresh_empty_guide()
+        except Exception:
+            pass
         self.toggle_sidebar_btn.setStyleSheet(
             f"QPushButton {{ background-color: {c('surface1')}; color: {c('text')};"
             f" border: none; border-radius: 6px; padding: 6px 12px; }}"
@@ -259,12 +530,28 @@ class TablePage(QWidget):
             f" QPushButton:hover {{ background-color: {c('teal')}; }}"
             f" QPushButton:disabled {{ background-color: {c('surface1')}; color: {c('muted')}; }}"
         )
+        self.cancel_scrape_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('red')}; color: {base};"
+            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
+            f" QPushButton:hover {{ background-color: {c('peach')}; }}"
+            f" QPushButton:disabled {{ background-color: {c('surface1')}; color: {c('muted')}; }}"
+        )
         self.new_scrape_btn.setStyleSheet(
             f"QPushButton {{ background-color: {c('mauve')}; color: {base};"
             f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
             f" QPushButton:hover {{ background-color: {c('lavender')}; }}"
         )
         self.open_folder_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('surface1')}; color: {c('text')};"
+            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
+            f" QPushButton:hover {{ background-color: {c('surface2')}; }}"
+        )
+        self.history_btn.setStyleSheet(
+            f"QPushButton {{ background-color: {c('surface1')}; color: {c('text')};"
+            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
+            f" QPushButton:hover {{ background-color: {c('surface2')}; }}"
+        )
+        self.export_csv_btn.setStyleSheet(
             f"QPushButton {{ background-color: {c('surface1')}; color: {c('text')};"
             f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
             f" QPushButton:hover {{ background-color: {c('surface2')}; }}"
@@ -284,6 +571,86 @@ class TablePage(QWidget):
         for btn in self.findChildren(QToolButton):
             if btn.text() == "?":
                 btn.setStyleSheet(_help_btn_qss())
+        self._sync_toolbar_scroll_geometry()
+
+    def _is_check_mode(self) -> bool:
+        """True when the current job is a check-mode action (manual cart downloads)."""
+        if self._check_mode_active:
+            return True
+        try:
+            main = self.window()
+            workflow = getattr(main, "workflow", None)
+            actions = getattr(workflow, "_selected_actions", None) or set()
+            if set(actions) & _CHECK_MODES:
+                return True
+        except Exception:
+            pass
+        try:
+            main = self.window()
+            area = getattr(main, "area_selector_page", None)
+            actions = getattr(area, "_current_actions", None) or set()
+            if set(actions) & _CHECK_MODES:
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _update_cart_toolbar_visibility(self):
+        """Show cart / Send Downloads only for check modes."""
+        show = self._is_check_mode()
+        for w in getattr(self, "_cart_widgets", []):
+            try:
+                w.setVisible(show)
+            except Exception:
+                pass
+        self._sync_toolbar_scroll_geometry()
+
+    def _sync_toolbar_scroll_geometry(self):
+        """Grow/shrink the toolbar host to the flow layout's wrapped height."""
+        try:
+            toolbar = self._toolbar
+            scroll = self._toolbar_scroll
+            flow = self._toolbar_flow
+        except Exception:
+            return
+        try:
+            width = max(120, scroll.viewport().width())
+            h = flow.heightForWidth(width)
+            # Cap so a tiny window doesn't steal the whole table.
+            h = max(44, min(h + 4, 140))
+            scroll.setFixedHeight(h)
+            toolbar.updateGeometry()
+        except Exception:
+            pass
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_toolbar_scroll_geometry()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._update_cart_toolbar_visibility()
+        self._sync_toolbar_scroll_geometry()
+        try:
+            self.status_strip.refresh_health()
+        except Exception:
+            pass
+        # Re-apply saved console height once the page is visible with a real size.
+        # (Construction-time restore often sees height=0 while still on another stack page.)
+        if not self._console_restore_scheduled:
+            self._console_restore_scheduled = True
+            QTimer.singleShot(0, self._restore_console_splitter_after_show)
+            QTimer.singleShot(120, self._restore_console_splitter_after_show)
+
+    def hideEvent(self, event):
+        # Don't lose a drag that hasn't hit the debounce yet.
+        self._flush_console_height_save()
+        self._console_restore_scheduled = False
+        super().hideEvent(event)
+
+    def _restore_console_splitter_after_show(self):
+        self._restore_console_splitter()
+        self._console_restore_scheduled = False
 
     def _connect_signals(self):
         self.data_table.cart_count_changed.connect(self._on_cart_count_changed)
@@ -291,10 +658,157 @@ class TablePage(QWidget):
             self._on_cell_filter_requested
         )
         app_signals.scraping_finished.connect(self._on_scraping_finished)
+        app_signals.scrape_started.connect(self._on_scrape_started)
         app_signals.daemon_next_run.connect(self._on_daemon_countdown)
+        app_signals.daemon_last_run.connect(self._on_daemon_last_run)
         app_signals.daemon_run_starting.connect(self._on_daemon_run_starting)
         app_signals.daemon_stopped.connect(self._on_daemon_stopped)
+        app_signals.action_selected.connect(self._on_actions_selected)
         app_signals.theme_changed.connect(lambda _: self._apply_toolbar_theme())
+        try:
+            self.sidebar.filter_changed.connect(self._on_filter)
+        except Exception:
+            pass
+
+    @pyqtSlot(object)
+    def _on_actions_selected(self, actions):
+        try:
+            action_set = set(actions or [])
+        except Exception:
+            action_set = set()
+        self._check_mode_active = bool(action_set & _CHECK_MODES)
+        self._update_cart_toolbar_visibility()
+
+    @pyqtSlot()
+    def _on_scrape_started(self):
+        """Show Cancel for any scrape start path (Start button, check mode, manual URL)."""
+        if self._cancelling:
+            return
+        self._scrape_active = True
+        try:
+            self.start_scraping_btn.setEnabled(False)
+            if self.start_scraping_btn.text() in (
+                "Start Scraping >>",
+                "Scrape cancelled",
+            ):
+                self.start_scraping_btn.setText("Scraping...")
+        except Exception:
+            pass
+        try:
+            self.cancel_scrape_btn.setText("Cancel")
+            self.cancel_scrape_btn.setEnabled(True)
+            self.cancel_scrape_btn.show()
+        except Exception:
+            pass
+        # Keep status-strip phase in sync (do not rely only on signal lambdas).
+        try:
+            self.status_strip.set_phase("running")
+        except Exception:
+            pass
+        try:
+            app_signals.scrape_phase_changed.emit("running")
+        except Exception:
+            pass
+        self._refresh_empty_guide()
+
+    def eventFilter(self, obj, event):
+        handle = getattr(self, "_console_splitter_handle", None)
+        if (
+            handle is not None
+            and obj is handle
+            and event is not None
+            and event.type() == QEvent.Type.MouseButtonDblClick
+        ):
+            self._reset_console_splitter_default()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _reset_console_splitter_default(self):
+        """Restore the default console height (double-click splitter handle)."""
+        try:
+            self._console_save_timer.stop()
+        except Exception:
+            pass
+        height = _DEFAULT_CONSOLE_HEIGHT
+        try:
+            total = max(int(self._vertical_splitter.height() or 0), 400)
+            console = max(72, min(height, total - 120))
+            table = max(120, total - console)
+            self._vertical_splitter.setSizes([table, console])
+            self._pending_console_height = None
+            from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
+
+            s = load_gui_settings()
+            s["console_height"] = int(console)
+            save_gui_settings(s, quiet=True)
+            log.info(f"[GUI] Console height reset to default ({console} px)")
+        except Exception:
+            pass
+
+    def _restore_console_splitter(self):
+        """Apply saved console height from gui_settings.json once layout has a size."""
+        try:
+            from ofscraper.gui.utils.gui_settings import load_gui_settings
+
+            saved = int(load_gui_settings().get("console_height") or 0)
+        except Exception:
+            saved = 0
+        if saved < 72:
+            return
+        try:
+            splitter = self._vertical_splitter
+            total = int(splitter.height() or 0)
+            if total < 200:
+                # Layout not ready yet — showEvent retry will apply later.
+                return
+            console = max(72, min(saved, total - 120))
+            table = max(120, total - console)
+            # Keep console absolute; let the table absorb window growth/shrink.
+            splitter.setStretchFactor(0, 1)
+            splitter.setStretchFactor(1, 0)
+            splitter.setSizes([table, console])
+        except Exception:
+            pass
+
+    def _on_console_splitter_moved(self, _pos: int = 0, _index: int = 0):
+        """Queue a debounced save after the user stops dragging the splitter."""
+        try:
+            sizes = self._vertical_splitter.sizes()
+            if len(sizes) < 2 or sizes[1] < 72:
+                return
+            self._pending_console_height = int(sizes[1])
+            self._console_save_timer.start()  # restart debounce on each move
+        except Exception:
+            pass
+
+    def _flush_console_height_save(self):
+        """Write any pending console height immediately (hide / navigate away)."""
+        try:
+            self._console_save_timer.stop()
+        except Exception:
+            pass
+        if getattr(self, "_pending_console_height", None) is not None:
+            self._persist_console_height()
+
+    def _persist_console_height(self):
+        """Write console height once the splitter has been idle (or on flush)."""
+        height = getattr(self, "_pending_console_height", None)
+        self._pending_console_height = None
+        if height is None or height < 72:
+            return
+        try:
+            from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
+
+            s = load_gui_settings()
+            prev = int(s.get("console_height") or 0)
+            if prev == int(height):
+                return
+            s["console_height"] = int(height)
+            # Quiet file write (no per-save spam); one INFO line after settle.
+            if save_gui_settings(s, quiet=True):
+                log.info(f"[GUI] Console height saved ({height} px)")
+        except Exception:
+            pass
 
     def _toggle_sidebar(self, checked):
         if checked:
@@ -330,8 +844,66 @@ class TablePage(QWidget):
     def _on_deselect_all_cart(self):
         self.data_table.deselect_all_cart()
 
+    def _on_add_selected_cart(self):
+        n = self.data_table.add_selected_to_cart()
+        if n:
+            app_signals.status_message.emit(f"Added {n} selected row(s) to cart")
+        else:
+            app_signals.status_message.emit(
+                "Select one or more rows first (Ctrl/Shift-click), then Add Selected"
+            )
+
+    def _on_remove_selected_cart(self):
+        n = self.data_table.remove_selected_from_cart()
+        if n:
+            app_signals.status_message.emit(f"Removed {n} selected row(s) from cart")
+        else:
+            app_signals.status_message.emit("No selected cart rows to remove")
+
     def _on_send_downloads(self):
         """Send all [added] items to the download queue."""
+        # Peek first so confirm does not mark rows [downloading] on Cancel.
+        try:
+            from ofscraper.gui.utils.cart_confirm import (
+                build_cart_summary,
+                confirm_cart_downloads,
+                peek_cart_rows,
+            )
+
+            peek_rows = peek_cart_rows(self.data_table)
+        except Exception as e:
+            log.debug(f"Cart confirm peek failed: {e}")
+            peek_rows = None
+
+        if peek_rows is not None and not peek_rows:
+            app_signals.error_occurred.emit(
+                "Empty Cart",
+                "No items in the download cart. Click cells in the Download Cart column to add items.",
+            )
+            return
+
+        if peek_rows is not None:
+            try:
+                summary = build_cart_summary(peek_rows)
+                if not confirm_cart_downloads(self, summary):
+                    app_signals.status_message.emit(
+                        "Downloads not queued — cancelled at confirm"
+                    )
+                    return
+            except Exception as e:
+                log.debug(f"Cart confirm skipped: {e}")
+
+        try:
+            from ofscraper.gui.utils.disk_space_check import confirm_for_cart
+
+            if not confirm_for_cart(self, rows=peek_rows, summary=None):
+                app_signals.status_message.emit(
+                    "Downloads not queued — cancelled at disk space check"
+                )
+                return
+        except Exception as e:
+            log.debug(f"Disk space cart check skipped: {e}")
+
         cart_items = self.data_table.get_cart_items()
         if not cart_items:
             app_signals.error_occurred.emit(
@@ -356,6 +928,26 @@ class TablePage(QWidget):
 
     def _on_start_scraping(self):
         """Read areas from the area page and start scraping."""
+        if self._cancelling:
+            app_signals.status_message.emit(
+                "Still cancelling previous scrape — please wait"
+            )
+            return
+        if self._scrape_active:
+            return
+
+        # Warn before starting when remote DRM key helpers may send cookies.
+        try:
+            from ofscraper.gui.utils.key_mode_warning import confirm_remote_key_mode
+
+            if not confirm_remote_key_mode(self, context="scrape"):
+                app_signals.status_message.emit(
+                    "Scrape not started — remote key mode declined"
+                )
+                return
+        except Exception as e:
+            log.debug(f"Remote key-mode scrape check skipped: {e}")
+
         main_window = self.window()
         area_page = getattr(main_window, "area_page", None)
 
@@ -365,11 +957,42 @@ class TablePage(QWidget):
             )
             return
 
+        # Confirm large / high-impact jobs before clearing the table.
+        try:
+            from ofscraper.gui.utils.scrape_confirm import (
+                build_summary_from_table_start,
+                confirm_scrape_job,
+            )
+
+            summary = build_summary_from_table_start(self, area_page)
+            if not confirm_scrape_job(self, summary, mark_ack=True):
+                app_signals.status_message.emit("Scrape not started — cancelled at confirm")
+                return
+        except Exception as e:
+            log.debug(f"Scrape confirm skipped: {e}")
+            summary = None
+
+        try:
+            from ofscraper.gui.utils.disk_space_check import confirm_for_scrape
+            from ofscraper.gui.utils.scrape_confirm import build_summary_from_table_start
+
+            disk_summary = summary
+            if disk_summary is None:
+                disk_summary = build_summary_from_table_start(self, area_page)
+            if not confirm_for_scrape(self, disk_summary, mark_ack=True):
+                app_signals.status_message.emit(
+                    "Scrape not started — cancelled at disk space check"
+                )
+                return
+        except Exception as e:
+            log.debug(f"Disk space check skipped: {e}")
+
         selected_areas = area_page.get_selected_areas()
         # Check modes that don't require area selection (msg/paid/story check)
-        _check_modes_no_area = {"msg_check", "paid_check", "story_check"}
         _current_actions = getattr(area_page, "_current_actions", set()) or set()
-        _skip_area_check = bool(_current_actions & _check_modes_no_area)
+        self._check_mode_active = bool(set(_current_actions) & _CHECK_MODES)
+        self._update_cart_toolbar_visibility()
+        _skip_area_check = bool(set(_current_actions) & {"msg_check", "paid_check", "story_check"})
         # Also skip when scrape_paid is enabled — global paid endpoint needs no areas
         _scrape_paid_enabled = bool(
             getattr(area_page, "scrape_paid_check", None)
@@ -414,10 +1037,17 @@ class TablePage(QWidget):
             pass
         self._update_row_count()
 
-        # Disable the button to prevent double-starts
+        # Disable the button to prevent double-starts; show Cancel for stop UX
         self.start_scraping_btn.setEnabled(False)
         self.start_scraping_btn.setText("Scraping...")
         self._scrape_active = True
+        self._cancelling = False
+        try:
+            self.cancel_scrape_btn.setText("Cancel")
+            self.cancel_scrape_btn.setEnabled(True)
+            self.cancel_scrape_btn.show()
+        except Exception:
+            pass
 
         # Emit additional options from the area page
         # Always emit current state (not just when checked) so workflow._scrape_paid
@@ -447,6 +1077,12 @@ class TablePage(QWidget):
                 "allow_dupe_downloads": bool(
                     getattr(area_page, "allow_dupes_check", None)
                     and area_page.allow_dupes_check.isChecked()
+                ),
+                "keep_message_purchased_dupes": bool(
+                    getattr(area_page, "allow_dupes_check", None)
+                    and area_page.allow_dupes_check.isChecked()
+                    and getattr(area_page, "keep_msg_purchased_dupes_check", None)
+                    and area_page.keep_msg_purchased_dupes_check.isChecked()
                 ),
                 "rescrape_all": bool(
                     getattr(area_page, "rescrape_all_check", None)
@@ -518,6 +1154,20 @@ class TablePage(QWidget):
         except Exception as _e:
             log.warning(f"[GUI] Exception reading date filter state: {_e}")
 
+        # Defer Qt widget rebuilds only in daemon mode. Interactive scrapes use
+        # incremental append_data so the table fills as each model is processed.
+        # Daemon + Xvfb previously paid for a full viewport repaint per model;
+        # one bulk rebuild on scraping_finished is cheaper there.
+        if daemon_enabled:
+            self.data_table.begin_deferred()
+
+        try:
+            app_signals.mediatypes_configured.emit(
+                list(area_page.get_selected_mediatypes() or [])
+            )
+        except Exception:
+            pass
+
         log.info(f"Starting scrape with areas: {selected_areas}")
         app_signals.areas_selected.emit(selected_areas)
 
@@ -526,7 +1176,17 @@ class TablePage(QWidget):
         """Re-enable the Start Scraping button and show New Scrape option.
         If daemon mode is active, don't show New Scrape yet — the daemon
         will re-trigger scraping after the wait interval."""
+        # Always exit deferred mode first so subsequent filter/rebuild calls work normally.
+        self.data_table.end_deferred()
         self._scrape_active = False
+        was_cancelling = self._cancelling
+        self._cancelling = False
+        try:
+            self.cancel_scrape_btn.hide()
+            self.cancel_scrape_btn.setEnabled(True)
+            self.cancel_scrape_btn.setText("Cancel")
+        except Exception:
+            pass
         # If user requested "New Scrape" during an active run, wait until the
         # scraper actually finishes/cancels, then reset UI and navigate.
         if self._pending_new_scrape_nav:
@@ -541,13 +1201,21 @@ class TablePage(QWidget):
             self._navigate_to_action_page()
             return
         if self.stop_daemon_btn.isVisible():
-            # Daemon mode — keep the button disabled and show waiting status
+            # Daemon mode — build the table now so the user can see results during the wait.
             self.start_scraping_btn.setText("Daemon waiting...")
+            self._on_filter()
             # Still allow user to go back to start; they'll be prompted by Stop Daemon flow.
             return
         self.start_scraping_btn.setEnabled(True)
         self.start_scraping_btn.setText("Start Scraping >>")
-        self.daemon_status_label.hide()
+        if was_cancelling:
+            try:
+                self.daemon_status_label.setText("Scrape cancelled")
+                self.daemon_status_label.show()
+            except Exception:
+                pass
+        else:
+            self.daemon_status_label.hide()
         # Always apply sidebar filters after scraping finishes so the table
         # reflects the date range and other criteria.  For live-row scrapes
         # the pre-scrape filter intentionally had no dates (so rows could load
@@ -558,9 +1226,11 @@ class TablePage(QWidget):
         # Emit the Scrape Summary now that the date filter has been applied.
         # workflow.py stored the raw per-run counters in _pending_summary_data
         # and deferred emission so we can use the correct filtered row count.
+        _hist_done = False
         try:
             import ofscraper.gui.utils.workflow as _wf_mod
             _psd = getattr(_wf_mod, "_pending_summary_data", None)
+            _sum_failed = 0
             if _psd:
                 _wf_mod._pending_summary_data = None  # consume
                 _vis_rows = list(self.data_table._display_data)
@@ -602,27 +1272,45 @@ class TablePage(QWidget):
                 _total_bytes = _psd.get("total_bytes", 0)
                 _size_str = _fmt_bytes(_total_bytes)
                 _model_names = _psd.get("model_names", [])
+                _per_model = _psd.get("per_model") or {}
 
                 # Build the TUI-style summary.
                 _summary_lines = ["\n--- Final Stats Summary  ---"]
                 if _model_names:
                     _summary_lines.append("\n--- Action Download ---")
                     for _mname in _model_names:
-                        # Per-model size: use total when only one model, blank otherwise.
-                        _msz = _size_str if len(_model_names) == 1 else ""
+                        _mst = _per_model.get(_mname) or {}
+                        if _mst:
+                            _m_videos = int(_mst.get("videos", 0) or 0)
+                            _m_photos = int(_mst.get("photos", 0) or 0)
+                            _m_audios = int(_mst.get("audios", 0) or 0)
+                            _m_forced = int(_mst.get("forced", 0) or 0)
+                            _m_failed = int(_mst.get("failed", 0) or 0)
+                            _m_bytes = int(_mst.get("bytes", 0) or 0)
+                            _m_dl = _m_videos + _m_photos + _m_audios
+                            _msz = _fmt_bytes(_m_bytes) if _m_bytes else ""
+                        else:
+                            # Legacy fallback: same global counters for every model
+                            _m_videos = _run_videos
+                            _m_photos = _run_photos
+                            _m_audios = _run_audios
+                            _m_forced = _sum_forced
+                            _m_failed = _sum_failed
+                            _m_dl = _run_dl
+                            _msz = _size_str if len(_model_names) == 1 else ""
                         _pfx = f"[{_mname}][Action Download]"
                         _pfx += f" ({_msz})" if _msz else ""
                         _pfx += (
-                            f" ({_run_dl} downloads total"
-                            f" [{_run_videos} videos, {_run_audios} audios,"
-                            f" {_run_photos} photos],"
-                            f" {_sum_forced} skipped, {_sum_failed} failed)"
+                            f" ({_m_dl} downloads total"
+                            f" [{_m_videos} videos, {_m_audios} audios,"
+                            f" {_m_photos} photos],"
+                            f" {_m_forced} skipped, {_m_failed} failed)"
                         )
                         # Append GUI-specific extras (dup count, DB ref).
                         _dup_display = _dup_counts.get(_mname, _v_dups)
                         _pfx += f" | duplicates: {_dup_display}"
                         _db_total, _db_dl = _db_info.get(_mname, (0, 0))
-                        _expected_db_dl = _run_dl + _sum_forced
+                        _expected_db_dl = _m_dl + _m_forced
                         if _db_total > 0 and (
                             _db_dl != _expected_db_dl or _db_total != _db_dl
                         ):
@@ -653,14 +1341,288 @@ class TablePage(QWidget):
                 # Refresh the bytes label in the footer with the final total.
                 if _total_bytes > 0:
                     _as2.total_bytes_updated.emit(float(_total_bytes))
+
+                self._record_scrape_history(
+                    status="cancelled" if was_cancelling else "ok",
+                    run_dl=_run_dl,
+                    failed=_sum_failed,
+                    forced=_sum_forced,
+                    total_bytes=int(_total_bytes or 0),
+                    model_names=list(_model_names or []),
+                )
+                _hist_done = True
+            else:
+                self._record_scrape_history(
+                    status="cancelled" if was_cancelling else "ok",
+                )
+                _hist_done = True
+
+            # Post-run failure summary (details from failure_tracker, even if no _psd).
+            if not was_cancelling:
+                self._maybe_show_failure_summary(_sum_failed)
         except Exception as _e:
             log.debug(f"post-filter summary emission failed: {_e}")
+            if not _hist_done:
+                try:
+                    self._record_scrape_history(
+                        status="cancelled" if was_cancelling else "error",
+                    )
+                except Exception:
+                    pass
+            if not was_cancelling:
+                try:
+                    self._maybe_show_failure_summary(0)
+                except Exception:
+                    pass
+
+    def _record_scrape_history(
+        self,
+        *,
+        status: str = "ok",
+        run_dl: int = 0,
+        failed: int = 0,
+        forced: int = 0,
+        total_bytes: int = 0,
+        model_names: list | None = None,
+    ):
+        """Persist this run into scrape_history.json."""
+        try:
+            from ofscraper.gui.utils.scrape_history import record_run
+
+            main = self.window()
+            workflow = getattr(main, "workflow", None)
+            snap = None
+            if workflow is not None:
+                snap = getattr(workflow, "_active_history_snapshot", None)
+                try:
+                    workflow._active_history_snapshot = None
+                except Exception:
+                    pass
+            # Ignore aborted starts (confirm/config declined) with no snapshot.
+            if (
+                snap is None
+                and not model_names
+                and int(run_dl or 0) == 0
+                and int(failed or 0) == 0
+                and status == "ok"
+            ):
+                return
+            row_count = 0
+            try:
+                row_count = len(self.data_table._display_data or [])
+            except Exception:
+                pass
+            record_run(
+                snap,
+                status=status,
+                run_dl=run_dl,
+                failed=failed,
+                forced=forced,
+                total_bytes=total_bytes,
+                row_count=row_count,
+                model_names=model_names,
+            )
+        except Exception as e:
+            log.debug(f"[GUI] Scrape history record failed: {e}")
+
+    def _on_history_clicked(self):
+        """Open the scrape history browser dialog."""
+        from ofscraper.gui.dialogs.history_dialog import HistoryDialog
+
+        dlg = HistoryDialog(self)
+        dlg.rerun_requested.connect(self._rerun_history_entry)
+        dlg.exec()
+
+    def _on_export_csv(self):
+        """Export visible (or selected) table rows to a CSV file."""
+        visible = len(getattr(self.data_table, "_display_data", None) or [])
+        if visible <= 0:
+            QMessageBox.information(
+                self,
+                "Export CSV",
+                "No rows to export. Run a scrape or loosen filters first.",
+            )
+            return
+
+        selected_n = len(self.data_table._selected_row_indexes())
+        selected_only = False
+        if selected_n > 0:
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Icon.Question)
+            msg.setWindowTitle("Export CSV")
+            msg.setText(
+                f"{selected_n} row(s) are selected.\n\n"
+                f"Export the selection, or all {visible} visible (filtered) row(s)?"
+            )
+            sel_btn = msg.addButton(
+                "Export selection", QMessageBox.ButtonRole.AcceptRole
+            )
+            all_btn = msg.addButton(
+                "Export all visible", QMessageBox.ButtonRole.ActionRole
+            )
+            msg.addButton(QMessageBox.StandardButton.Cancel)
+            msg.exec()
+            clicked = msg.clickedButton()
+            if clicked is None or clicked == msg.button(QMessageBox.StandardButton.Cancel):
+                return
+            selected_only = clicked is sel_btn
+            if clicked is all_btn:
+                selected_only = False
+
+        from datetime import datetime
+
+        default_name = f"ofscraper_table_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export table CSV",
+            default_name,
+            "CSV files (*.csv);;All files (*.*)",
+        )
+        if not path:
+            return
+        if not str(path).lower().endswith(".csv"):
+            path = f"{path}.csv"
+
+        try:
+            n = self.data_table.write_csv(path, selected_only=selected_only)
+        except Exception as e:
+            QMessageBox.warning(self, "Export CSV", f"Could not write file:\n{e}")
+            return
+
+        app_signals.status_message.emit(f"Exported {n} row(s) to CSV")
+        QMessageBox.information(
+            self,
+            "Export CSV",
+            f"Wrote {n} row(s) to:\n{path}",
+        )
+
+    def _rerun_history_entry(self, entry: dict):
+        if self._scrape_active or self._cancelling:
+            app_signals.status_message.emit(
+                "Cannot re-run while a scrape is active — cancel first"
+            )
+            return
+        try:
+            from ofscraper.gui.utils.scrape_history import apply_entry_to_pages
+
+            ok, message = apply_entry_to_pages(entry, main_window=self.window())
+        except Exception as e:
+            log.debug(f"[GUI] History re-run apply failed: {e}")
+            QMessageBox.warning(self, "Re-run failed", str(e))
+            return
+
+        if not ok:
+            QMessageBox.warning(self, "Re-run failed", message)
+            return
+
+        app_signals.status_message.emit(message)
+
+        actions = set(str(a) for a in (entry.get("actions") or []))
+        if "manual_url" in actions or entry.get("manual_url_count"):
+            # Manual URL path starts from workflow directly.
+            try:
+                main = self.window()
+                workflow = getattr(main, "workflow", None)
+                if workflow is not None:
+                    workflow._start_scraping()
+                    return
+            except Exception as e:
+                QMessageBox.warning(self, "Re-run failed", str(e))
+                return
+
+        # Normal / check path: use table Start so confirms + area emit run.
+        self._on_start_scraping()
+
+    def _maybe_show_failure_summary(self, summary_failed_count: int = 0):
+        """Show the download-failure dialog when the scrape recorded failures."""
+        try:
+            from ofscraper.gui.utils.failure_tracker import get_failures
+
+            failures = get_failures()
+        except Exception:
+            failures = []
+        if not failures:
+            # Fall back to counter-only notice when details were not captured.
+            if int(summary_failed_count or 0) <= 0:
+                return
+            failures = [
+                {
+                    "username": "",
+                    "media_id": "",
+                    "mediatype": "",
+                    "post_id": "",
+                    "reason": f"{summary_failed_count} failed download(s) (details unavailable)",
+                }
+            ]
+        try:
+            from ofscraper.gui.dialogs.failure_summary_dialog import (
+                FailureSummaryDialog,
+            )
+            from ofscraper.gui.utils.window_registry import get_open, register
+
+            existing = get_open("failure_summary")
+            if existing is not None:
+                try:
+                    existing.raise_()
+                    existing.activateWindow()
+                    return
+                except RuntimeError:
+                    pass
+
+            dlg = FailureSummaryDialog(
+                failures,
+                parent=self,
+                show_cart_actions=self._is_check_mode(),
+            )
+            dlg.filter_requested.connect(self._on_failure_filter)
+            if self._is_check_mode():
+                dlg.add_to_cart_requested.connect(self._on_failure_add_to_cart)
+            register("failure_summary", dlg)
+            dlg.exec()
+        except Exception as e:
+            log.debug(f"Failure summary dialog failed: {e}")
+
+    def _on_failure_filter(self, media_ids):
+        try:
+            n = self.data_table.filter_to_media_ids(media_ids)
+            self._update_row_count()
+            app_signals.status_message.emit(
+                f"Filtered table to {n} failed media item(s)"
+            )
+        except Exception as e:
+            log.debug(f"Failure filter failed: {e}")
+
+    def _on_failure_add_to_cart(self, media_ids):
+        try:
+            n = self.data_table.add_media_ids_to_cart(media_ids)
+            self._update_row_count()
+            app_signals.status_message.emit(
+                f"Added {n} failed item(s) to the download cart"
+            )
+        except Exception as e:
+            log.debug(f"Failure add-to-cart failed: {e}")
 
     @pyqtSlot(str)
     def _on_daemon_countdown(self, text):
-        """Update the daemon countdown label with remaining time."""
+        """Update the daemon countdown label with remaining time + ETA."""
         self.daemon_status_label.setText(text)
+        self.daemon_status_label.setToolTip(text)
         self.daemon_status_label.show()
+
+    @pyqtSlot(str)
+    def _on_daemon_last_run(self, text):
+        """Keep last-run summary visible on the toolbar during daemon waits."""
+        t = (text or "").strip()
+        if not t:
+            return
+        # Prefer showing countdown when present; otherwise show last-run text.
+        current = (self.daemon_status_label.text() or "").strip()
+        if current.startswith("Next run"):
+            self.daemon_status_label.setToolTip(f"{t}\n{current}")
+        else:
+            self.daemon_status_label.setText(t)
+            self.daemon_status_label.setToolTip(t)
+            self.daemon_status_label.show()
 
     @pyqtSlot(int)
     def _on_daemon_run_starting(self, run_number):
@@ -679,10 +1641,18 @@ class TablePage(QWidget):
             self.progress_summary.clear_all()
         except Exception:
             pass
+        # Defer Qt widget ops until this daemon run's scraping_finished fires.
+        self.data_table.begin_deferred()
         self._update_row_count()
         self.start_scraping_btn.setText(f"Scraping (run #{run_number})...")
         self.daemon_status_label.setText(f"Daemon run #{run_number}")
         self.daemon_status_label.show()
+        try:
+            self.cancel_scrape_btn.setText("Cancel")
+            self.cancel_scrape_btn.setEnabled(True)
+            self.cancel_scrape_btn.show()
+        except Exception:
+            pass
 
     @pyqtSlot()
     def _on_daemon_stopped(self):
@@ -692,6 +1662,13 @@ class TablePage(QWidget):
         self.start_scraping_btn.setEnabled(True)
         self.start_scraping_btn.setText("Start Scraping >>")
         self._scrape_active = False
+        self._cancelling = False
+        try:
+            self.cancel_scrape_btn.hide()
+            self.cancel_scrape_btn.setEnabled(True)
+            self.cancel_scrape_btn.setText("Cancel")
+        except Exception:
+            pass
 
     def _on_stop_daemon(self):
         """Request the daemon loop to stop."""
@@ -772,9 +1749,13 @@ class TablePage(QWidget):
         except Exception:
             pass
         try:
-            self.row_count_label.setText("0 rows")
+            self._live_rows_loaded = False
+            self._update_row_count()
         except Exception:
-            pass
+            try:
+                self.row_count_label.setText("0 rows")
+            except Exception:
+                pass
         try:
             self.dl_count_label.setText("Downloads: 0 / 0")
         except Exception:
@@ -814,9 +1795,13 @@ class TablePage(QWidget):
         except Exception:
             pass
         try:
-            self.row_count_label.setText("0 rows")
+            self._live_rows_loaded = False
+            self._update_row_count()
         except Exception:
-            pass
+            try:
+                self.row_count_label.setText("0 rows")
+            except Exception:
+                pass
         try:
             self.dl_count_label.setText("Downloads: 0 / 0")
         except Exception:
@@ -853,10 +1838,36 @@ class TablePage(QWidget):
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
 
+    def _on_cancel_scrape_clicked(self):
+        """Dedicated Cancel control — cooperative stop with Cancelling UI state."""
+        if not self._scrape_active or self._cancelling:
+            return
+        reply = QMessageBox.question(
+            self,
+            "Cancel scrape?",
+            "Stop the current scrape?\n\n"
+            "In-flight downloads will finish or abort cooperatively.\n"
+            "Start Scraping stays disabled until cancel completes.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._enter_cancelling_ui()
+        try:
+            app_signals.cancel_scrape_requested.emit()
+        except Exception:
+            pass
+
     def _on_new_scrape(self):
         """Navigate back to the action page to start a new scrape."""
         # If a scrape is in progress, confirm cancellation.
         if self._scrape_active:
+            if self._cancelling:
+                app_signals.status_message.emit(
+                    "Already cancelling — UI will return when stop completes"
+                )
+                self._pending_new_scrape_nav = True
+                return
             reply = QMessageBox.question(
                 self,
                 "Cancel current scrape?",
@@ -870,6 +1881,7 @@ class TablePage(QWidget):
             _reset_action = self._ask_reset_options()
             # Store action string; treat "cancel" as "keep" since cancel is already in flight
             self._pending_reset = _reset_action if _reset_action != "cancel" else "keep"
+            self._enter_cancelling_ui("Cancelling current scrape...")
             try:
                 app_signals.cancel_scrape_requested.emit()
             except Exception:
@@ -877,16 +1889,6 @@ class TablePage(QWidget):
             # Don't navigate immediately; wait for scraping_finished so the UI
             # doesn't get stuck disabled while cancellation is still in flight.
             self._pending_new_scrape_nav = True
-            try:
-                self.start_scraping_btn.setText("Cancelling...")
-                self.start_scraping_btn.setEnabled(False)
-            except Exception:
-                pass
-            try:
-                self.daemon_status_label.setText("Cancelling current scrape...")
-                self.daemon_status_label.show()
-            except Exception:
-                pass
             return
 
         # If daemon mode is active, stop it when the user starts a new workflow.
@@ -921,10 +1923,14 @@ class TablePage(QWidget):
     def _update_row_count(self):
         count = self.data_table.rowCount()
         total = len(self.data_table._raw_data)
-        if count == total:
+        if getattr(self.data_table, "_deferred", False):
+            # Table widget is empty during deferred mode; show raw count as loading progress.
+            self.row_count_label.setText(f"Loading… {total} items")
+        elif count == total:
             self.row_count_label.setText(f"{count} rows")
         else:
             self.row_count_label.setText(f"{count} rows (filtered)")
+        self._refresh_empty_guide()
 
     def load_data(self, table_data):
         """Load table data from the scraper pipeline (replaces existing)."""

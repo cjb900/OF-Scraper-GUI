@@ -16,9 +16,12 @@ from ofscraper.gui.signals import app_signals
 
 log = logging.getLogger("shared")
 
-# Best-effort cancellation flag for GUI runs.
-# We cooperatively abort the pipeline from frequently-called hooks.
+# Cooperative cancellation flag for GUI runs.
+# Progress hooks, download consumers, and the scraper loop check this first.
+# A delayed KeyboardInterrupt injection is only used as a last resort if the
+# thread ignores cooperative cancel past the grace period.
 _gui_cancel_event = threading.Event()
+_CANCEL_FORCE_GRACE_SECONDS = 5.0
 
 # Pending summary data for normal GUI downloads.  Set by the scraping thread
 # before scraping_finished is emitted; consumed by _on_scraping_finished in
@@ -27,11 +30,253 @@ _gui_cancel_event = threading.Event()
 _pending_summary_data = None
 
 
-def _raise_in_thread(thread_id: int, exc_type=KeyboardInterrupt) -> bool:
-    """Best-effort: raise an exception asynchronously in another Python thread.
+def _snapshot_download_globals() -> dict:
+    """Read current per-run download counters (reset between models by downloader)."""
+    try:
+        import ofscraper.commands.scraper.actions.utils.globals as cg
 
-    This is not perfectly safe, but it is the most reliable way to stop long
-    scraping phases that don't call our GUI progress hooks for a while.
+        return {
+            "videos": int(getattr(cg, "video_count", 0) or 0),
+            "photos": int(getattr(cg, "photo_count", 0) or 0),
+            "audios": int(getattr(cg, "audio_count", 0) or 0),
+            "forced": int(getattr(cg, "forced_skipped", 0) or 0),
+            "failed": int(getattr(cg, "skipped", 0) or 0),
+            "bytes": int(getattr(cg, "total_bytes_downloaded", 0) or 0),
+        }
+    except Exception:
+        return {
+            "videos": 0,
+            "photos": 0,
+            "audios": 0,
+            "forced": 0,
+            "failed": 0,
+            "bytes": 0,
+        }
+
+
+def _format_bytes_short(n: int) -> str:
+    n = float(max(0, int(n or 0)))
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1024.0:
+            return f"{n:.1f} {unit}"
+        n /= 1024.0
+    return f"{n:.1f} PB"
+
+
+def build_pending_summary_payload(
+    workflow,
+    *,
+    is_normal_gui_download: bool,
+    db_stats: dict | None,
+) -> dict | None:
+    """Build the scrape-summary dict consumed by table_page after finish."""
+    db_stats = db_stats or {}
+    models = list(getattr(workflow, "_selected_models", None) or [])
+    # Manual URL runs may only have usernames in db_stats / media-id tracking.
+    if not models and db_stats:
+        from types import SimpleNamespace
+
+        models = [SimpleNamespace(name=str(n), id=None) for n in db_stats.keys()]
+    if not (db_stats or is_normal_gui_download or models):
+        # Last resort: manual URL finished with download globals but no DB stats.
+        actions = getattr(workflow, "_selected_actions", None) or set()
+        if "manual_url" not in actions:
+            return None
+        snap = _snapshot_download_globals()
+        if (
+            snap["videos"]
+            + snap["photos"]
+            + snap["audios"]
+            + snap["failed"]
+            + snap["forced"]
+            == 0
+        ):
+            return None
+        return {
+            "forced": snap["forced"],
+            "failed": snap["failed"],
+            "run_dl": snap["videos"] + snap["photos"] + snap["audios"],
+            "run_videos": snap["videos"],
+            "run_photos": snap["photos"],
+            "run_audios": snap["audios"],
+            "total_bytes": snap["bytes"],
+            "model_names": list(getattr(workflow, "_manual_model_names", None) or []),
+            "db_info": {},
+        }
+
+    if is_normal_gui_download:
+        per_model = dict(getattr(workflow, "_per_model_run_stats", {}) or {})
+        if per_model:
+            sum_videos = sum(int(s.get("videos", 0) or 0) for s in per_model.values())
+            sum_photos = sum(int(s.get("photos", 0) or 0) for s in per_model.values())
+            sum_audios = sum(int(s.get("audios", 0) or 0) for s in per_model.values())
+            sum_forced = sum(int(s.get("forced", 0) or 0) for s in per_model.values())
+            sum_failed = sum(int(s.get("failed", 0) or 0) for s in per_model.values())
+            sum_bytes = sum(int(s.get("bytes", 0) or 0) for s in per_model.values())
+        else:
+            snap = _snapshot_download_globals()
+            sum_videos = snap["videos"]
+            sum_photos = snap["photos"]
+            sum_audios = snap["audios"]
+            sum_forced = snap["forced"]
+            sum_failed = snap["failed"]
+            sum_bytes = snap["bytes"]
+        run_dl = sum_videos + sum_photos + sum_audios
+        db_info = {}
+        for m in models:
+            st = db_stats.get(m.name, {})
+            db_total = st.get("photos", 0) + st.get("videos", 0) + st.get("audios", 0)
+            db_dl = st.get("dl_photos", 0) + st.get("dl_videos", 0) + st.get("dl_audios", 0)
+            db_info[m.name] = (db_total, db_dl)
+        return {
+            "forced": sum_forced,
+            "failed": sum_failed,
+            "run_dl": run_dl,
+            "run_videos": sum_videos,
+            "run_photos": sum_photos,
+            "run_audios": sum_audios,
+            "total_bytes": sum_bytes,
+            "model_names": [m.name for m in models],
+            "db_info": db_info,
+            "dup_counts": dict(getattr(workflow, "_per_model_dup_count", {}) or {}),
+            "per_model": per_model,
+        }
+
+    snap = _snapshot_download_globals()
+    run_dl = snap["videos"] + snap["photos"] + snap["audios"]
+    db_info = {}
+    for m in models:
+        st = db_stats.get(m.name, {})
+        db_total = st.get("photos", 0) + st.get("videos", 0) + st.get("audios", 0)
+        db_dl = st.get("dl_photos", 0) + st.get("dl_videos", 0) + st.get("dl_audios", 0)
+        db_info[m.name] = (db_total, db_dl)
+    return {
+        "forced": snap["forced"],
+        "failed": snap["failed"],
+        "run_dl": run_dl,
+        "run_videos": snap["videos"],
+        "run_photos": snap["photos"],
+        "run_audios": snap["audios"],
+        "total_bytes": snap["bytes"],
+        "model_names": [m.name for m in models],
+        "db_info": db_info,
+    }
+
+
+def apply_manual_url_gui_state(workflow, url_dicts) -> None:
+    """After ``manual_download``, bind models + media IDs for table/summary."""
+    from types import SimpleNamespace
+
+    models = []
+    media_ids = set()
+    names = []
+    for value in (url_dicts or {}).values():
+        collection = (value or {}).get("collection")
+        if collection is None:
+            continue
+        username = getattr(collection, "username", None)
+        model_id = getattr(collection, "model_id", None)
+        if not username:
+            continue
+        names.append(str(username))
+        for media in getattr(collection, "all_unique_media", None) or []:
+            mid = getattr(media, "id", None)
+            if mid is not None:
+                media_ids.add(mid)
+        model = None
+        try:
+            import ofscraper.managers.manager as manager_mod
+
+            model = manager_mod.Manager.current_model_manager._all_subs_dict.get(
+                username
+            )
+        except Exception:
+            model = None
+        if model is None:
+            model = SimpleNamespace(name=username, id=model_id)
+        models.append(model)
+        try:
+            _emit_model_badge_started(username)
+        except Exception:
+            pass
+
+    workflow._selected_models = models
+    workflow._manual_media_ids = media_ids or None
+    workflow._manual_model_names = names
+    if media_ids:
+        log.info(
+            f"[GUI Manual URL] Bound {len(models)} model(s), "
+            f"{len(media_ids)} media id(s) for table load"
+        )
+
+
+def format_daemon_last_run_chip(run_number: int, payload: dict | None) -> str:
+    """Compact footer/toolbar chip for the previous daemon scrape."""
+    if not payload:
+        return f"Last run #{run_number}"
+    run_dl = int(payload.get("run_dl") or 0)
+    failed = int(payload.get("failed") or 0)
+    forced = int(payload.get("forced") or 0)
+    total_bytes = int(payload.get("total_bytes") or 0)
+    parts = [f"Last run #{run_number}: {run_dl} dl"]
+    if failed:
+        parts.append(f"{failed} fail")
+    if forced:
+        parts.append(f"{forced} skip")
+    if total_bytes > 0:
+        parts.append(_format_bytes_short(total_bytes))
+    return " · ".join(parts) if len(parts) > 1 else parts[0]
+
+
+def _record_per_model_download_stats(workflow, username: str) -> None:
+    """Store this model's download stats before the next model resets globals."""
+    if workflow is None or not username:
+        return
+    snap = _snapshot_download_globals()
+    if not hasattr(workflow, "_per_model_run_stats") or workflow._per_model_run_stats is None:
+        workflow._per_model_run_stats = {}
+    workflow._per_model_run_stats[str(username)] = snap
+
+
+def _emit_model_badge_started(username: str) -> None:
+    """Notify GUI of model start (direct signal — reliable across threads)."""
+    name = str(username or "").strip()
+    if not name:
+        return
+    try:
+        app_signals.model_item_started.emit(name)
+    except Exception:
+        pass
+
+
+def _emit_model_badge_result(username: str, ok: bool, error: str = "") -> None:
+    """Notify GUI of model finish (direct signal — reliable across threads)."""
+    name = str(username or "").strip()
+    if not name:
+        return
+    try:
+        app_signals.model_item_result.emit(name, bool(ok), str(error or ""))
+    except Exception:
+        pass
+
+
+def is_gui_cancelled() -> bool:
+    """Return True when the GUI has requested scrape cancellation.
+
+    Safe to call from download/API workers (including when the GUI is not
+    loaded — returns False if the event is unavailable).
+    """
+    try:
+        return _gui_cancel_event.is_set()
+    except Exception:
+        return False
+
+
+def _raise_in_thread(thread_id: int, exc_type=KeyboardInterrupt) -> bool:
+    """Last-resort: raise an exception asynchronously in another Python thread.
+
+    Prefer cooperative checks via ``is_gui_cancelled()``. Async injection is
+    not perfectly safe and is only used after the cancel grace period.
     """
     try:
         if not thread_id:
@@ -92,6 +337,8 @@ _orig_screens_stop_live = None
 _orig_console_quiet = None
 _orig_dki_enter = None
 _orig_dki_exit = None
+# Nesting depth so model-list fetch and scrape can both install safely.
+_gui_live_stub_depth = 0
 
 
 def _install_gui_live_stubs():
@@ -105,10 +352,18 @@ def _install_gui_live_stubs():
     screens.py does ``from ofscraper.utils.live.live import get_live, stop_live``
     so we must also patch the names in that module to prevent stop_live()
     from clearing our _NullLive and get_live() from recreating a real Live.
+
+    Nested calls (model fetch during scrape, overlapping fetches) are counted;
+    only the outermost install/uninstall mutates module state.
     """
     global _orig_live, _orig_get_live, _orig_stop_live
     global _orig_screens_get_live, _orig_screens_stop_live
     global _orig_console_quiet, _orig_dki_enter, _orig_dki_exit
+    global _gui_live_stub_depth
+
+    if _gui_live_stub_depth > 0:
+        _gui_live_stub_depth += 1
+        return
 
     null_live = _NullLive()
 
@@ -162,10 +417,19 @@ def _install_gui_live_stubs():
 
     exit_module.DelayedKeyboardInterrupt.__enter__ = _safe_enter
     exit_module.DelayedKeyboardInterrupt.__exit__ = _safe_exit
+    _gui_live_stub_depth = 1
 
 
 def _uninstall_gui_live_stubs():
     """Restore original Rich Live, Console, and signal handlers."""
+    global _gui_live_stub_depth
+
+    if _gui_live_stub_depth <= 0:
+        return
+    _gui_live_stub_depth -= 1
+    if _gui_live_stub_depth > 0:
+        return
+
     import ofscraper.utils.live.live as live_module
     import ofscraper.utils.live.screens as screens_module
     import ofscraper.utils.console as console_module
@@ -187,6 +451,37 @@ def _uninstall_gui_live_stubs():
         exit_module.DelayedKeyboardInterrupt.__enter__ = _orig_dki_enter
     if _orig_dki_exit is not None:
         exit_module.DelayedKeyboardInterrupt.__exit__ = _orig_dki_exit
+
+
+def _strip_rich_stdout_handlers():
+    """Remove RichHandler from shared loggers.
+
+    Rich console I/O from download worker threads has caused Windows access
+    violations mid-scrape (faulthandler cut off inside ``logging.flush``).
+    GUI mode uses the Qt console bridge instead.
+    """
+    for name in ("shared", "shared_other"):
+        lg = logging.getLogger(name)
+        for h in list(lg.handlers):
+            cls_name = type(h).__name__
+            mod = getattr(type(h), "__module__", "") or ""
+            if cls_name == "RichHandler" or mod.startswith("rich"):
+                try:
+                    lg.removeHandler(h)
+                    h.close()
+                except Exception:
+                    pass
+
+
+def _prepare_gui_scrape_logging():
+    """Strip Rich handlers and ensure the GUI log bridge is attached.
+
+    Call after ``resetLogger()`` (which re-adds RichHandler via stdout.py).
+    """
+    _strip_rich_stdout_handlers()
+    # Idempotent: drop any prior GUI bridge then re-attach one.
+    _uninstall_gui_log_handler()
+    _install_gui_log_handler()
 
 
 # ---------------------------------------------------------------------------
@@ -212,8 +507,24 @@ class _GUILogHandler(logging.Handler):
         r"\]"
     )
 
+    def __init__(self):
+        super().__init__()
+        import time as _time
+        self._last_debug_emit = 0.0
+        self._time = _time
+
     def emit(self, record):
         try:
+            try:
+                from ofscraper.gui.utils import model_fetch as _mf
+                import threading
+
+                if getattr(_mf, "_suppress_worker_gui_logs", False) and (
+                    threading.current_thread() is not threading.main_thread()
+                ):
+                    return
+            except Exception:
+                pass
             msg = self.format(record)
             # Strip Rich markup tags
             msg = self._RICH_TAG_RE.sub("", msg)
@@ -229,6 +540,13 @@ class _GUILogHandler(logging.Handler):
             # Downgrade those to WARNING so they don't appear in red.
             elif record.levelno == logging.ERROR:
                 level = "WARNING"
+            # Throttle DEBUG messages to at most one per 200ms to prevent
+            # flooding the Qt event queue during high-volume scrape runs.
+            if record.levelno <= logging.DEBUG:
+                now = self._time.monotonic()
+                if now - self._last_debug_emit < 0.2:
+                    return
+                self._last_debug_emit = now
             app_signals.log_message.emit(level, msg)
         except Exception:
             pass
@@ -319,23 +637,20 @@ class _GUIDownloadState:
                 downloaded_set = get_media_ids_downloaded(
                     model_id=model_id, username=username
                 )
-                # Only emit signals for newly downloaded items
+                # Batch all updates into a single signal to avoid flooding
+                # the main thread's event queue with O(n_downloads) signals.
                 new_downloads = downloaded_set - already_downloaded
-                for media_id in new_downloads:
-                    if media_id in locked_media_ids:
-                        app_signals.cell_update.emit(
-                            str(media_id), "downloaded", "N/A"
-                        )
-                        app_signals.cell_update.emit(
-                            str(media_id), "unlocked", "Locked"
-                        )
-                    else:
-                        app_signals.cell_update.emit(
-                            str(media_id), "downloaded", "True"
-                        )
-                        app_signals.cell_update.emit(
-                            str(media_id), "download_cart", "[downloaded]"
-                        )
+                if new_downloads:
+                    batch = []
+                    for media_id in new_downloads:
+                        key = str(media_id)
+                        if media_id in locked_media_ids:
+                            batch.append((key, "downloaded", "N/A"))
+                            batch.append((key, "unlocked", "Locked"))
+                        else:
+                            batch.append((key, "downloaded", "True"))
+                            batch.append((key, "download_cart", "[downloaded]"))
+                    app_signals.batch_cell_update.emit(batch)
                 already_downloaded = downloaded_set
             except Exception as e:
                 log.debug(f"Download status poll error: {e}")
@@ -351,6 +666,15 @@ _orig_remove_download_task = None
 _orig_add_like_task = None
 _orig_increment_like_task = None
 _orig_remove_like_task = None
+_orig_api_add_overall = None
+_orig_api_update_overall = None
+_orig_api_remove_overall = None
+_orig_api_add_job = None
+_orig_api_update_job = None
+_orig_api_remove_job = None
+_orig_activity_update_task = None
+_orig_activity_update_user = None
+_gui_progress_hooks_installed = False
 
 
 def _install_gui_progress_hooks():
@@ -360,6 +684,13 @@ def _install_gui_progress_hooks():
     progress_updater.update_download_task() after EVERY media item.
     By wrapping that function, we get per-item progress updates in the GUI
     without modifying any core download code.
+
+    API pagination (messages/timeline/paid/labels/…) updates
+    ``progress_updater.api.*`` each page — wrapping those raises
+    ``KeyboardInterrupt`` on cancel so scrapes stop mid-pagination.
+
+    Idempotent: a second install while hooks are active is a no-op so
+    overlapping check-mode runs cannot wrap the wrapper (RecursionError).
     """
     import ofscraper.utils.live.updater as progress_updater
     import ofscraper.commands.scraper.actions.utils.globals as common_globals
@@ -370,6 +701,18 @@ def _install_gui_progress_hooks():
     global _orig_add_like_task
     global _orig_increment_like_task
     global _orig_remove_like_task
+    global _orig_api_add_overall
+    global _orig_api_update_overall
+    global _orig_api_remove_overall
+    global _orig_api_add_job
+    global _orig_api_update_job
+    global _orig_api_remove_job
+    global _orig_activity_update_task
+    global _orig_activity_update_user
+    global _gui_progress_hooks_installed
+
+    if _gui_progress_hooks_installed:
+        return
     # In ofscraper 3.14.3 these are methods on ProgressManager objects
     _orig_update_download_task = progress_updater.download.update_overall_task
     _orig_add_download_task = progress_updater.download.add_overall_task
@@ -377,6 +720,18 @@ def _install_gui_progress_hooks():
     _orig_add_like_task = progress_updater.like.add_overall_task
     _orig_increment_like_task = progress_updater.like.update_overall_task
     _orig_remove_like_task = progress_updater.like.remove_overall_task
+    _orig_api_add_overall = progress_updater.api.add_overall_task
+    _orig_api_update_overall = progress_updater.api.update_overall_task
+    _orig_api_remove_overall = progress_updater.api.remove_overall_task
+    _orig_api_add_job = progress_updater.api.add_job_task
+    _orig_api_update_job = progress_updater.api.update_job_task
+    _orig_api_remove_job = progress_updater.api.remove_job_task
+    _orig_activity_update_task = progress_updater.activity.update_task
+    _orig_activity_update_user = progress_updater.activity.update_user
+
+    def _raise_if_cancelled():
+        if _gui_cancel_event.is_set():
+            raise KeyboardInterrupt()
 
     def _get_dup_count():
         try:
@@ -384,6 +739,19 @@ def _install_gui_progress_hooks():
             return int(_pc._gui_duplicate_count)
         except Exception:
             return 0
+
+    # Throttle progress via progress_bridge (shared with host callbacks).
+    from ofscraper.gui.utils.progress_bridge import (
+        flush_pending as _flush_progress,
+        reset_throttle_state as _reset_progress_throttle,
+        update_overall_progress as _throttled_overall,
+        update_total_bytes as _throttled_bytes,
+    )
+
+    try:
+        _reset_progress_throttle()
+    except Exception:
+        pass
 
     def gui_add_download_task(*args, **kwargs):
         if _gui_cancel_event.is_set():
@@ -394,7 +762,7 @@ def _install_gui_progress_hooks():
             _gui_state.total_media = total
             result = _orig_add_download_task(*args, **kwargs)
             try:
-                app_signals.overall_progress_updated.emit(0, total)
+                _throttled_overall(0, total, force=True)
             except Exception:
                 pass
         else:
@@ -422,10 +790,8 @@ def _install_gui_progress_hooks():
                     + common_globals.skipped
                     + common_globals.forced_skipped
                 )
-            app_signals.overall_progress_updated.emit(completed, total)
-            app_signals.total_bytes_updated.emit(
-                float(common_globals.total_bytes_downloaded)
-            )
+            _throttled_bytes(float(common_globals.total_bytes_downloaded))
+            _throttled_overall(completed, total)
         except Exception:
             pass
 
@@ -433,6 +799,22 @@ def _install_gui_progress_hooks():
         if _gui_cancel_event.is_set():
             raise KeyboardInterrupt()
         _orig_remove_download_task(*args, **kwargs)
+        try:
+            # Flush final progress for this download batch.
+            total = _gui_state.total_media
+            if _gui_state.locked_total > 0:
+                completed = _gui_state.check_completed
+            else:
+                completed = (
+                    common_globals.photo_count
+                    + common_globals.video_count
+                    + common_globals.audio_count
+                    + common_globals.skipped
+                    + common_globals.forced_skipped
+                )
+            _flush_progress(progress=(completed, total))
+        except Exception:
+            pass
         try:
             app_signals.progress_task_removed.emit("download")
         except Exception:
@@ -491,10 +873,57 @@ def _install_gui_progress_hooks():
     progress_updater.like.update_overall_task = gui_increment_like_task
     progress_updater.like.remove_overall_task = gui_remove_like_task
 
+    # API pagination progress — cancel between pages (messages/timeline/paid/labels/…).
+    def gui_api_add_overall(*args, **kwargs):
+        _raise_if_cancelled()
+        return _orig_api_add_overall(*args, **kwargs)
+
+    def gui_api_update_overall(*args, **kwargs):
+        _raise_if_cancelled()
+        return _orig_api_update_overall(*args, **kwargs)
+
+    def gui_api_remove_overall(*args, **kwargs):
+        _raise_if_cancelled()
+        return _orig_api_remove_overall(*args, **kwargs)
+
+    def gui_api_add_job(*args, **kwargs):
+        _raise_if_cancelled()
+        return _orig_api_add_job(*args, **kwargs)
+
+    def gui_api_update_job(*args, **kwargs):
+        _raise_if_cancelled()
+        return _orig_api_update_job(*args, **kwargs)
+
+    def gui_api_remove_job(*args, **kwargs):
+        _raise_if_cancelled()
+        return _orig_api_remove_job(*args, **kwargs)
+
+    progress_updater.api.add_overall_task = gui_api_add_overall
+    progress_updater.api.update_overall_task = gui_api_update_overall
+    progress_updater.api.remove_overall_task = gui_api_remove_overall
+    progress_updater.api.add_job_task = gui_api_add_job
+    progress_updater.api.update_job_task = gui_api_update_job
+    progress_updater.api.remove_job_task = gui_api_remove_job
+
+    # Activity / per-user progress — cancel between models.
+    def gui_activity_update_task(*args, **kwargs):
+        _raise_if_cancelled()
+        return _orig_activity_update_task(*args, **kwargs)
+
+    def gui_activity_update_user(*args, **kwargs):
+        _raise_if_cancelled()
+        return _orig_activity_update_user(*args, **kwargs)
+
+    progress_updater.activity.update_task = gui_activity_update_task
+    progress_updater.activity.update_user = gui_activity_update_user
+    _gui_progress_hooks_installed = True
+
 
 def _uninstall_gui_progress_hooks():
     """Restore original progress_updater functions."""
     import ofscraper.utils.live.updater as progress_updater
+
+    global _gui_progress_hooks_installed
 
     if _orig_update_download_task is not None:
         progress_updater.download.update_overall_task = _orig_update_download_task
@@ -508,6 +937,23 @@ def _uninstall_gui_progress_hooks():
         progress_updater.like.update_overall_task = _orig_increment_like_task
     if _orig_remove_like_task is not None:
         progress_updater.like.remove_overall_task = _orig_remove_like_task
+    if _orig_api_add_overall is not None:
+        progress_updater.api.add_overall_task = _orig_api_add_overall
+    if _orig_api_update_overall is not None:
+        progress_updater.api.update_overall_task = _orig_api_update_overall
+    if _orig_api_remove_overall is not None:
+        progress_updater.api.remove_overall_task = _orig_api_remove_overall
+    if _orig_api_add_job is not None:
+        progress_updater.api.add_job_task = _orig_api_add_job
+    if _orig_api_update_job is not None:
+        progress_updater.api.update_job_task = _orig_api_update_job
+    if _orig_api_remove_job is not None:
+        progress_updater.api.remove_job_task = _orig_api_remove_job
+    if _orig_activity_update_task is not None:
+        progress_updater.activity.update_task = _orig_activity_update_task
+    if _orig_activity_update_user is not None:
+        progress_updater.activity.update_user = _orig_activity_update_user
+    _gui_progress_hooks_installed = False
 
 
 # ---------------------------------------------------------------------------
@@ -916,38 +1362,95 @@ def _load_models_from_db(selected_models, date_range=None, media_ids=None, stats
     """
 
     per_model_stats = {}  # {username: {photos, videos, audios, dl_photos, ...}}
+    all_rows = []
 
     for model in selected_models:
         model_id = model.id
         username = model.name
         conn = None
         try:
-            database_path = pathlib.Path(
-                placeholder.databasePlaceholder().databasePathHelper(
-                    model_id, username
+            try:
+                database_path = pathlib.Path(
+                    placeholder.databasePlaceholder().databasePathHelper(
+                        model_id, username
+                    )
                 )
-            )
-            log.warning(f"[DB Load] Checking DB path for {username}: {database_path}")
+            except Exception as _ph_err:
+                import ofscraper.utils.paths.common as _cp_mtime
+                import ofscraper.utils.profiles.data as _pd_mtime
+                _cfg_home = str(_cp_mtime.get_config_home())
+                _act_profile = str(_pd_mtime.get_active_profile())
+                database_path = pathlib.Path(
+                    _cfg_home, _act_profile, ".data",
+                    str(model_id), "user_data.db"
+                )
+                log.debug(
+                    f"[DB Load] databasePathHelper failed for {username} "
+                    f"({type(_ph_err).__name__}: {_ph_err}) — using fallback path: {database_path}"
+                )
+            log.debug(f"[DB Load] Checking DB path for {username}: {database_path}")
             if not database_path.exists():
-                log.warning(f"[DB Load] No DB file for {username} at {database_path} — skipping")
+                log.debug(f"[DB Load] No DB file for {username} at {database_path} — skipping")
                 continue
 
-            # Read-only query after the scraper finishes — no FileLock needed.
-            # SQLite handles concurrent reads natively; the timeout parameter
-            # covers any brief write contention from in-flight commits.
-            conn = sqlite3.connect(
-                database_path, check_same_thread=False, timeout=30
-            )
-            conn.row_factory = sqlite3.Row
-            cur = conn.cursor()
-            cur.execute(media_select_sql)
-            data = [dict(row) for row in cur.fetchall()]
+            import time
+            retries = 3
+            data = None
+            post_info = {}
+            for attempt in range(retries):
+                try:
+                    conn = sqlite3.connect(
+                        database_path, check_same_thread=False, timeout=30
+                    )
+                    conn.row_factory = sqlite3.Row
+                    cur = conn.cursor()
+                    cur.execute(media_select_sql)
+                    data = [dict(row) for row in cur.fetchall()]
 
-            # Also fetch price and text from post/message/story tables
-            post_info = _query_post_info(cur)
-            cur.close()
+                    # Also fetch price and text from post/message/story tables
+                    post_info = _query_post_info(cur)
+                    cur.close()
+                    break
+                except sqlite3.OperationalError as oe:
+                    if "locked" in str(oe).lower() and attempt < retries - 1:
+                        log.debug(f"[DB Load] Database locked for {username}, retrying in 1s... (attempt {attempt+1}/{retries})")
+                        if conn:
+                            try:
+                                conn.close()
+                            except Exception:
+                                pass
+                        time.sleep(1.0)
+                        continue
+                    raise
 
-            log.warning(f"[DB Load] Found {len(data)} media records in DB for {username}")
+            log.debug(f"[DB Load] Found {len(data)} media records in DB for {username}")
+
+            # Compute per-model media counts for Discord summary from the UNFILTERED data
+            _st = {"photos": 0, "videos": 0, "audios": 0,
+                   "dl_photos": 0, "dl_videos": 0, "dl_audios": 0}
+            _seen_media_ids = set()
+            for _row in data:
+                _mid = _row.get("media_id")
+                if _mid is not None:
+                    if _mid in _seen_media_ids:
+                        continue
+                    _seen_media_ids.add(_mid)
+                # DB stores "Images", "Videos", "Audios" (capitalized plural)
+                _mt = (_row.get("media_type") or "").lower()
+                _dl = bool(_row.get("downloaded"))
+                if _mt in ("image", "images"):
+                    _st["photos"] += 1
+                    if _dl:
+                        _st["dl_photos"] += 1
+                elif _mt in ("video", "videos", "gif", "gifs"):
+                    _st["videos"] += 1
+                    if _dl:
+                        _st["dl_videos"] += 1
+                elif _mt in ("audio", "audios"):
+                    _st["audios"] += 1
+                    if _dl:
+                        _st["dl_audios"] += 1
+            per_model_stats[username] = _st
 
             # Filter to specific media IDs when provided — ensures we only show
             # the items that were actually scraped in this session, not all
@@ -955,7 +1458,7 @@ def _load_models_from_db(selected_models, date_range=None, media_ids=None, stats
             if media_ids:
                 _before = len(data)
                 data = [r for r in data if r.get("media_id") in media_ids]
-                log.warning(
+                log.debug(
                     f"[DB Load] media_id filter: kept {len(data)} of {_before} records for {username}"
                 )
 
@@ -996,55 +1499,39 @@ def _load_models_from_db(selected_models, date_range=None, media_ids=None, stats
                             filtered.append(_r)
                         except Exception:
                             filtered.append(_r)
-                    log.warning(
+                    log.debug(
                         f"[DB Load] Date filter: kept {len(filtered)}, "
                         f"skipped {skipped} out-of-range records for {username}"
                     )
                     data = filtered
                 except Exception as _fe:
-                    log.warning(f"[DB Load] Date filter failed for {username}: {_fe}")
+                    log.debug(f"[DB Load] Date filter failed for {username}: {_fe}")
 
-            if data:
-                # Compute per-model media counts for Discord summary
-                _st = {"photos": 0, "videos": 0, "audios": 0,
-                       "dl_photos": 0, "dl_videos": 0, "dl_audios": 0}
-                for _row in data:
-                    # DB stores "Images", "Videos", "Audios" (capitalized plural)
-                    _mt = (_row.get("media_type") or "").lower()
-                    _dl = bool(_row.get("downloaded"))
-                    if _mt in ("image", "images"):
-                        _st["photos"] += 1
-                        if _dl:
-                            _st["dl_photos"] += 1
-                    elif _mt in ("video", "videos", "gif", "gifs"):
-                        _st["videos"] += 1
-                        if _dl:
-                            _st["dl_videos"] += 1
-                    elif _mt in ("audio", "audios"):
-                        _st["audios"] += 1
-                        if _dl:
-                            _st["dl_audios"] += 1
-                per_model_stats[username] = _st
-
-                if not stats_only:
-                    rows = _build_db_rows(data, username, post_info)
-                    if rows:
-                        # Use data_replace so the DB result replaces any rows
-                        # emitted by the live scraper pipeline, preventing duplicates.
-                        app_signals.data_replace.emit(rows)
-                        log.info(
-                            f"Loaded {len(rows)} items from DB for {username}"
-                        )
+            if data and not stats_only:
+                rows = _build_db_rows(data, username, post_info)
+                if rows:
+                    all_rows.extend(rows)
+                    log.info(
+                        f"Loaded {len(rows)} items from DB for {username}"
+                    )
         except Exception as e:
-            log.warning(f"[DB Load] Failed to load DB data for {username}: {e}")
+            log.debug(f"[DB Load] Failed to load DB data for {username}: {e}")
             import traceback as _tb
-            log.warning(f"[DB Load] Traceback: {_tb.format_exc()}")
+            log.debug(f"[DB Load] Traceback: {_tb.format_exc()}")
         finally:
             if conn:
                 try:
                     conn.close()
                 except Exception:
                     pass
+
+    if all_rows and not stats_only:
+        # Use data_replace so the DB result replaces any rows
+        # emitted by the live scraper pipeline, preventing duplicates.
+        app_signals.data_replace.emit(all_rows)
+        log.info(
+            f"Emitted {len(all_rows)} total items from DB for all models"
+        )
 
     return per_model_stats
 
@@ -1059,11 +1546,13 @@ def _emit_download_status(media, model_id, username, extra_table_rows=None):
     """
     try:
         from ofscraper.db.operations_.media import get_media_ids_downloaded
+        from ofscraper.gui.utils.progress_bridge import queue_cell_updates
 
         downloaded_set = get_media_ids_downloaded(
             model_id=model_id, username=username
         )
         handled_ids = set()
+        batch = []
         for ele in media:
             media_id = getattr(ele, "id", None)
             if media_id is None:
@@ -1071,26 +1560,17 @@ def _emit_download_status(media, model_id, username, extra_table_rows=None):
             handled_ids.add(str(media_id))
             canview = getattr(ele, "canview", True)
             is_downloaded = media_id in downloaded_set
+            key = str(media_id)
 
             if not canview:
                 # Locked content — don't change status
-                app_signals.cell_update.emit(
-                    str(media_id), "downloaded", "N/A"
-                )
-                app_signals.cell_update.emit(
-                    str(media_id), "unlocked", "Locked"
-                )
-                app_signals.cell_update.emit(
-                    str(media_id), "download_cart", "Locked"
-                )
+                batch.append((key, "downloaded", "N/A"))
+                batch.append((key, "unlocked", "Locked"))
+                batch.append((key, "download_cart", "Locked"))
             else:
-                app_signals.cell_update.emit(
-                    str(media_id), "downloaded", str(is_downloaded)
-                )
+                batch.append((key, "downloaded", str(is_downloaded)))
                 if is_downloaded:
-                    app_signals.cell_update.emit(
-                        str(media_id), "download_cart", "[downloaded]"
-                    )
+                    batch.append((key, "download_cart", "[downloaded]"))
 
         # Items filtered from the download queue (already downloaded, profile images
         # cached via separate cache, etc.) never appear in `media` above.
@@ -1114,9 +1594,12 @@ def _emit_download_status(media, model_id, username, extra_table_rows=None):
                     is_downloaded = bool(
                         _prof_cache.get(f"avatar_{username}_{post_id}", default=False)
                     )
-                app_signals.cell_update.emit(media_id, "downloaded", str(is_downloaded))
+                batch.append((media_id, "downloaded", str(is_downloaded)))
                 if is_downloaded:
-                    app_signals.cell_update.emit(media_id, "download_cart", "[downloaded]")
+                    batch.append((media_id, "download_cart", "[downloaded]"))
+
+        if batch:
+            queue_cell_updates(batch, force=True)
     except Exception as e:
         log.debug(f"Failed to emit download status: {e}")
 
@@ -1153,107 +1636,135 @@ def _make_gui_scraper_manager():
             # and locked/paid rows remain visible, while downloads still use the
             # normal processed queue.
             media = postcollection.get_media_for_processing()
-            table_rows = postcollection.get_rows_for_gui_table()
 
-            # Filter table_rows to the requested date range before emitting so the
-            # table and progress bar only reflect in-range content during the scrape.
-            # Labels don't support after/before params at the API level so their posts
-            # are post-filtered here to match the user's date selection.
+            # Live table rows:
+            # - Interactive (non-daemon): always build/emit so the GUI table fills
+            #   while downloads run.
+            # - Daemon + no date filter: skip (DB load at end). Building per-model
+            #   API rows was the dominant GUI overhead (~30 min slower than CLI).
             try:
-                import ofscraper.utils.args.accessors.read as _ra_tbl
-                _tbl_args = _ra_tbl.retriveArgs()
-                _tbl_after = getattr(_tbl_args, 'after', None)
-                _tbl_before = getattr(_tbl_args, 'before', None)
-                if _tbl_after is not None or _tbl_before is not None:
-                    import arrow as _arrow_tbl
-                    _min_bound = _tbl_after.floor('day') if _tbl_after else None
-                    _max_bound = _tbl_before.ceil('day') if _tbl_before else None
-                    _filtered_tbl_rows = []
-                    for _tbl_row in table_rows:
-                        _pd = _tbl_row.get('post_date', '')
-                        if not _pd:
-                            _filtered_tbl_rows.append(_tbl_row)
-                            continue
-                        try:
-                            _test_date = _arrow_tbl.get(_pd).floor('day')
-                            if _min_bound and _max_bound:
-                                if not _test_date.is_between(_min_bound, _max_bound, bounds='[]'):
-                                    continue
-                            elif _min_bound:
-                                if _test_date < _min_bound:
-                                    continue
-                            elif _max_bound:
-                                if _test_date > _max_bound:
-                                    continue
-                        except Exception:
-                            pass  # keep row on parse error
-                        _filtered_tbl_rows.append(_tbl_row)
-                    # Recompute _gui_duplicate_count for the date-filtered set so
-                    # the progress bar total matches the filtered row count.
-                    try:
-                        import ofscraper.managers.postcollection as _pc_tbl
-                        _seen_ids_tbl = set()
-                        _dup_cnt_tbl = 0
-                        for _tbl_row in _filtered_tbl_rows:
-                            _mid_tbl = _tbl_row.get('media_id')
-                            if _mid_tbl is not None:
-                                if _mid_tbl in _seen_ids_tbl:
-                                    _dup_cnt_tbl += 1
-                                else:
-                                    _seen_ids_tbl.add(_mid_tbl)
-                        _pc_tbl._gui_duplicate_count = _dup_cnt_tbl
-                    except Exception:
-                        pass
-                    table_rows = _filtered_tbl_rows
-                # When no effective GUI date filter, compute the duplicate count from
-                # only the rows on or after the DB's latest stored post_date, so the
-                # summary reflects duplicates since the last real scrape. The full live
-                # row set is still emitted to the table (no table filtering here).
-                if not (_tbl_after or _tbl_before):
-                    _workflow_db = getattr(self, "caller", None) or getattr(self, "workflow", None)
-                    if _workflow_db is not None and ele is not None:
-                        _prerun_dates = getattr(_workflow_db, "_db_prerun_mtimes", {})
-                        _model_max_date = _prerun_dates.get(getattr(ele, 'id', None))
-                        log.warning(
-                            f"[DIAG] DB content dup count: model={getattr(ele, 'name', None)} "
-                            f"max_post_date={_model_max_date}"
-                        )
-                        if _model_max_date is not None:
-                            import arrow as _arrow_dbf
-                            _dbf_min = _model_max_date.floor('day')
-                            _filtered_for_dup = []
-                            for _trf in (table_rows or []):
-                                _pdf = _trf.get('post_date', '')
-                                if not _pdf:
-                                    _filtered_for_dup.append(_trf)
-                                    continue
-                                try:
-                                    if _arrow_dbf.get(_pdf) >= _dbf_min:
-                                        _filtered_for_dup.append(_trf)
-                                except Exception:
-                                    _filtered_for_dup.append(_trf)
-                            _seen_dbf = set()
-                            _dup_dbf = 0
-                            for _rdbf in _filtered_for_dup:
-                                _mid_dbf = _rdbf.get('media_id')
-                                if _mid_dbf is not None:
-                                    if _mid_dbf in _seen_dbf:
-                                        _dup_dbf += 1
-                                    else:
-                                        _seen_dbf.add(_mid_dbf)
-                            log.warning(
-                                f"[DIAG] DB content dup count: {_dup_dbf} dups in "
-                                f"{len(_filtered_for_dup)} rows since {_dbf_min}"
-                            )
-                            # Store per-model dup count on the workflow object so the
-                            # summary can use it without counting from all visible rows.
-                            if not hasattr(_workflow_db, "_per_model_dup_count"):
-                                _workflow_db._per_model_dup_count = {}
-                            _workflow_db._per_model_dup_count[
-                                getattr(ele, 'name', 'unknown')
-                            ] = _dup_dbf
+                import ofscraper.utils.args.accessors.read as _ra_chk
+                _chk_args = _ra_chk.retriveArgs()
+                _workflow_chk = getattr(self, "caller", None) or getattr(self, "workflow", None)
+                _is_daemon = bool(getattr(_workflow_chk, "_daemon_enabled", False))
+                _has_date_args = (
+                    getattr(_chk_args, "after", None) is not None
+                    or getattr(_chk_args, "before", None) is not None
+                )
+                _live_rows_needed = (not _is_daemon) or _has_date_args
             except Exception:
-                pass
+                _live_rows_needed = True  # safe default: build rows when unsure
+
+            if _live_rows_needed:
+                table_rows = postcollection.get_rows_for_gui_table()
+
+                # Filter table_rows to the requested date range before emitting so the
+                # table and progress bar only reflect in-range content during the scrape.
+                # Labels don't support after/before params at the API level so their posts
+                # are post-filtered here to match the user's date selection.
+                try:
+                    import ofscraper.utils.args.accessors.read as _ra_tbl
+                    _tbl_args = _ra_tbl.retriveArgs()
+                    _tbl_after = getattr(_tbl_args, 'after', None)
+                    _tbl_before = getattr(_tbl_args, 'before', None)
+                    if _tbl_after is not None or _tbl_before is not None:
+                        import arrow as _arrow_tbl
+                        _min_bound = _tbl_after.floor('day') if _tbl_after else None
+                        _max_bound = _tbl_before.ceil('day') if _tbl_before else None
+                        _filtered_tbl_rows = []
+                        for _tbl_row in table_rows:
+                            _pd = _tbl_row.get('post_date', '')
+                            if not _pd:
+                                _filtered_tbl_rows.append(_tbl_row)
+                                continue
+                            try:
+                                _test_date = _arrow_tbl.get(_pd).floor('day')
+                                if _min_bound and _max_bound:
+                                    if not _test_date.is_between(_min_bound, _max_bound, bounds='[]'):
+                                        continue
+                                elif _min_bound:
+                                    if _test_date < _min_bound:
+                                        continue
+                                elif _max_bound:
+                                    if _test_date > _max_bound:
+                                        continue
+                            except Exception:
+                                pass  # keep row on parse error
+                            _filtered_tbl_rows.append(_tbl_row)
+                        # Recompute _gui_duplicate_count for the date-filtered set so
+                        # the progress bar total matches the filtered row count.
+                        try:
+                            import ofscraper.managers.postcollection as _pc_tbl
+                            _seen_ids_tbl = set()
+                            _dup_cnt_tbl = 0
+                            for _tbl_row in _filtered_tbl_rows:
+                                _mid_tbl = _tbl_row.get('media_id')
+                                if _mid_tbl is not None:
+                                    if _mid_tbl in _seen_ids_tbl:
+                                        _dup_cnt_tbl += 1
+                                    else:
+                                        _seen_ids_tbl.add(_mid_tbl)
+                            _pc_tbl._gui_duplicate_count = _dup_cnt_tbl
+                        except Exception:
+                            pass
+                        table_rows = _filtered_tbl_rows
+                    # When no effective GUI date filter, compute the duplicate count from
+                    # only the rows on or after the DB's latest stored post_date, so the
+                    # summary reflects duplicates since the last real scrape. The full live
+                    # row set is still emitted to the table (no table filtering here).
+                    if not (_tbl_after or _tbl_before):
+                        _workflow_db = getattr(self, "caller", None) or getattr(self, "workflow", None)
+                        if _workflow_db is not None and ele is not None:
+                            _prerun_dates = getattr(_workflow_db, "_db_prerun_mtimes", {})
+                            _model_max_date = _prerun_dates.get(getattr(ele, 'id', None))
+                            log.debug(
+                                f"[DIAG] DB content dup count: model={getattr(ele, 'name', None)} "
+                                f"max_post_date={_model_max_date}"
+                            )
+                            if _model_max_date is not None:
+                                import arrow as _arrow_dbf
+                                _dbf_min = _model_max_date.floor('day')
+                                _filtered_for_dup = []
+                                for _trf in (table_rows or []):
+                                    _pdf = _trf.get('post_date', '')
+                                    if not _pdf:
+                                        _filtered_for_dup.append(_trf)
+                                        continue
+                                    try:
+                                        if _arrow_dbf.get(_pdf) >= _dbf_min:
+                                            _filtered_for_dup.append(_trf)
+                                    except Exception:
+                                        _filtered_for_dup.append(_trf)
+                                _seen_dbf = set()
+                                _dup_dbf = 0
+                                for _rdbf in _filtered_for_dup:
+                                    _mid_dbf = _rdbf.get('media_id')
+                                    if _mid_dbf is not None:
+                                        if _mid_dbf in _seen_dbf:
+                                            _dup_dbf += 1
+                                        else:
+                                            _seen_dbf.add(_mid_dbf)
+                                log.debug(
+                                    f"[DIAG] DB content dup count: {_dup_dbf} dups in "
+                                    f"{len(_filtered_for_dup)} rows since {_dbf_min}"
+                                )
+                                # Store per-model dup count on the workflow object so the
+                                # summary can use it without counting from all visible rows.
+                                if not hasattr(_workflow_db, "_per_model_dup_count"):
+                                    _workflow_db._per_model_dup_count = {}
+                                _workflow_db._per_model_dup_count[
+                                    getattr(ele, 'name', 'unknown')
+                                ] = _dup_dbf
+                except Exception:
+                    pass
+            else:
+                # Daemon + no date filter — skip live row building.
+                # _load_models_from_db will populate the table after the scrape completes.
+                table_rows = []
+                log.debug(
+                    f"[GUI] Skipping live table rows for {getattr(ele, 'name', '?')} "
+                    f"— daemon without date filter; DB rows used at end"
+                )
 
             like_posts = postcollection.get_posts_to_like()
             posts = postcollection.get_posts_for_text_download()
@@ -1306,89 +1817,155 @@ def _make_gui_scraper_manager():
             model_id = ele.id
             out = []
             log.info(f"[GUI] Running actions {actions} for {username}")
-            for action in actions:
-                if action == "download":
-                    if not media:
-                        app_signals.log_message.emit(
-                            "WARNING",
-                            f"Skipping download for {username}: no media to download",
-                        )
-                        out.append([])
-                        # Still update table row statuses (e.g. profile images and
-                        # already-downloaded items filtered from the queue).
-                        _emit_download_status([], model_id, username, extra_table_rows=table_rows)
-                        continue
-                    # Start periodic DB polling for real-time Downloaded updates
-                    _gui_state.start_polling(media, model_id, username)
+            _fail_before = 0
+            _action_error = ""
+            _workflow_ref = getattr(self, "caller", None) or getattr(self, "workflow", None)
+            try:
+                from ofscraper.gui.utils.failure_tracker import failure_count_for_user
+
+                _fail_before = failure_count_for_user(username)
+            except Exception:
+                _fail_before = 0
+            _emit_model_badge_started(username)
+            try:
+                from ofscraper.gui.utils.host_callbacks import ensure_gui_host
+
+                try:
+                    from ofscraper.gui.utils.privacy_mode import mask_username
+
+                    _status_user = mask_username(username) or username
+                except Exception:
+                    _status_user = username
+                ensure_gui_host().on_status(f"Processing {_status_user}…")
+            except Exception:
+                try:
+                    from ofscraper.gui.utils.privacy_mode import mask_username
+
+                    _status_user = mask_username(username) or username
+                    app_signals.status_message.emit(f"Processing {_status_user}…")
+                except Exception:
+                    pass
+            try:
+                for action in actions:
+                    if action == "download":
+                        if not media:
+                            app_signals.log_message.emit(
+                                "WARNING",
+                                f"Skipping download for {username}: no media to download",
+                            )
+                            out.append([])
+                            # Still update table row statuses (e.g. profile images and
+                            # already-downloaded items filtered from the queue).
+                            _emit_download_status([], model_id, username, extra_table_rows=table_rows)
+                            _record_per_model_download_stats(_workflow_ref, username)
+                            continue
+                        # Start periodic DB polling for real-time Downloaded updates
+                        _gui_state.start_polling(media, model_id, username)
+                        try:
+                            app_signals.log_message.emit(
+                                "INFO",
+                                f"Starting download of {len(media)} items for {username}...",
+                            )
+                            await downloader(
+                                posts=posts,
+                                media=media,
+                                model_id=model_id,
+                                username=username,
+                            )
+                            out.append([])
+                            app_signals.log_message.emit(
+                                "INFO",
+                                f"Download complete for {username}",
+                            )
+                            try:
+                                import ofscraper.managers.manager as _mgr
+
+                                _mgr.Manager.stats_manager.update_and_print_stats(
+                                    username, "download", media, ignore_missing=True
+                                )
+                            except Exception:
+                                pass
+                        except Exception as e:
+                            _action_error = str(e)
+                            log.error(f"[GUI] Download error for {username}: {e}")
+                            app_signals.log_message.emit(
+                                "ERROR",
+                                f"Download failed for {username}: {e}",
+                            )
+                            out.append([])
+                        finally:
+                            # Snapshot BEFORE next model resets common_globals.
+                            _record_per_model_download_stats(_workflow_ref, username)
+                            # Stop polling and do a final status sweep.
+                            # Pass all table rows so filtered items (profile images,
+                            # already-downloaded items) also get their status updated.
+                            _gui_state.stop_polling()
+                            _emit_download_status(media, model_id, username, extra_table_rows=table_rows)
+                    elif action == "like":
+                        try:
+                            app_signals.log_message.emit(
+                                "INFO",
+                                f"Starting like action for {username}: {len(like_posts) if like_posts else 0} posts",
+                            )
+                            app_signals.status_message.emit(
+                                f"Liking posts for {username}..."
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            out.append(
+                                like_action.process_like(
+                                    ele=ele,
+                                    posts=like_posts,
+                                    media=media,
+                                    model_id=model_id,
+                                    username=username,
+                                )
+                            )
+                        except Exception as e:
+                            _action_error = str(e)
+                            raise
+                    elif action == "unlike":
+                        try:
+                            app_signals.log_message.emit(
+                                "INFO",
+                                f"Starting unlike action for {username}: {len(like_posts) if like_posts else 0} posts",
+                            )
+                            app_signals.status_message.emit(
+                                f"Unliking posts for {username}..."
+                            )
+                        except Exception:
+                            pass
+                        try:
+                            out.append(
+                                like_action.process_unlike(
+                                    ele=ele,
+                                    posts=like_posts,
+                                    media=media,
+                                    model_id=model_id,
+                                    username=username,
+                                )
+                            )
+                        except Exception as e:
+                            _action_error = str(e)
+                            raise
+            finally:
+                try:
+                    from ofscraper.gui.utils.failure_tracker import failure_count_for_user
+
+                    _fail_after = failure_count_for_user(username)
+                    _ok = (not _action_error) and (_fail_after <= _fail_before)
+                    _err = _action_error
+                    if not _ok and not _err and _fail_after > _fail_before:
+                        _err = f"{_fail_after - _fail_before} download failure(s)"
+                    _emit_model_badge_result(username, _ok, _err)
+                except Exception:
                     try:
-                        app_signals.log_message.emit(
-                            "INFO",
-                            f"Starting download of {len(media)} items for {username}...",
-                        )
-                        await downloader(
-                            posts=posts,
-                            media=media,
-                            model_id=model_id,
-                            username=username,
-                        )
-                        out.append([])
-                        app_signals.log_message.emit(
-                            "INFO",
-                            f"Download complete for {username}",
-                        )
-                    except Exception as e:
-                        log.error(f"[GUI] Download error for {username}: {e}")
-                        app_signals.log_message.emit(
-                            "ERROR",
-                            f"Download failed for {username}: {e}",
-                        )
-                        out.append([])
-                    finally:
-                        # Stop polling and do a final status sweep.
-                        # Pass all table rows so filtered items (profile images,
-                        # already-downloaded items) also get their status updated.
-                        _gui_state.stop_polling()
-                        _emit_download_status(media, model_id, username, extra_table_rows=table_rows)
-                elif action == "like":
-                    try:
-                        app_signals.log_message.emit(
-                            "INFO",
-                            f"Starting like action for {username}: {len(like_posts) if like_posts else 0} posts",
-                        )
-                        app_signals.status_message.emit(
-                            f"Liking posts for {username}..."
+                        _emit_model_badge_result(
+                            username, not bool(_action_error), _action_error
                         )
                     except Exception:
                         pass
-                    out.append(
-                        like_action.process_like(
-                            ele=ele,
-                            posts=like_posts,
-                            media=media,
-                            model_id=model_id,
-                            username=username,
-                        )
-                    )
-                elif action == "unlike":
-                    try:
-                        app_signals.log_message.emit(
-                            "INFO",
-                            f"Starting unlike action for {username}: {len(like_posts) if like_posts else 0} posts",
-                        )
-                        app_signals.status_message.emit(
-                            f"Unliking posts for {username}..."
-                        )
-                    except Exception:
-                        pass
-                    out.append(
-                        like_action.process_unlike(
-                            ele=ele,
-                            posts=like_posts,
-                            media=media,
-                            model_id=model_id,
-                            username=username,
-                        )
-                    )
             return out
 
     return GUIScraperManager
@@ -1407,16 +1984,20 @@ class GUIWorkflow:
         self._selected_areas = []
         self._selected_mediatypes = []
         self._include_text = False
+        self._text_filename_from_post = False
         self._scrape_paid = False
         self._discord_level = "OFF"
         self._advanced = {}
         self._did_purge = False
         self._manual_urls = []
+        self._manual_media_ids = None
+        self._manual_model_names = []
         # Date range filter from area_selector_page
         self._date_range = {}
         # Snapshot specific args so GUI toggles don't permanently clobber CLI intent.
         self._baseline_args = None
         self._scraper_thread = None
+        self._active_history_snapshot = None
         # Daemon mode settings
         self._daemon_enabled = False
         self._daemon_interval = 30.0  # minutes
@@ -1426,6 +2007,7 @@ class GUIWorkflow:
         self._msg_check_filter = "paid_only"  # "paid_only" | "free_only" | "all"
         self._live_rows_emitted = False
         self._db_prerun_mtimes = {}  # {model_id: arrow datetime} — DB mtime before runner() touches it
+        self._db_prerun_dl_counts = {}  # {model_name: {dl_photos, dl_videos, dl_audios}} — pre-scrape baseline
         self._connect_signals()
         # Mute Discord at startup — the handler is initialized from the config
         # file which may have a non-OFF level, causing every WARNING+ message
@@ -1439,6 +2021,9 @@ class GUIWorkflow:
         app_signals.areas_selected.connect(self._on_areas_selected)
         app_signals.mediatypes_configured.connect(self._on_mediatypes_configured)
         app_signals.include_text_configured.connect(self._on_include_text_configured)
+        app_signals.text_filename_from_post_configured.connect(
+            self._on_text_filename_from_post_configured
+        )
         app_signals.scrape_paid_toggled.connect(self._on_scrape_paid)
         app_signals.discord_configured.connect(self._on_discord_configured)
         app_signals.daemon_configured.connect(self._on_daemon_configured)
@@ -1453,6 +2038,10 @@ class GUIWorkflow:
     def _on_action_selected(self, actions):
         self._selected_actions = actions
         log.info(f"[GUI Workflow] Actions set: {actions}")
+        # Drop stale models when entering check mode so areas_selected cannot
+        # auto-start a check against models left over from a prior scrape.
+        if bool(set(actions or []) & self._CHECK_MODES):
+            self._selected_models = []
 
     def _on_manual_urls_confirmed(self, urls):
         self._manual_urls = list(urls)
@@ -1500,6 +2089,67 @@ class GUIWorkflow:
         except Exception:
             self._advanced = {}
 
+    def _ensure_advanced_options(self):
+        """Fill advanced scrape options if check mode skipped the table Start path.
+
+        Check modes auto-start on model select, before table_page emits
+        ``advanced_scrape_configured``. Prefer the live Areas checkbox, then
+        ``gui_settings.json``, then whatever is already in ``self._advanced``.
+        """
+        advanced = dict(self._advanced or {})
+        try:
+            from ofscraper.gui.utils.gui_settings import load_gui_settings
+
+            gs = load_gui_settings() or {}
+        except Exception:
+            gs = {}
+
+        if "allow_dupe_downloads" not in advanced:
+            advanced["allow_dupe_downloads"] = bool(gs.get("allow_dupes"))
+        if "keep_message_purchased_dupes" not in advanced:
+            advanced["keep_message_purchased_dupes"] = bool(
+                gs.get("keep_msg_purchased_dupes")
+            ) and bool(advanced.get("allow_dupe_downloads"))
+        if "rescrape_all" not in advanced:
+            advanced["rescrape_all"] = bool(gs.get("rescrape_all"))
+        if "quality" not in advanced and gs.get("quality"):
+            advanced["quality"] = gs.get("quality")
+
+        # Live widget wins when available (most accurate).
+        try:
+            from PyQt6.QtWidgets import QApplication
+
+            area_page = None
+            win = QApplication.activeWindow()
+            if win is not None:
+                area_page = getattr(win, "area_page", None)
+            if area_page is None:
+                for w in QApplication.topLevelWidgets():
+                    area_page = getattr(w, "area_page", None)
+                    if area_page is not None:
+                        break
+            if area_page is not None:
+                if getattr(area_page, "allow_dupes_check", None) is not None:
+                    advanced["allow_dupe_downloads"] = bool(
+                        area_page.allow_dupes_check.isChecked()
+                    )
+                if getattr(area_page, "keep_msg_purchased_dupes_check", None) is not None:
+                    advanced["keep_message_purchased_dupes"] = bool(
+                        advanced.get("allow_dupe_downloads")
+                        and area_page.keep_msg_purchased_dupes_check.isChecked()
+                    )
+                if getattr(area_page, "rescrape_all_check", None) is not None:
+                    advanced["rescrape_all"] = bool(
+                        area_page.rescrape_all_check.isChecked()
+                    )
+                if getattr(area_page, "quality_combo", None) is not None:
+                    advanced["quality"] = area_page.quality_combo.currentText()
+        except Exception:
+            pass
+
+        self._advanced = advanced
+        return advanced
+
     def _on_date_range_configured(self, config):
         try:
             self._date_range = dict(config or {})
@@ -1523,8 +2173,14 @@ class GUIWorkflow:
         log.info("[GUI Workflow] Daemon stop requested")
 
     def _on_cancel_scrape(self):
-        """Best-effort: request the background pipeline to cancel ASAP."""
+        """Request cooperative cancel; force-interrupt only after a grace period.
+
+        UI should show a Cancelling state and keep Start disabled until
+        ``scraping_finished`` fires.
+        """
+        already = False
         try:
+            already = _gui_cancel_event.is_set()
             _gui_cancel_event.set()
         except Exception:
             pass
@@ -1532,21 +2188,77 @@ class GUIWorkflow:
             self._daemon_stop.set()
         except Exception:
             pass
-        # Also inject a KeyboardInterrupt into the scraper thread so we don't rely
-        # on progress hooks being called (messages/API phases can be long).
+        try:
+            from ofscraper.gui.utils.host_callbacks import ensure_gui_host
+
+            host = ensure_gui_host()
+            host.on_phase("cancelling")
+            host.on_status("Cancelling… finishing current work")
+            if not already:
+                app_signals.log_message.emit(
+                    "WARNING",
+                    "Cancel requested — waiting for cooperative stop "
+                    f"(force after {_CANCEL_FORCE_GRACE_SECONDS:.0f}s if needed)",
+                )
+        except Exception:
+            try:
+                app_signals.status_message.emit(
+                    "Cancelling… finishing current work"
+                )
+                if not already:
+                    app_signals.log_message.emit(
+                        "WARNING",
+                        "Cancel requested — waiting for cooperative stop "
+                        f"(force after {_CANCEL_FORCE_GRACE_SECONDS:.0f}s if needed)",
+                    )
+            except Exception:
+                pass
+
+        # Avoid stacking multiple force-interrupt watchers for repeated clicks.
+        if already:
+            return
         try:
             t = getattr(self, "_scraper_thread", None)
-            if t and getattr(t, "is_alive", lambda: False)():
-                tid = getattr(t, "ident", None)
-                if tid:
-                    ok = _raise_in_thread(int(tid), KeyboardInterrupt)
-                    if ok:
-                        log.info("[GUI Workflow] Injected KeyboardInterrupt into scraper thread")
         except Exception:
-            pass
+            t = None
+
+        def _force_after_grace():
+            import time as _time
+
+            _time.sleep(_CANCEL_FORCE_GRACE_SECONDS)
+            try:
+                if not _gui_cancel_event.is_set():
+                    return
+                if not (t and getattr(t, "is_alive", lambda: False)()):
+                    return
+                tid = getattr(t, "ident", None)
+                if not tid:
+                    return
+                ok = _raise_in_thread(int(tid), KeyboardInterrupt)
+                if ok:
+                    log.info(
+                        "[GUI Workflow] Force-injected KeyboardInterrupt "
+                        "into scraper thread after grace period"
+                    )
+                    try:
+                        app_signals.status_message.emit(
+                            "Cancelling… force-stopping stuck work"
+                        )
+                        app_signals.log_message.emit(
+                            "WARNING",
+                            "Cooperative cancel timed out; force-stopping scraper thread",
+                        )
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
         try:
-            app_signals.status_message.emit("Cancelling scrape...")
-            app_signals.log_message.emit("WARNING", "Cancel requested by user")
+            threading.Thread(
+                target=_force_after_grace,
+                daemon=True,
+                name="gui-cancel-force",
+            ).start()
         except Exception:
             pass
 
@@ -1558,17 +2270,18 @@ class GUIWorkflow:
         self._include_text = include
         log.info(f"[GUI Workflow] Include post text: {include}")
 
+    def _on_text_filename_from_post_configured(self, enabled: bool):
+        self._text_filename_from_post = bool(enabled)
+        log.info(f"[GUI Workflow] Name text from post text: {enabled}")
+
     def _on_areas_selected(self, areas):
         self._selected_areas = areas
         log.info(f"[GUI Workflow] Areas set: {areas}")
         if bool(self._selected_actions & self._CHECK_MODES):
-            # areas_selected is emitted early from the area selector (before model
-            # selection).  If models are already known (e.g. user clicked "Start
-            # Scraping" again to re-run), start immediately.  Otherwise wait —
-            # _on_models_selected will fire the run once models are confirmed.
-            if self._selected_models:
-                self._daemon_stop.clear()
-                self._start_scraping()
+            # Check modes start only after models are confirmed
+            # (_on_models_selected). Never auto-start here — leftover
+            # _selected_models from a previous scrape caused overlapping
+            # gui_checker runs (postcollection cleared mid-flight + hook recursion).
             return
         # Clear any previous stop request
         self._daemon_stop.clear()
@@ -1578,17 +2291,156 @@ class GUIWorkflow:
     def _start_scraping(self):
         """Set args and launch the scraper in a background thread."""
         try:
+            alive = (
+                getattr(self, "_scraper_thread", None) is not None
+                and self._scraper_thread.is_alive()
+            )
+        except Exception:
+            alive = False
+        if alive:
+            log.warning(
+                "[GUI Workflow] Scrape already running — ignoring duplicate start"
+            )
+            return
+        # Gate check-mode / manual-URL / daemon paths that skip table Start.
+        # Normal Start Scraping already confirms in table_page; session skip
+        # makes a second dialog a no-op when the user opted out.
+        try:
+            from ofscraper.gui.utils.key_mode_warning import confirm_remote_key_mode
+            from PyQt6.QtWidgets import QApplication
+
+            parent = QApplication.activeWindow()
+            if not confirm_remote_key_mode(parent, context="scrape"):
+                try:
+                    app_signals.status_message.emit(
+                        "Scrape not started — remote key mode declined"
+                    )
+                    # Reset Cancelling/Scraping UI if the table already flipped active.
+                    app_signals.scraping_finished.emit()
+                except Exception:
+                    pass
+                return
+        except Exception as e:
+            log.debug(f"Remote key-mode start check skipped: {e}")
+
+        try:
+            from ofscraper.gui.utils.config_validation import confirm_config_for_scrape
+            from PyQt6.QtWidgets import QApplication
+
+            parent = QApplication.activeWindow()
+            if not confirm_config_for_scrape(parent):
+                try:
+                    app_signals.status_message.emit(
+                        "Scrape not started — fix configuration first"
+                    )
+                    app_signals.scraping_finished.emit()
+                except Exception:
+                    pass
+                return
+        except Exception as e:
+            log.debug(f"Config validation start check skipped: {e}")
+
+        summary = None
+        try:
+            from ofscraper.gui.utils.scrape_confirm import (
+                build_summary_from_workflow,
+                confirm_scrape_job,
+            )
+            from PyQt6.QtWidgets import QApplication
+
+            parent = QApplication.activeWindow()
+            summary = build_summary_from_workflow(self)
+            if not confirm_scrape_job(parent, summary, mark_ack=True):
+                try:
+                    app_signals.status_message.emit(
+                        "Scrape not started — cancelled at confirm"
+                    )
+                    app_signals.scraping_finished.emit()
+                except Exception:
+                    pass
+                return
+        except Exception as e:
+            log.debug(f"Scrape confirm start check skipped: {e}")
+            summary = None
+
+        try:
+            from ofscraper.gui.utils.disk_space_check import confirm_for_scrape
+            from ofscraper.gui.utils.scrape_confirm import build_summary_from_workflow
+            from PyQt6.QtWidgets import QApplication
+
+            parent = QApplication.activeWindow()
+            disk_summary = summary if summary is not None else build_summary_from_workflow(self)
+            if not confirm_for_scrape(parent, disk_summary, mark_ack=True):
+                try:
+                    app_signals.status_message.emit(
+                        "Scrape not started — cancelled at disk space check"
+                    )
+                    app_signals.scraping_finished.emit()
+                except Exception:
+                    pass
+                return
+        except Exception as e:
+            log.debug(f"Disk space start check skipped: {e}")
+
+        try:
+            from ofscraper.gui.utils.failure_tracker import clear_failures
+
+            clear_failures()
+        except Exception:
+            pass
+
+        try:
+            names = [getattr(m, "name", None) or str(m) for m in (self._selected_models or [])]
+            names = [n for n in names if n]
+            if names:
+                app_signals.model_badges_reset.emit(names)
+            elif self._manual_urls:
+                app_signals.model_badges_reset.emit(["manual"])
+        except Exception:
+            pass
+
+        try:
             _gui_cancel_event.clear()
         except Exception:
             pass
         self._live_rows_emitted = False
         self._db_prerun_mtimes = {}
+        self._db_prerun_dl_counts = {}
+        self._per_model_run_stats = {}
+        try:
+            from ofscraper.gui.utils.progress_bridge import reset_throttle_state
+
+            reset_throttle_state()
+        except Exception:
+            pass
         try:
             self._set_args()
         except Exception as e:
             log.error(f"Failed to configure scraper: {e}")
             app_signals.error_occurred.emit("Configuration Error", str(e))
             return
+
+        try:
+            from ofscraper.gui.utils.scrape_history import snapshot_from_workflow
+
+            self._active_history_snapshot = snapshot_from_workflow(self)
+        except Exception as e:
+            log.debug(f"[GUI] Scrape history snapshot skipped: {e}")
+            self._active_history_snapshot = None
+
+        # NullLive / quiet console on the Qt main thread before the worker starts
+        # (same lesson as model-fetch: mutating Rich from a bg thread races Qt).
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+            breadcrumb("scrape_live_stubs_install_main")
+        except Exception:
+            pass
+        try:
+            _install_gui_live_stubs()
+            _strip_rich_stdout_handlers()
+        except Exception as e:
+            log.debug(f"[GUI] live stubs install on main failed: {e}")
 
         # Run scraper in background thread to not block the GUI
         thread = threading.Thread(
@@ -1599,6 +2451,23 @@ class GUIWorkflow:
         self._scraper_thread = thread
         thread.start()
 
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import set_scrape_active
+
+            set_scrape_active(True)
+        except Exception:
+            pass
+        try:
+            from ofscraper.gui.utils.host_callbacks import ensure_gui_host
+
+            ensure_gui_host().on_phase("running")
+        except Exception:
+            pass
+        try:
+            app_signals.scrape_started.emit()
+        except Exception:
+            pass
+
     _CHECK_MODES = {"post_check", "msg_check", "paid_check", "story_check"}
 
     def _set_manual_url_args(self, args, write_args, _settings):
@@ -1607,6 +2476,8 @@ class GUIWorkflow:
         args.url = list(self._manual_urls)
         args.action = ["download"]
         args.actions = ["download"]
+        args.gui = True
+        args.no_rich = True
         write_args.setArgs(args)
         try:
             _settings.update_settings()
@@ -1618,6 +2489,7 @@ class GUIWorkflow:
 
     def _set_check_args(self, args, write_args, _settings):
         """Set CLI args for a check-mode operation."""
+        self._ensure_advanced_options()
         check_mode = (self._selected_actions & self._CHECK_MODES).pop()
         args.command = check_mode
         usernames = [m.name for m in self._selected_models]
@@ -1633,6 +2505,19 @@ class GUIWorkflow:
         args.after = 0
         args.action = ["download"]
         args.actions = ["download"]
+        args.gui = True
+        args.no_rich = True
+        # Honor advanced scrape options from the Areas page (same as normal scrapes).
+        args.allow_dupe_downloads = bool(
+            (self._advanced or {}).get("allow_dupe_downloads")
+        )
+        args.keep_message_purchased_dupes = bool(
+            args.allow_dupe_downloads
+            and (self._advanced or {}).get("keep_message_purchased_dupes")
+        )
+        if "quality" in (self._advanced or {}):
+            _quality = (self._advanced.get("quality") or "").strip().lower()
+            args.quality = _quality if _quality in ("240", "720", "source") else None
         write_args.setArgs(args)
         try:
             _settings.update_settings()
@@ -1640,7 +2525,9 @@ class GUIWorkflow:
             pass
         log.info(
             f"[GUI Check] Args: command={check_mode}, "
-            f"users={usernames}, areas={getattr(args, 'check_area', [])}"
+            f"users={usernames}, areas={getattr(args, 'check_area', [])}, "
+            f"allow_dupe_downloads={bool(getattr(args, 'allow_dupe_downloads', False))}, "
+            f"keep_message_purchased_dupes={bool(getattr(args, 'keep_message_purchased_dupes', False))}"
         )
 
     def _set_args(self):
@@ -1672,6 +2559,11 @@ class GUIWorkflow:
                     "no_cache": bool(getattr(args, "no_cache", False)),
                     "no_api_cache": bool(getattr(args, "no_api_cache", False)),
                     "discord_level": getattr(args, "discord_level", "OFF"),
+                    "allow_dupe_downloads": bool(getattr(args, "allow_dupe_downloads", False)),
+                    "keep_message_purchased_dupes": bool(
+                        getattr(args, "keep_message_purchased_dupes", False)
+                    ),
+                    "quality": getattr(args, "quality", None),
                 }
             except Exception:
                 self._baseline_args = {
@@ -1679,6 +2571,9 @@ class GUIWorkflow:
                     "no_cache": False,
                     "no_api_cache": False,
                     "discord_level": "OFF",
+                    "allow_dupe_downloads": False,
+                    "keep_message_purchased_dupes": False,
+                    "quality": None,
                 }
 
         # Set actions (3.14.3 scraper checks args.actions; keep args.action for compat)
@@ -1710,6 +2605,9 @@ class GUIWorkflow:
         # Include post text
         if self._include_text:
             args.text = True
+        args.text_filename_from_post = bool(
+            self._include_text and self._text_filename_from_post
+        )
 
         # Discord webhook updates: set discord_level from GUI selection.
         # The CLI arg --discord maps to args.discord_level (not args.discord).
@@ -1721,13 +2619,26 @@ class GUIWorkflow:
             args.discord_level = self._discord_level
 
         # Advanced flags
-        allow_dupes = bool(self._advanced.get("allow_dupe_downloads"))
+        if "allow_dupe_downloads" in self._advanced:
+            allow_dupes = bool(self._advanced.get("allow_dupe_downloads"))
+        else:
+            allow_dupes = bool((self._baseline_args or {}).get("allow_dupe_downloads", False))
         rescrape_all = bool(self._advanced.get("rescrape_all"))
         args.allow_dupe_downloads = allow_dupes
+        if "keep_message_purchased_dupes" in self._advanced:
+            keep_msg_paid = bool(self._advanced.get("keep_message_purchased_dupes"))
+        else:
+            keep_msg_paid = bool(
+                (self._baseline_args or {}).get("keep_message_purchased_dupes", False)
+            )
+        args.keep_message_purchased_dupes = bool(allow_dupes and keep_msg_paid)
 
         # Video quality filter (-q / --quality)
-        _quality = (self._advanced.get("quality") or "").strip().lower()
-        args.quality = _quality if _quality in ("240", "720", "source") else None
+        if "quality" in self._advanced:
+            _quality = (self._advanced.get("quality") or "").strip().lower()
+            args.quality = _quality if _quality in ("240", "720", "source") else None
+        else:
+            args.quality = (self._baseline_args or {}).get("quality", None)
 
         # Force full scan by bypassing auto-after logic & caches
         log.info(f"[GUI] _set_args: rescrape_all={rescrape_all}, _date_range={self._date_range!r}")
@@ -1766,6 +2677,10 @@ class GUIWorkflow:
         except Exception as _e:
             log.warning(f"[GUI] Exception applying date range filter: {_e}")
 
+        args.daemon = self._daemon_enabled
+        args.gui = True
+        # Avoid Rich Live / RichHandler console I/O from download worker threads.
+        args.no_rich = True
         write_args.setArgs(args)
         # Invalidate the settings cache so settings.get_settings() picks up the new
         # actions, after, before, etc. that we just wrote.  Without this,
@@ -1814,13 +2729,43 @@ class GUIWorkflow:
         import time
         import math
 
+        # Wait for any async post-scrape plugin work to finish before counting down.
+        try:
+            from ofscraper.plugins.manager import plugin_manager as _pm
+            if not _pm._scrape_complete_event.is_set():
+                app_signals.status_message.emit("Waiting for post-scrape plugins…")
+                app_signals.log_message.emit(
+                    "INFO", "Daemon: waiting for post-scrape plugins to finish…"
+                )
+                deadline = time.time() + 300.0
+                while not _pm._scrape_complete_event.is_set():
+                    if self._daemon_stop.is_set():
+                        return False
+                    if time.time() > deadline:
+                        log.warning("Daemon: post-scrape plugin wait timed out (300 s)")
+                        break
+                    _pm._scrape_complete_event.wait(timeout=1.0)
+        except Exception:
+            pass
+
         total_seconds = int(self._daemon_interval * 60)
         for remaining in range(total_seconds, 0, -1):
             if self._daemon_stop.is_set():
                 return False
             mins = remaining // 60
             secs = remaining % 60
-            app_signals.daemon_next_run.emit(f"Next scrape in {mins:02d}:{secs:02d}")
+            try:
+                from datetime import datetime, timedelta
+
+                eta = datetime.now() + timedelta(seconds=remaining)
+                eta_str = eta.strftime("%I:%M %p").lstrip("0")
+                app_signals.daemon_next_run.emit(
+                    f"Next run in {mins:02d}:{secs:02d}  (≈ {eta_str})"
+                )
+            except Exception:
+                app_signals.daemon_next_run.emit(
+                    f"Next run in {mins:02d}:{secs:02d}"
+                )
             time.sleep(1)
         return True
 
@@ -1874,14 +2819,15 @@ class GUIWorkflow:
         """Process download requests from the check-mode cart in a background thread."""
         from collections import defaultdict
         import ofscraper.commands.check as check_mod
+        import ofscraper.gui.utils.workflow as _wf_mod
 
         app_signals.status_message.emit("Downloading selected check items...")
         app_signals.log_message.emit(
             "INFO", f"Processing {len(row_data_list)} check-mode download(s)"
         )
 
-        _install_gui_log_handler()
         _install_gui_live_stubs()
+        _prepare_gui_scrape_logging()
         _install_gui_progress_hooks()
 
         # Pre-set the total BEFORE any add_overall_task calls so the progress bar
@@ -1907,6 +2853,16 @@ class GUIWorkflow:
         except Exception:
             pass
 
+        total_stats = {
+            "videos": 0,
+            "audios": 0,
+            "photos": 0,
+            "forced": 0,
+            "failed": 0,
+            "bytes": 0,
+        }
+        model_names = []
+
         try:
             user_cart = defaultdict(lambda: {"posts": [], "media": [], "rows": []})
             for row_data in row_data_list:
@@ -1922,10 +2878,14 @@ class GUIWorkflow:
 
             for model_id, data in user_cart.items():
                 username = data.get("username", "")
+                if username:
+                    model_names.append(username)
                 try:
-                    check_mod._process_user_batch(
+                    batch_stats = check_mod._process_user_batch(
                         username, model_id, data["media"], data["posts"], data["rows"]
-                    )
+                    ) or {}
+                    for k in total_stats:
+                        total_stats[k] += int(batch_stats.get(k, 0) or 0)
                 except Exception as e:
                     log.error(f"Check download batch error for {username}: {e}")
                     log.debug(traceback.format_exc())
@@ -1935,16 +2895,39 @@ class GUIWorkflow:
             _uninstall_gui_live_stubs()
             _uninstall_gui_log_handler()
 
+        run_dl = (
+            total_stats["videos"] + total_stats["photos"] + total_stats["audios"]
+        )
+        _wf_mod._pending_summary_data = {
+            "forced": total_stats["forced"],
+            "failed": total_stats["failed"],
+            "run_dl": run_dl,
+            "run_videos": total_stats["videos"],
+            "run_photos": total_stats["photos"],
+            "run_audios": total_stats["audios"],
+            "total_bytes": total_stats["bytes"],
+            "model_names": model_names,
+            "db_info": {},
+            "dup_counts": {},
+        }
+        try:
+            app_signals.total_bytes_updated.emit(float(total_stats["bytes"]))
+        except Exception:
+            pass
+
         app_signals.status_message.emit("Check mode downloads complete")
         app_signals.log_message.emit("INFO", "Check mode download processing complete")
+        # Triggers table_page Final Stats Summary via _pending_summary_data
+        app_signals.scraping_finished.emit()
 
     def _run_scraper_thread(self):
         """Run the scraper pipeline in a background thread.
         If daemon mode is enabled, loops with the configured interval."""
         run_count = 0
         try:
-            _install_gui_log_handler()
-            _install_gui_live_stubs()
+            # Live stubs were installed on the Qt main thread before start;
+            # only prepare logging + progress hooks here.
+            _prepare_gui_scrape_logging()
             _install_gui_progress_hooks()
 
             # Check mode: one-shot run — no daemon loop
@@ -1957,11 +2940,30 @@ class GUIWorkflow:
                     raise KeyboardInterrupt()
                 run_count += 1
 
+                # Reset the logger for the current daemon run cycle
+                try:
+                    import ofscraper.utils.logs.logger as logger_mod
+                    logger_mod.resetLogger()
+                    # resetLogger re-adds RichHandler — strip it again for GUI.
+                    _prepare_gui_scrape_logging()
+                except Exception as e:
+                    log.debug(f"[DIAG] Failed to reset logger for daemon run: {e}")
+
                 # Reset live-rows flag each iteration so daemon re-runs don't inherit
                 # run #1's True value and incorrectly skip DB table replacement when
                 # the current run produced no live rows (e.g. after a crash).
                 self._live_rows_emitted = False
+                self._per_model_run_stats = {}
+                self._manual_media_ids = None
+                self._manual_model_names = []
+                try:
+                    from ofscraper.gui.utils.progress_bridge import reset_throttle_state
+
+                    reset_throttle_state()
+                except Exception:
+                    pass
                 self._db_prerun_mtimes = {}
+                self._db_prerun_dl_counts = {}
 
                 # Reset GUI progress counters/state each run so the overall progress bar
                 # doesn't get stuck using previous run totals (especially after purge).
@@ -2080,7 +3082,15 @@ class GUIWorkflow:
 
                     if self._selected_actions == {"manual_url"}:
                         import ofscraper.commands.manual as _manual_cmd
-                        _manual_cmd.manual_download()
+
+                        _url_dicts = _manual_cmd.manual_download() or {}
+                        try:
+                            apply_manual_url_gui_state(self, _url_dicts)
+                        except Exception as _manual_gui_err:
+                            log.debug(
+                                f"[GUI Manual URL] Could not bind models for table: "
+                                f"{_manual_gui_err}"
+                            )
                     else:
                         # Filter global paid scrape to only selected models.
                         # scrape_paid_all() uses the global /posts/paid/all endpoint
@@ -2097,7 +3107,7 @@ class GUIWorkflow:
                                 _selected_usernames_lower = {
                                     m.name.lower() for m in self._selected_models
                                 }
-                                log.warning(
+                                log.debug(
                                     f"[DIAG] Patching process_paid_dict for: {list(_selected_usernames_lower)}"
                                 )
                                 app_signals.log_message.emit(
@@ -2122,15 +3132,15 @@ class GUIWorkflow:
                                     import ofscraper.db.operations_.media as _media_ops
                                     from ofscraper.managers.postcollection import PostCollection as _PC
 
-                                    log.warning("[DIAG] Fetching all paid posts via single API call...")
+                                    log.debug("[DIAG] Fetching all paid posts via single API call...")
                                     try:
                                         paid_content = await _paid_api.get_all_paid_posts()
                                     except Exception as _e:
                                         import traceback as _tb
-                                        log.warning(f"[DIAG] get_all_paid_posts() RAISED: {_e}\n{_tb.format_exc()}")
+                                        log.debug(f"[DIAG] get_all_paid_posts() RAISED: {_e}\n{_tb.format_exc()}")
                                         return
 
-                                    log.warning(
+                                    log.debug(
                                         f"[DIAG] get_all_paid_posts() returned {len(paid_content)} entries. "
                                         f"Processing only {len(_patch_selected_models)} selected model(s)."
                                     )
@@ -2146,9 +3156,9 @@ class GUIWorkflow:
                                             or paid_content.get(int(_mid) if isinstance(_mid, str) else _mid)
                                         )
                                         if not _posts_data:
-                                            log.warning(f"[DIAG] No paid content for {_uname} (id={_mid}) — skipping")
+                                            log.debug(f"[DIAG] No paid content for {_uname} (id={_mid}) — skipping")
                                             continue
-                                        log.warning(f"[DIAG] {_uname}: {len(_posts_data)} paid posts found")
+                                        log.debug(f"[DIAG] {_uname}: {len(_posts_data)} paid posts found")
                                         try:
                                             await _db_ops.table_init_create(model_id=_mid, username=_uname)
                                             _pc = _PC(username=_uname, model_id=_mid)
@@ -2174,7 +3184,7 @@ class GUIWorkflow:
                                                 posts=_text_posts,
                                                 medias=_final_medias,
                                             )
-                                            log.warning(
+                                            log.debug(
                                                 f"[DIAG] {_uname}: {len(_final_medias)} media items to download"
                                             )
                                             # Track scraped media IDs so the post-scrape DB load
@@ -2191,23 +3201,23 @@ class GUIWorkflow:
                                                 # Pass media_ids so only the 40 scraped rows are shown,
                                                 # not all 206 historical records in the DB.
                                                 _load_models_from_db([_m], date_range={}, media_ids=_final_media_ids)
-                                                log.warning(f"[DIAG] Live table rows emitted for {_uname}")
+                                                log.debug(f"[DIAG] Live table rows emitted for {_uname}")
                                             except Exception as _emit_err:
-                                                log.warning(f"[DIAG] Live row emit failed: {_emit_err}")
+                                                log.debug(f"[DIAG] Live row emit failed: {_emit_err}")
                                         except Exception as _e2:
                                             import traceback as _tb2
-                                            log.warning(f"[DIAG] Error processing {_uname}: {_e2}\n{_tb2.format_exc()}")
+                                            log.debug(f"[DIAG] Error processing {_uname}: {_e2}\n{_tb2.format_exc()}")
 
                                     length = len(output)
-                                    log.warning(f"[DIAG] Yielding {length} model(s) to download pipeline")
+                                    log.debug(f"[DIAG] Yielding {length} model(s) to download pipeline")
                                     for count, value in enumerate(output.values()):
                                         yield count, value, length
 
                                 _spm.process_paid_dict = _filtered_process_paid_dict
-                                log.warning("[DIAG] process_paid_dict patch applied successfully")
+                                log.debug("[DIAG] process_paid_dict patch applied successfully")
                             except Exception as _patch_err:
                                 import traceback as _tb2
-                                log.warning(f"[DIAG] Could not patch process_paid_dict: {_patch_err}\n{_tb2.format_exc()}")
+                                log.debug(f"[DIAG] Could not patch process_paid_dict: {_patch_err}\n{_tb2.format_exc()}")
                                 _orig_process_paid_dict = None
 
                         # Monkey-patch scrape_paid.process_user to start/stop DB polling
@@ -2233,9 +3243,9 @@ class GUIWorkflow:
                                             _emit_download_status(_pu_medias, _pu_mid, _pu_uname)
 
                                 _spm_paid.process_user = _polled_process_user
-                                log.warning("[DIAG] process_user polling patch applied successfully")
+                                log.debug("[DIAG] process_user polling patch applied successfully")
                             except Exception as _pu_err:
-                                log.warning(f"[DIAG] Could not patch process_user: {_pu_err}")
+                                log.debug(f"[DIAG] Could not patch process_user: {_pu_err}")
                                 _orig_process_user = None
 
                         if self._scrape_paid:
@@ -2253,19 +3263,19 @@ class GUIWorkflow:
                             import ofscraper.data.posts.scrape_paid as _spm2
                             _orig_spa = _spm2.scrape_paid_all
                             def _diag_scrape_paid_all():
-                                log.warning("[DIAG] scrape_paid_all() STARTED")
+                                log.debug("[DIAG] scrape_paid_all() STARTED")
                                 try:
                                     result = _orig_spa()
-                                    log.warning("[DIAG] scrape_paid_all() FINISHED normally")
+                                    log.debug("[DIAG] scrape_paid_all() FINISHED normally")
                                     return result
                                 except Exception as _spa_err:
                                     import traceback as _tb4
-                                    log.warning(f"[DIAG] scrape_paid_all() RAISED: {_spa_err}\n{_tb4.format_exc()}")
+                                    log.debug(f"[DIAG] scrape_paid_all() RAISED: {_spa_err}\n{_tb4.format_exc()}")
                                     raise
                             import ofscraper.commands.scraper.scraper as _scraper_mod
                             _scraper_mod.scrape_paid_all = _diag_scrape_paid_all
                         except Exception as _wrap_err:
-                            log.warning(f"[DIAG] Could not wrap scrape_paid_all: {_wrap_err}")
+                            log.debug(f"[DIAG] Could not wrap scrape_paid_all: {_wrap_err}")
                             _orig_spa = None
                             _scraper_mod = None
 
@@ -2297,7 +3307,7 @@ class GUIWorkflow:
                                     except Exception as _ph_err:
                                         # Fallback: default metadata path format
                                         # {config_home}/{profile}/.data/{model_id}/user_data.db
-                                        log.warning(
+                                        log.debug(
                                             f"[DIAG] mtime: placeholder failed for {_m_mtime.name}"
                                             f" ({type(_ph_err).__name__}: {_ph_err})"
                                             f" — using fallback path"
@@ -2309,44 +3319,59 @@ class GUIWorkflow:
                                     if _db_p is not None and _db_p.exists():
                                         try:
                                             import sqlite3 as _sq3_mtime
-                                            with _sq3_mtime.connect(str(_db_p)) as _sq_conn:
+                                            _sq_conn = _sq3_mtime.connect(str(_db_p))
+                                            try:
                                                 _sq_row = _sq_conn.execute(
                                                     "SELECT MAX(posted_at) FROM medias"
                                                 ).fetchone()
+                                            finally:
+                                                _sq_conn.close()
                                             _max_posted = _sq_row[0] if _sq_row else None
                                             if _max_posted:
                                                 self._db_prerun_mtimes[_m_mtime.id] = (
                                                     _arrow_mtime.get(_max_posted)
                                                 )
-                                                log.warning(
+                                                log.debug(
                                                     f"[DIAG] DB max post date for {_m_mtime.name}:"
                                                     f" {self._db_prerun_mtimes[_m_mtime.id]}"
                                                     f" (path: {_db_p})"
                                                 )
                                             else:
-                                                log.warning(
+                                                log.debug(
                                                     f"[DIAG] DB has no records for {_m_mtime.name}"
                                                     f" — new model, no date limit"
                                                 )
                                         except Exception as _sq_err:
-                                            log.warning(
+                                            log.debug(
                                                 f"[DIAG] DB content query failed for {_m_mtime.name}:"
                                                 f" {_sq_err} — no date limit applied"
                                             )
                                     else:
-                                        log.warning(
+                                        log.debug(
                                             f"[DIAG] DB not found at {_db_p}"
                                             f" for {_m_mtime.name} — new model, no date limit"
                                         )
                                 except Exception as _inner_err:
-                                    log.warning(
+                                    log.debug(
                                         f"[DIAG] mtime capture failed for"
                                         f" {getattr(_m_mtime, 'name', '?')}: {_inner_err}"
                                     )
                         except Exception as _outer_err:
-                            log.warning(f"[DIAG] mtime capture outer error: {_outer_err}")
+                            log.debug(f"[DIAG] mtime capture outer error: {_outer_err}")
 
-                        log.warning("[DIAG] About to call scraping_manager.runner()")
+                        # Capture per-model download counts from the DB before runner()
+                        # so the Discord summary can show accurate per-model "new this run"
+                        # deltas rather than stamping the global total on every model.
+                        try:
+                            self._db_prerun_dl_counts = _load_models_from_db(
+                                self._selected_models,
+                                stats_only=True,
+                            )
+                        except Exception as _pre_dl_err:
+                            log.debug(f"[DIAG] pre-scrape dl snapshot failed: {_pre_dl_err}")
+                            self._db_prerun_dl_counts = {}
+
+                        log.debug("[DIAG] About to call scraping_manager.runner()")
                         try:
                             scraping_manager.runner()
                         except Exception as _runner_err:
@@ -2418,7 +3443,7 @@ class GUIWorkflow:
                 _diag_not_paid = not _used_global_paid
                 _diag_not_check = not bool(self._selected_actions & self._CHECK_MODES)
                 _diag_run1 = run_count == 1
-                log.warning(
+                log.debug(
                     f"[DIAG] is_normal_gui_download conditions: "
                     f"has_dl={_diag_has_dl}, has_models={_diag_has_models}, "
                     f"live_rows={_diag_live}, not_paid={_diag_not_paid}, "
@@ -2448,7 +3473,7 @@ class GUIWorkflow:
                         "INFO", "Skipping DB table replacement because live rows were already emitted for this run..."
                     )
                 else:
-                    log.warning(f"[DIAG] Calling _load_models_from_db for {[m.name for m in self._selected_models]}, date_range={self._date_range}")
+                    log.debug(f"[DIAG] Calling _load_models_from_db for {[m.name for m in self._selected_models]}, date_range={self._date_range}")
                     app_signals.log_message.emit(
                         "INFO", "Loading content from database..."
                     )
@@ -2460,17 +3485,51 @@ class GUIWorkflow:
                         date_range={} if self._scrape_paid else (self._date_range or {}),
                         # For paid scrapes, limit to only the media IDs we actually scraped
                         # so we don't show all 200+ historical records in the DB.
-                        media_ids=getattr(self, "_scrape_paid_media_ids", None) if self._scrape_paid else None,
+                        # Manual URL scrapes similarly restrict to the URLs just processed.
+                        media_ids=(
+                            getattr(self, "_scrape_paid_media_ids", None)
+                            if self._scrape_paid
+                            else (
+                                getattr(self, "_manual_media_ids", None)
+                                if self._selected_actions == {"manual_url"}
+                                else None
+                            )
+                        ),
                         # For non-paid no-date-filter runs, restrict the table to content
                         # posted since the DB was last touched — hides pre-run historical
                         # duplicates and limits the table to the current scrape window.
-                        per_model_from_dates=getattr(self, "_db_prerun_mtimes", {}) if not self._scrape_paid else None,
+                        # Skip for manual URL (media_ids already scopes the table).
+                        per_model_from_dates=(
+                            None
+                            if (
+                                self._scrape_paid
+                                or self._selected_actions == {"manual_url"}
+                            )
+                            else getattr(self, "_db_prerun_mtimes", {})
+                        ),
                     )
-                    log.warning(f"[DIAG] _load_models_from_db returned stats: {_db_stats}")
+                    log.debug(f"[DIAG] _load_models_from_db returned stats: {_db_stats}")
 
                 # Post per-model stats to Discord now that we have accurate
                 # counts from the FileLock-protected DB read above.
-                if self._discord_level != "OFF":
+                # Prefer the GUI selection; fall back to settings/CLI (--discord)
+                # so Docker GUI_ARGS still get scrape summaries / @here.
+                _discord_for_summary = self._discord_level
+                if _discord_for_summary == "OFF":
+                    try:
+                        import ofscraper.utils.settings as _sum_settings
+
+                        _from_settings = str(
+                            getattr(
+                                _sum_settings.get_settings(), "discord_level", "OFF"
+                            )
+                            or "OFF"
+                        ).upper()
+                        if _from_settings in ("LOW", "NORMAL"):
+                            _discord_for_summary = _from_settings
+                    except Exception:
+                        pass
+                if _discord_for_summary != "OFF":
                     try:
                         import logging as _dlog
                         # Briefly re-enable Discord just for this summary.
@@ -2478,30 +3537,16 @@ class GUIWorkflow:
                         from ofscraper.utils.logs.classes.handlers.discord import (
                             DiscordHandler as _DH,
                         )
-                        _lvl = _ll.getLevel(self._discord_level)
+                        _lvl = _ll.getLevel(_discord_for_summary)
                         for _h in _dlog.getLogger("shared").handlers:
                             if isinstance(_h, _DH):
                                 _h.setLevel(_lvl)
                                 break
-                        # Per-run download counts from common_globals (reset each daemon iteration).
-                        try:
-                            import ofscraper.commands.scraper.actions.utils.globals as _cg_disc
-                            _run_photos = int(_cg_disc.photo_count)
-                            _run_videos = int(_cg_disc.video_count)
-                            _run_audios = int(_cg_disc.audio_count)
-                        except Exception:
-                            _run_photos = _run_videos = _run_audios = 0
-                        _run_new = _run_photos + _run_videos + _run_audios
-                        # @here ping if user enabled it and new content was found
-                        _daemon_ping = False
-                        if self._daemon_enabled and _run_new > 0:
-                            try:
-                                from ofscraper.gui.utils.gui_settings import load_gui_settings as _lgs
-                                _daemon_ping = bool(_lgs().get("daemon_discord_ping", False))
-                            except Exception:
-                                pass
-                        _lines = ["@here"] if _daemon_ping else []
-                        _lines.append("\n\n--- Scrape Results ---")
+                        # Build per-model rows first so we can sum actual new
+                        # downloads before deciding whether to send @here.
+                        _pre_dl = getattr(self, "_db_prerun_dl_counts", {})
+                        _model_rows = []
+                        _run_total_new = 0
                         for _m in self._selected_models:
                             _un = _m.name
                             _st = _db_stats.get(_un, {})
@@ -2513,16 +3558,69 @@ class GUIWorkflow:
                             _dl_audios = _st.get("dl_audios", 0)
                             _total = _photos + _videos + _audios
                             _dl_total = _dl_photos + _dl_videos + _dl_audios
-                            # Show per-run new downloads alongside cumulative DB total.
+                            # Compute per-model "new this run" using the actual physical
+                            # downloaded counts from the StatsManager for this model.
+                            _new_photos = 0
+                            _new_videos = 0
+                            _new_audios = 0
+                            try:
+                                import ofscraper.managers.manager as _manager_mod
+                                from ofscraper.managers.utils.state import EActivity
+                                _sm = _manager_mod.Manager.stats_manager
+                                _dl_stat = _sm._stats.get(_un, {}).get(EActivity.ScrapeActivity.DOWNLOAD)
+                                _paid_dl_stat = _sm._stats.get(_un, {}).get(EActivity.PaidActivity.SCRAPE_PAID_DOWNLOAD)
+
+                                _has_stats = False
+                                if _dl_stat and _dl_stat.has_changes:
+                                    _new_photos += _dl_stat.photo_count
+                                    _new_videos += _dl_stat.video_count
+                                    _new_audios += _dl_stat.audio_count
+                                    _has_stats = True
+
+                                if _paid_dl_stat and _paid_dl_stat.has_changes:
+                                    _new_photos += _paid_dl_stat.photo_count
+                                    _new_videos += _paid_dl_stat.video_count
+                                    _new_audios += _paid_dl_stat.audio_count
+                                    _has_stats = True
+
+                                if not _has_stats or (_new_photos + _new_videos + _new_audios == 0):
+                                    # Fallback to DB delta if StatsManager has no recorded changes or reported 0 new downloads (common in GUI mode)
+                                    _pre = _pre_dl.get(_un, {})
+                                    _new_photos = max(0, _dl_photos - _pre.get("dl_photos", 0))
+                                    _new_videos = max(0, _dl_videos - _pre.get("dl_videos", 0))
+                                    _new_audios = max(0, _dl_audios - _pre.get("dl_audios", 0))
+                            except Exception as _st_err:
+                                log.debug(f"[DIAG] Failed to get stats from StatsManager for {_un}: {_st_err}")
+                                _pre = _pre_dl.get(_un, {})
+                                _new_photos = max(0, _dl_photos - _pre.get("dl_photos", 0))
+                                _new_videos = max(0, _dl_videos - _pre.get("dl_videos", 0))
+                                _new_audios = max(0, _dl_audios - _pre.get("dl_audios", 0))
+
+                            _new_total = _new_photos + _new_videos + _new_audios
+                            _run_total_new += _new_total
                             # Use \[ to escape brackets so Rich's markup parser
                             # (inside DiscordFormatter) doesn't strip [username] as a style tag.
-                            _lines.append(
-                                f"\\[{_un}] {_run_new} new this run"
-                                f" [{_run_videos} videos,"
-                                f" {_run_audios} audios,"
-                                f" {_run_photos} photos]"
+                            _model_rows.append(
+                                f"\\[{_un}] {_new_total} new this run"
+                                f" [{_new_videos} videos,"
+                                f" {_new_audios} audios,"
+                                f" {_new_photos} photos]"
                                 f" | {_dl_total}/{_total} total in DB"
                             )
+                        _daemon_ping = False
+                        if self._daemon_enabled and _run_total_new > 0:
+                            try:
+                                import ofscraper.utils.settings as _settings
+                                if getattr(_settings.get_args(), "discord_ping", False):
+                                    _daemon_ping = True
+                                else:
+                                    from ofscraper.gui.utils.gui_settings import load_gui_settings as _lgs
+                                    _daemon_ping = bool(_lgs().get("daemon_discord_ping", False))
+                            except Exception:
+                                pass
+                        _lines = ["@here"] if _daemon_ping else []
+                        _lines.append("\n\n--- Scrape Results ---")
+                        _lines.extend(_model_rows)
                         _dlog.getLogger("shared").warning("\n".join(_lines))
                     except Exception:
                         pass
@@ -2539,102 +3637,70 @@ class GUIWorkflow:
                 except Exception:
                     pass
 
+                # Prepare plugin coordination before notifying the GUI thread.
+                # This clears the post-scrape event so _daemon_wait() will pause
+                # if a plugin needs time to do async work after on_scrape_complete.
+                try:
+                    from ofscraper.plugins.manager import plugin_manager as _pm_pre
+                    _pm_pre.pre_scrape_complete()
+                except Exception:
+                    pass
+
+                try:
+                    from ofscraper.gui.utils.progress_bridge import flush_pending
+
+                    flush_pending()
+                except Exception:
+                    pass
+
+                # Build summary before notifying the GUI so history / daemon chip
+                # can consume it (QueuedConnection races are otherwise flaky).
+                _run_summary = None
+                try:
+                    _run_summary = build_pending_summary_payload(
+                        self,
+                        is_normal_gui_download=is_normal_gui_download,
+                        db_stats=_db_stats,
+                    )
+                    if _run_summary is not None:
+                        import ofscraper.gui.utils.workflow as _wf_mod
+
+                        _wf_mod._pending_summary_data = _run_summary
+                except Exception:
+                    _run_summary = None
+
                 app_signals.scraping_finished.emit()
 
                 if not self._daemon_enabled:
-                    app_signals.status_message.emit("Scraping complete")
-                    # Build a per-model summary.
-                    # For normal GUI downloads, use common_globals counters (match the
-                    # progress bar exactly).  For other modes (paid, check, DB reload),
-                    # fall back to DB stats.
-                    if _db_stats or is_normal_gui_download:
-                        if is_normal_gui_download:
-                            # Collect per-run counters for the Scrape Summary.
-                            # We do NOT emit the summary here because the date
-                            # filter hasn't been applied yet (it runs in the GUI
-                            # thread after scraping_finished is processed).
-                            # Instead, store the data for table_page.py to
-                            # consume after _on_filter() runs.
-                            try:
-                                import ofscraper.commands.scraper.actions.utils.globals as _cg_sum
-                                _sum_videos = int(_cg_sum.video_count)
-                                _sum_photos = int(_cg_sum.photo_count)
-                                _sum_audios = int(_cg_sum.audio_count)
-                                _sum_forced = int(_cg_sum.forced_skipped)
-                                _sum_failed = int(_cg_sum.skipped)
-                            except Exception:
-                                _sum_videos = _sum_photos = _sum_audios = _sum_forced = _sum_failed = 0
-                            _run_dl = _sum_videos + _sum_photos + _sum_audios
-                            # Build per-model DB info for the optional DB: suffix
-                            _db_info = {}
-                            for _m in self._selected_models:
-                                _st = _db_stats.get(_m.name, {})
-                                _db_total = _st.get("photos", 0) + _st.get("videos", 0) + _st.get("audios", 0)
-                                _db_dl = _st.get("dl_photos", 0) + _st.get("dl_videos", 0) + _st.get("dl_audios", 0)
-                                _db_info[_m.name] = (_db_total, _db_dl)
-                            try:
-                                _sum_bytes = int(_cg_sum.total_bytes_downloaded)
-                            except Exception:
-                                _sum_bytes = 0
-                            import ofscraper.gui.utils.workflow as _wf_self
-                            _wf_self._pending_summary_data = {
-                                "forced": _sum_forced,
-                                "failed": _sum_failed,
-                                "run_dl": _run_dl,
-                                "run_videos": _sum_videos,
-                                "run_photos": _sum_photos,
-                                "run_audios": _sum_audios,
-                                "total_bytes": _sum_bytes,
-                                "model_names": [_m.name for _m in self._selected_models],
-                                "db_info": _db_info,
-                                "dup_counts": dict(getattr(self, "_per_model_dup_count", {})),
-                            }
-                        else:
-                            # DB-load path (no date filter, paid scrape, etc.).
-                            # Use common_globals run counters (same as is_normal_gui_download)
-                            # so the summary shows what THIS run actually downloaded,
-                            # not a confusing cumulative DB total.
-                            try:
-                                import ofscraper.commands.scraper.actions.utils.globals as _cg_sum2
-                                _sum_videos2 = int(_cg_sum2.video_count)
-                                _sum_photos2 = int(_cg_sum2.photo_count)
-                                _sum_audios2 = int(_cg_sum2.audio_count)
-                                _sum_forced2 = int(_cg_sum2.forced_skipped)
-                                _sum_failed2 = int(_cg_sum2.skipped)
-                            except Exception:
-                                _sum_videos2 = _sum_photos2 = _sum_audios2 = _sum_forced2 = _sum_failed2 = 0
-                            _run_dl2 = _sum_videos2 + _sum_photos2 + _sum_audios2
-                            _db_info2 = {}
-                            for _m in self._selected_models:
-                                _st = _db_stats.get(_m.name, {})
-                                _db_total2 = _st.get("photos", 0) + _st.get("videos", 0) + _st.get("audios", 0)
-                                _db_dl2 = _st.get("dl_photos", 0) + _st.get("dl_videos", 0) + _st.get("dl_audios", 0)
-                                _db_info2[_m.name] = (_db_total2, _db_dl2)
-                            try:
-                                _sum_bytes2 = int(_cg_sum2.total_bytes_downloaded)
-                            except Exception:
-                                _sum_bytes2 = 0
-                            import ofscraper.gui.utils.workflow as _wf_self2
-                            _wf_self2._pending_summary_data = {
-                                "forced": _sum_forced2,
-                                "failed": _sum_failed2,
-                                "run_dl": _run_dl2,
-                                "run_videos": _sum_videos2,
-                                "run_photos": _sum_photos2,
-                                "run_audios": _sum_audios2,
-                                "total_bytes": _sum_bytes2,
-                                "model_names": [_m.name for _m in self._selected_models],
-                                "db_info": _db_info2,
-                            }
+                    try:
+                        from ofscraper.gui.utils.host_callbacks import get_host
+
+                        get_host().on_phase("complete")
+                        get_host().on_status("Scraping complete")
+                    except Exception:
+                        app_signals.status_message.emit("Scraping complete")
                     app_signals.log_message.emit(
                         "INFO", "Scraping pipeline finished"
                     )
                     break
 
-                # Daemon mode: wait for interval then re-run
-                app_signals.status_message.emit(
-                    f"Run #{run_count} complete. Waiting {self._daemon_interval:.0f} min..."
-                )
+                # Daemon mode: surface last-run chip, then wait for interval
+                try:
+                    chip = format_daemon_last_run_chip(run_count, _run_summary)
+                    app_signals.daemon_last_run.emit(chip)
+                except Exception:
+                    pass
+                try:
+                    from ofscraper.gui.utils.host_callbacks import get_host
+
+                    get_host().on_phase("daemon")
+                    get_host().on_status(
+                        f"Run #{run_count} complete. Next in {self._daemon_interval:.0f} min…"
+                    )
+                except Exception:
+                    app_signals.status_message.emit(
+                        f"Run #{run_count} complete. Next in {self._daemon_interval:.0f} min…"
+                    )
                 app_signals.log_message.emit(
                     "INFO",
                     f"Daemon run #{run_count} complete. "
@@ -2643,7 +3709,13 @@ class GUIWorkflow:
 
                 if not self._daemon_wait():
                     # Stop was requested during wait
-                    app_signals.status_message.emit("Daemon stopped")
+                    try:
+                        from ofscraper.gui.utils.host_callbacks import get_host
+
+                        get_host().on_phase("ready")
+                        get_host().on_status("Daemon stopped")
+                    except Exception:
+                        app_signals.status_message.emit("Daemon stopped")
                     app_signals.log_message.emit(
                         "INFO", "Daemon mode stopped by user"
                     )
@@ -2658,7 +3730,13 @@ class GUIWorkflow:
                     break
 
         except KeyboardInterrupt:
-            app_signals.status_message.emit("Scraping cancelled")
+            try:
+                from ofscraper.gui.utils.host_callbacks import get_host
+
+                get_host().on_phase("ready")
+                get_host().on_status("Scraping cancelled")
+            except Exception:
+                app_signals.status_message.emit("Scraping cancelled")
             app_signals.log_message.emit("WARNING", "Scraping was cancelled")
         except Exception as e:
             log.error(f"Scraper error: {e}")
@@ -2668,8 +3746,25 @@ class GUIWorkflow:
         finally:
             _gui_state.stop_polling()
             _uninstall_gui_progress_hooks()
+            try:
+                from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+                breadcrumb("scrape_live_stubs_uninstall")
+            except Exception:
+                pass
             _uninstall_gui_live_stubs()
             _uninstall_gui_log_handler()
+            try:
+                from ofscraper.gui.utils.crash_diagnostics import set_scrape_active
+
+                set_scrape_active(False)
+            except Exception:
+                pass
+            try:
+                from ofscraper.plugins.manager import plugin_manager as _pm_fin
+                _pm_fin.pre_scrape_complete()
+            except Exception:
+                pass
             app_signals.scraping_finished.emit()
 
     def _maybe_purge_before_scrape(self):
@@ -2771,9 +3866,23 @@ class GUIWorkflow:
             if model_id is None or not username:
                 continue
 
-            db_path = pathlib.Path(
-                placeholder.databasePlaceholder().databasePathHelper(model_id, username)
-            )
+            try:
+                db_path = pathlib.Path(
+                    placeholder.databasePlaceholder().databasePathHelper(model_id, username)
+                )
+            except Exception as _ph_err:
+                import ofscraper.utils.paths.common as _cp_mtime
+                import ofscraper.utils.profiles.data as _pd_mtime
+                _cfg_home = str(_cp_mtime.get_config_home())
+                _act_profile = str(_pd_mtime.get_active_profile())
+                db_path = pathlib.Path(
+                    _cfg_home, _act_profile, ".data",
+                    str(model_id), "user_data.db"
+                )
+                log.debug(
+                    f"[Purge] databasePathHelper failed for {username} "
+                    f"({type(_ph_err).__name__}: {_ph_err}) — using fallback path: {db_path}"
+                )
             # Expected default location for the model's data directory.
             # We only use this for safe deletion verification; users can customize
             # metadata paths, so we must NOT guess beyond verifying the shape.

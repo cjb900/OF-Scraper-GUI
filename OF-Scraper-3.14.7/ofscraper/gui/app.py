@@ -1,5 +1,23 @@
-import logging
 import os
+import random
+
+# Pre-allocate debugging port and set environment variables before importing PyQt6.
+# This is critical because importing PyQt6 modules or submodules can trigger
+# early initialization of the WebEngine library, ignoring later environment changes.
+if "QTWEBENGINE_CHROMIUM_FLAGS" not in os.environ:
+    port = random.randint(9200, 9299)
+    os.environ["OFSCRAPER_WEBENGINE_DEBUG_PORT"] = str(port)
+    os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = str(port)
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+        f"--remote-debugging-port={port} "
+        "--remote-allow-origins=* "
+        "--disable-blink-features=AutomationControlled "
+        "--disable-web-security "
+        "--allow-running-insecure-content "
+        "--disable-features=StorageAccessAPI"
+    )
+
+import logging
 import subprocess
 import sys
 
@@ -11,6 +29,97 @@ from ofscraper.gui.styles import get_dark_theme_qss, get_light_theme_qss
 from ofscraper.gui.utils.progress_bridge import GUILogHandler
 
 log = logging.getLogger("shared")
+
+
+class GUIEventLogger(QObject):
+    """Global event filter: always writes crash-diag breadcrumbs; Verbose Log also gets debug lines."""
+
+    def eventFilter(self, obj, event):
+        try:
+            verbose = log.level <= logging.DEBUG
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                from PyQt6.QtWidgets import QAbstractButton, QTabBar, QComboBox
+                from ofscraper.gui.utils.crash_diagnostics import gui_action
+
+                if isinstance(obj, QAbstractButton):
+                    name = str(obj.objectName() or "")
+                    text = str(obj.text() or "").strip()
+                    widget_type = type(obj).__name__
+                    # Cap text so breadcrumbs stay small / readable.
+                    short = (text[:48] + "…") if len(text) > 48 else text
+
+                    from PyQt6.QtWidgets import QCheckBox, QRadioButton
+                    if isinstance(obj, (QCheckBox, QRadioButton)):
+                        from PyQt6.QtCore import QTimer
+
+                        def _after_toggle(
+                            o=obj, t=short, n=name, wt=widget_type, v=verbose
+                        ):
+                            try:
+                                checked = bool(o.isChecked())
+                                gui_action(
+                                    "toggle",
+                                    f"text={t!r} name={n!r} type={wt} checked={checked}",
+                                )
+                                if v:
+                                    log.debug(
+                                        f"[GUI Event] CheckBox/RadioButton Toggled: "
+                                        f"text='{t}', name='{n}', type='{wt}', checked={checked}"
+                                    )
+                            except Exception:
+                                pass
+
+                        QTimer.singleShot(0, _after_toggle)
+                    else:
+                        gui_action(
+                            "click",
+                            f"text={short!r} name={name!r} type={widget_type}",
+                        )
+                        if verbose:
+                            log.debug(
+                                f"[GUI Event] Button Clicked: text='{text}', "
+                                f"name='{name}', type='{widget_type}'"
+                            )
+                elif isinstance(obj, QComboBox):
+                    name = str(obj.objectName() or "")
+                    current = str(obj.currentText() or "")
+                    gui_action(
+                        "click",
+                        f"combo name={name!r} current={current[:48]!r}",
+                    )
+                    if verbose:
+                        log.debug(
+                            f"[GUI Event] ComboBox Clicked: current='{current}', name='{name}'"
+                        )
+                elif isinstance(obj, QTabBar):
+                    idx = obj.tabAt(event.pos())
+                    if idx != -1:
+                        title = str(obj.tabText(idx) or "")
+                        gui_action("click", f"tab index={idx} title={title!r}")
+                        if verbose:
+                            log.debug(
+                                f"[GUI Event] Tab Clicked: index={idx}, title='{title}'"
+                            )
+
+            elif event.type() == QEvent.Type.FocusOut and verbose:
+                from PyQt6.QtWidgets import QLineEdit
+                if isinstance(obj, QLineEdit):
+                    name = str(obj.objectName() or "")
+                    placeholder = str(obj.placeholderText() or "")
+                    is_sensitive = (
+                        obj.echoMode() == QLineEdit.EchoMode.Password or
+                        any(x in name.lower() for x in ("auth", "token", "password", "key", "secret"))
+                    )
+                    if is_sensitive:
+                        log.debug(f"[GUI Event] Sensitive Input Field FocusOut: name='{name}'")
+                    else:
+                        val = obj.text()
+                        if len(val) > 40:
+                            val = val[:40] + "..."
+                        log.debug(f"[GUI Event] Input Field FocusOut: name='{name}', placeholder='{placeholder}', current_value='{val}'")
+        except Exception:
+            pass
+        return False
 
 
 def _show_windows_toast(title: str, message: str) -> bool:
@@ -164,6 +273,19 @@ class _CloseLegacyModelLoadingPopup(QObject):
         return False
 
 
+def _is_docker() -> bool:
+    """Return True when running inside a Docker / OCI container."""
+    if os.path.exists("/.dockerenv"):
+        return True
+    try:
+        with open("/proc/1/cgroup", errors="ignore") as _f:
+            _c = _f.read()
+            return "docker" in _c or "containerd" in _c
+    except OSError:
+        pass
+    return False
+
+
 def launch_gui(manager=None):
     """Launch the PyQt6 GUI application."""
     # Tell Windows to use our own AppUserModelID so the taskbar shows our
@@ -177,6 +299,24 @@ def launch_gui(manager=None):
         except Exception:
             pass
 
+
+    # Docker / container environment: Qt defaults to hardware OpenGL which is
+    # unavailable in containers, causing transparent windows or hard crashes.
+    # Force Mesa software rendering BEFORE QApplication is constructed so the
+    # platform plugin picks up the correct GL backend.
+    if _is_docker():
+        os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+        os.environ.setdefault("QT_X11_NO_MITSHM", "1")
+        # Disable GPU acceleration in QtWebEngine (Chromium) too — containers
+        # have no GPU and often have a tiny /dev/shm that causes Chromium to crash.
+        _existing = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
+        _docker_flags = "--disable-gpu --no-sandbox --disable-dev-shm-usage"
+        if "--disable-gpu" not in _existing:
+            os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+                f"{_existing} {_docker_flags}".strip()
+            )
+        log.info("[GUI] Docker environment detected — software rendering enabled")
+
     # QtWebEngineWidgets requires AA_ShareOpenGLContexts to be set before
     # QApplication is created.  Set it unconditionally; it's a no-op when
     # WebEngine is absent.
@@ -186,9 +326,51 @@ def launch_gui(manager=None):
     except Exception:
         pass
 
+    # Append command line flags directly to sys.argv so they are parsed by Chromium.
+    # This acts as a robust backup to environment variables.
+    # Note: Qt WebEngine expects all Chromium flags to be passed as a single
+    # space-separated string argument following the '--webEngineArgs' parameter.
+    port_str = os.environ.get("OFSCRAPER_WEBENGINE_DEBUG_PORT", "9208")
+    flags_str = (
+        f"--remote-debugging-port={port_str} "
+        "--remote-allow-origins=* "
+        "--disable-blink-features=AutomationControlled "
+        "--disable-web-security "
+        "--allow-running-insecure-content "
+        "--disable-features=StorageAccessAPI"
+    )
+    sys.argv.extend([
+        "--webEngineArgs",
+        flags_str
+    ])
+
     app = QApplication(sys.argv)
     app.setApplicationName("OF-Scraper")
     app.setStyle("Fusion")
+
+    # Crash breadcrumbs + faulthandler (helps diagnose hard GUI crashes during model load).
+    try:
+        from ofscraper.gui.utils.crash_diagnostics import install_crash_diagnostics
+
+        install_crash_diagnostics()
+    except Exception as e:
+        log.warning(f"Could not install crash diagnostics: {e}")
+
+    # AppSignals must be created *after* QApplication (parented to it).
+    try:
+        from ofscraper.gui.signals import ensure_app_signals
+
+        ensure_app_signals()
+    except Exception:
+        pass
+
+    # Log navigation / scrape / selection to the same crash breadcrumb file.
+    try:
+        from ofscraper.gui.utils.crash_diagnostics import install_gui_action_hooks
+
+        install_gui_action_hooks()
+    except Exception as e:
+        log.warning(f"Could not install GUI action hooks: {e}")
 
     # Load and apply the application icon (taskbar, title bar, tray).
     try:
@@ -199,7 +381,17 @@ def launch_gui(manager=None):
     except Exception:
         pass
 
-    # Apply saved theme preference (falls back to dark if not set)
+    # Apply saved theme + GUI font size preference (falls back to dark / 13px)
+    try:
+        from ofscraper.gui.utils.ui_scale import (
+            apply_application_font,
+            load_gui_font_size_from_settings,
+        )
+
+        load_gui_font_size_from_settings()
+        apply_application_font()
+    except Exception:
+        pass
     try:
         from ofscraper.gui.utils.gui_settings import load_gui_settings
         _saved_theme = load_gui_settings().get("theme", "dark")
@@ -217,6 +409,13 @@ def launch_gui(manager=None):
         app.installEventFilter(app._legacy_model_loading_popup_filter)  # type: ignore[attr-defined]
     except Exception:
         pass
+
+    # Global GUI interaction verbose logger event filter
+    try:
+        app._gui_event_logger = GUIEventLogger(app)
+        app.installEventFilter(app._gui_event_logger)
+    except Exception as e:
+        log.warning(f"Could not install GUI interaction event filter: {e}")
 
     # Attach GUI log handler to forward logs to the console widget
     gui_handler = GUILogHandler()

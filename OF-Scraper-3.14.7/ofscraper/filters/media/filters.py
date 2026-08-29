@@ -28,7 +28,9 @@ def dupefiltermedia(media):
     output = defaultdict(lambda: None)
     media = sorted(media, key=lambda item: (item.post.date, item.id, item.count))
     if bool(getattr(read_args.retriveArgs(), "allow_dupe_downloads", False)):
-        return list(media)
+        # Keep reposts / multi-post copies, but optionally still collapse the
+        # Messages ↔ Purchased overlap for the same media_id.
+        return _maybe_collapse_message_purchased(list(media))
     if of_env.getattr("ALLOW_DUPE_MEDIA"):
         for item in media:
             if not output[(item.id, item.post_id)]:
@@ -43,6 +45,48 @@ def dupefiltermedia(media):
         f"Number of media after removing duplicated media_ids {len(output.values())}"
     )
     return list(output.values())
+
+
+def _keep_message_purchased_dupes() -> bool:
+    try:
+        return bool(
+            getattr(settings.get_settings(), "keep_message_purchased_dupes", False)
+        )
+    except Exception:
+        try:
+            return bool(
+                getattr(
+                    read_args.retriveArgs(), "keep_message_purchased_dupes", False
+                )
+            )
+        except Exception:
+            return False
+
+
+def _maybe_collapse_message_purchased(media):
+    """When allow_dupes is on, drop Messages↔Purchased pairs unless opted in."""
+    if _keep_message_purchased_dupes():
+        return list(media)
+    from ofscraper.filters.media.message_purchased_dupes import (
+        collapse_message_purchased_dupes,
+    )
+
+    before = len(media)
+    out = collapse_message_purchased_dupes(media)
+    dropped = before - len(out)
+    if dropped:
+        log.debug(
+            f"Collapsed {dropped} Purchased/Paid media item(s) that also appear in Messages"
+        )
+    return out
+
+
+def apply_allow_dupe_media_policy(media):
+    """Post-process media when allow_dupe_downloads skipped full dupefiltermedia.
+
+    Still collapses Messages ↔ Purchased unless keep_message_purchased_dupes.
+    """
+    return _maybe_collapse_message_purchased(list(media or []))
 
 
 def dupefilterPost(post):
@@ -196,6 +240,22 @@ def previous_download_filter(medialist, username=None, model_id=None):
             m for m in medialist
             if (m.id, getattr(m, "post_id", getattr(m, "postid", None))) not in media_pairs
         ]
+        # Messages↔Purchased: if we already downloaded this media_id from Messages
+        # (or any area), skip Purchased/Paid copies unless user opted to keep both.
+        if not _keep_message_purchased_dupes() and media_ids:
+            from ofscraper.filters.media.message_purchased_dupes import (
+                media_response_bucket,
+            )
+
+            medialist = [
+                m
+                for m in medialist
+                if not (
+                    media_response_bucket(getattr(m, "responsetype", None))
+                    == "purchased"
+                    and m.id in media_ids
+                )
+            ]
     else:
         medialist = separate.separate_by_id(medialist, media_ids)
     log.debug(

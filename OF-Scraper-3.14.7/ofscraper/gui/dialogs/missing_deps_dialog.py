@@ -1,20 +1,35 @@
+"""Missing FFmpeg / manual CDM path notice.
+
+Kept intentionally simple (no QTextBrowser): labels + a plain download button.
+Older QTextBrowser + show()/finished paths hard-crashed the whole GUI on Windows
+when Close was clicked from the Areas page. Navigation happens *after* exec()
+returns (never while the modal dialog is still alive).
+"""
+from __future__ import annotations
+
 import logging
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QDesktopServices, QFont
 from PyQt6.QtWidgets import (
     QDialog,
-    QDialogButtonBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QTextBrowser,
+    QScrollArea,
     QVBoxLayout,
+    QWidget,
 )
 
+from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.styles import c
 
 log = logging.getLogger("shared")
+
+_FFMPEG_URL = (
+    "https://www.videohelp.com/download/ffmpeg-7.1.1-full_build.7z?r=GvPKbvspT"
+)
 
 
 class MissingDepsDialog(QDialog):
@@ -25,23 +40,21 @@ class MissingDepsDialog(QDialog):
         *,
         missing_ffmpeg: bool,
         missing_manual_cdm: bool,
-        key_mode: str = "cdrm",
-        on_open_ffmpeg=None,
-        on_open_cdm=None,
-        on_open_drm=None,
+        key_mode: str = "manual",
         parent=None,
     ):
         super().__init__(parent)
         self._missing_ffmpeg = bool(missing_ffmpeg)
         self._missing_manual_cdm = bool(missing_manual_cdm)
-        self._key_mode = str(key_mode).lower().strip() or "cdrm"
-        self._on_open_ffmpeg = on_open_ffmpeg
-        self._on_open_cdm = on_open_cdm
-        self._on_open_drm = on_open_drm
+        self._key_mode = str(key_mode).lower().strip() or "manual"
+        # "ffmpeg" | "cdm" | "drm" | None — read after exec() returns
+        self.chosen_action = None
 
         self.setWindowTitle("Missing configuration paths")
-        self.setWindowModality(Qt.WindowModality.NonModal)
-        self.setMinimumWidth(720)
+        self.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.setMinimumWidth(640)
+        self.setMinimumHeight(360)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -49,8 +62,8 @@ class MissingDepsDialog(QDialog):
         layout.setContentsMargins(18, 16, 18, 14)
         layout.setSpacing(10)
 
-        title = QLabel("Missing required file paths in `config.json`")
-        title.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
+        title = QLabel("Missing required file paths in config.json")
+        apply_font(title, "Segoe UI", 13, QFont.Weight.Bold)
         layout.addWidget(title)
 
         subtitle = QLabel(
@@ -60,110 +73,128 @@ class MissingDepsDialog(QDialog):
         subtitle.setProperty("muted", True)
         layout.addWidget(subtitle)
 
-        viewer = QTextBrowser()
-        viewer.setOpenExternalLinks(True)
-        viewer.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
-        viewer.setMinimumHeight(220)
-        viewer.setStyleSheet(
-            f"QTextBrowser {{ background-color: {c('base')}; color: {c('text')};"
-            f" border: 1px solid {c('surface1')}; }}"
-        )
-        viewer.setHtml(self._build_html())
-        layout.addWidget(viewer, stretch=1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        body = QWidget()
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 4, 0)
+        body_layout.setSpacing(12)
 
-        # Action buttons (conditional)
+        if self._missing_ffmpeg:
+            body_layout.addWidget(self._section_ffmpeg())
+        if self._missing_manual_cdm:
+            body_layout.addWidget(self._section_cdm())
+        if not self._missing_ffmpeg and not self._missing_manual_cdm:
+            body_layout.addWidget(QLabel("No missing settings detected."))
+        body_layout.addStretch(1)
+
+        scroll.setWidget(body)
+        layout.addWidget(scroll, stretch=1)
+
         actions_row = QHBoxLayout()
         actions_row.addStretch()
 
         if self._missing_ffmpeg:
-            self.ffmpeg_btn = QPushButton("Open Config → Download (FFmpeg)")
-            self.ffmpeg_btn.clicked.connect(self._open_ffmpeg)
-            actions_row.addWidget(self.ffmpeg_btn)
+            ffmpeg_btn = QPushButton("Open Config → Download (FFmpeg)")
+            ffmpeg_btn.clicked.connect(lambda: self._finish_with("ffmpeg"))
+            actions_row.addWidget(ffmpeg_btn)
 
         if self._missing_manual_cdm:
-            self.drm_btn = QPushButton("Generate DRM Keys")
-            self.drm_btn.clicked.connect(self._open_drm)
-            actions_row.addWidget(self.drm_btn)
+            drm_btn = QPushButton("Generate DRM Keys")
+            drm_btn.clicked.connect(lambda: self._finish_with("drm"))
+            actions_row.addWidget(drm_btn)
+            cdm_btn = QPushButton("Open Config → CDM (Manual keys)")
+            cdm_btn.clicked.connect(lambda: self._finish_with("cdm"))
+            actions_row.addWidget(cdm_btn)
 
-            self.cdm_btn = QPushButton("Open Config → CDM (Manual keys)")
-            self.cdm_btn.clicked.connect(self._open_cdm)
-            actions_row.addWidget(self.cdm_btn)
-
+        close_btn = QPushButton("Close")
+        close_btn.setDefault(True)
+        close_btn.clicked.connect(lambda: self._finish_with(None))
+        actions_row.addWidget(close_btn)
         layout.addLayout(actions_row)
 
-        # Close button
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+    def _section_ffmpeg(self) -> QWidget:
+        box = QWidget()
+        v = QVBoxLayout(box)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(6)
 
-    def _build_html(self) -> str:
-        parts = []
+        h = QLabel("FFmpeg")
+        apply_font(h, "Segoe UI", 11, QFont.Weight.Bold)
+        v.addWidget(h)
 
-        css = (
-            f"<style>"
-            f"body {{ color: {c('text')}; }}"
-            f" a {{ color: {c('blue')}; }}"
-            f" code {{ background-color: {c('surface1')}; color: {c('text')};"
-            f" padding: 1px 4px; border-radius: 3px; }}"
-            f"</style>"
+        # Rich-text QLabel + linkActivated (not QTextBrowser). Inline style on
+        # <a> is required — Qt ignores stylesheet "QLabel a { color }" for links.
+        link_color = c("blue") or "#89b4fa"
+        msg = QLabel(
+            "<p><b>Missing file path for FFmpeg in your config.</b> "
+            "This is needed to merge DRM protected audio and video files.</p>"
+            "<p>Use version <b>7.1.1</b> — download: "
+            f'<a href="{_FFMPEG_URL}" style="color: {link_color}; '
+            f'text-decoration: underline;">ffmpeg-7.1.1-full_build.7z</a>. '
+            "(Link for Windows systems only)</p>"
+            "<p>Extract the downloaded 7z file and provide the full file path "
+            "to <code>ffmpeg.exe</code> under Configuration → Download.</p>"
         )
+        msg.setWordWrap(True)
+        msg.setTextFormat(Qt.TextFormat.RichText)
+        msg.setOpenExternalLinks(False)
+        msg.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        msg.linkActivated.connect(self._open_url)
+        msg.setStyleSheet(f"QLabel {{ color: {c('text')}; }}")
+        v.addWidget(msg)
+        return box
 
-        if self._missing_ffmpeg:
-            parts.append(
-                """
-                <h3>FFmpeg</h3>
-                <p><b>Missing file path for FFmpeg in your config.</b> This is needed to merge DRM protected audio and video files.</p>
-                <p>Use version <b>7.1.1</b> — download:
-                <a href="https://www.videohelp.com/download/ffmpeg-7.1.1-full_build.7z?r=GvPKbvspT">ffmpeg-7.1.1-full_build.7z</a>. (Link for Windows systems only)</p>
-                <p>Extract the downloaded 7z file and provide the full file path to <code>ffmpeg.exe</code></p>
-                """
+    def _section_cdm(self) -> QWidget:
+        box = QWidget()
+        v = QVBoxLayout(box)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(6)
+
+        h = QLabel("Manual DRM keys not configured")
+        apply_font(h, "Segoe UI", 11, QFont.Weight.Bold)
+        v.addWidget(h)
+
+        if self._key_mode == "manual":
+            body = (
+                "Key Mode is set to manual but the DRM key file paths are missing "
+                "or invalid. OF-Scraper cannot decrypt DRM-protected content until "
+                "valid paths are configured.\n\n"
+                "Already have keys? Open Config → CDM and set client_id.bin / "
+                "private_key.pem, with Key Mode = manual.\n\n"
+                "Don't have keys yet? Use Generate DRM Keys to create them."
             )
-
-        if self._missing_manual_cdm:
-            if self._key_mode == "manual":
-                severity = (
-                    "<p><b>Key Mode is set to <code>manual</code> but the DRM key file paths "
-                    "are missing or invalid.</b> OF-Scraper cannot decrypt DRM-protected content "
-                    "until valid paths are configured.</p>"
-                )
-            else:
-                severity = (
-                    f"<p>Your current Key Mode is <code>{self._key_mode}</code>. "
-                    "Manual Widevine keys (<code>client_id.bin</code> / <code>private_key.pem</code>) "
-                    "are not configured. Setting up manual keys is recommended as a reliable "
-                    "fallback if the current key service is unavailable.</p>"
-                )
-            parts.append(
-                f"""
-                <h3>Manual DRM keys not configured</h3>
-                {severity}
-                <ul>
-                  <li><b>Already have keys?</b> Click <i>Open Config → CDM</i>
-                  to enter the paths to your <code>client_id.bin</code> and
-                  <code>private_key.pem</code> files, then set Key Mode to
-                  <code>manual</code>.</li>
-                  <li><b>Don't have keys yet?</b> Click <i>Generate DRM Keys</i> to use the
-                  built-in extraction tool to create them automatically.</li>
-                </ul>
-                """
+        else:
+            body = (
+                f"Your current Key Mode is {self._key_mode}. Manual Widevine keys "
+                "(client_id.bin / private_key.pem) are not configured. Setting up "
+                "manual keys is recommended as a fallback if the current key "
+                "service is unavailable."
             )
+        msg = QLabel(body)
+        msg.setWordWrap(True)
+        v.addWidget(msg)
+        return box
 
-        if not parts:
-            parts.append("<p>No missing settings detected.</p>")
+    def _open_url(self, url: str):
+        try:
+            QDesktopServices.openUrl(QUrl(str(url)))
+        except Exception as e:
+            log.debug(f"[GUI] Open URL failed: {e}")
 
-        return css + "\n" + "\n<hr/>\n".join(parts)
-
-    def _open_drm(self):
-        if not callable(self._on_open_drm):
-            return
-        self._on_open_drm()
-        self.accept()
-
-    def _open_ffmpeg(self):
-        if callable(self._on_open_ffmpeg):
-            self._on_open_ffmpeg()
-
-    def _open_cdm(self):
-        if callable(self._on_open_cdm):
-            self._on_open_cdm()
-
+    def _finish_with(self, action):
+        """Close the dialog; navigation (if any) runs after exec() returns."""
+        self.chosen_action = action
+        try:
+            code = (
+                QDialog.DialogCode.Accepted
+                if action
+                else QDialog.DialogCode.Rejected
+            )
+            self.done(int(code))
+        except Exception:
+            try:
+                self.hide()
+            except Exception:
+                pass

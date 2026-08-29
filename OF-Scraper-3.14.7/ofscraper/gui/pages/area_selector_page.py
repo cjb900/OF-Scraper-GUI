@@ -20,7 +20,9 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.styles import c
+from ofscraper.gui.utils.group_layout import compact_group, tune_group_layout
 from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
 from ofscraper.gui.utils.thread_worker import Worker
 from ofscraper.gui.widgets.sidebar import FilterSidebar
@@ -93,11 +95,21 @@ class AreaSelectorPage(QWidget):
         self._models_loaded = False
         self._models_error = None
         self._loaded_model_count = 0
+        self._models_load_gen = 0
+        self._models_worker = None
+        self._models_poll_timer = None
+        self._models_env_prepared = False
+        self._models_finish_scheduled = False
+        # True after action selected until MainWindow finishes missing-deps gate
+        # and calls start_pending_model_load() — avoids overlapping that dialog
+        # with the API model fetch (closing the dialog mid-fetch crashed the GUI).
+        self._pending_model_load = False
         self._separators = []
         self._block_discord_prompt = False
         self._setup_ui()
         self._load_area_settings()
         self._connect_signals()
+        self._sync_text_filename_option()
         self._refresh_discord_option_state()
 
     def _setup_ui(self):
@@ -118,7 +130,7 @@ class AreaSelectorPage(QWidget):
 
         # Header
         header = QLabel("Select Content Areas & Filters")
-        header.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
+        apply_font(header, "Segoe UI", 20, QFont.Weight.Bold)
         header.setProperty("heading", True)
         layout.addWidget(header)
 
@@ -131,9 +143,9 @@ class AreaSelectorPage(QWidget):
         layout.addSpacing(4)
 
         # Areas group
-        self.areas_group = QGroupBox("Content Areas")
+        self.areas_group = compact_group(QGroupBox("Content Areas"))
         self.areas_grid = QGridLayout(self.areas_group)
-        self.areas_grid.setSpacing(8)
+        tune_group_layout(self.areas_grid)
 
         _area_tips = {
             "Profile": "Scrape the model's profile header media (avatar, banner).",
@@ -149,7 +161,7 @@ class AreaSelectorPage(QWidget):
         }
         for i, area in enumerate(DOWNLOAD_AREAS):
             cb = QCheckBox(area)
-            cb.setFont(QFont("Segoe UI", 11))
+            apply_font(cb, "Segoe UI", 11)
             cb.setChecked(True)
             cb.setToolTip(_area_tips.get(area, ""))
             row = i // 3
@@ -168,8 +180,8 @@ class AreaSelectorPage(QWidget):
         deselect_all = StyledButton("Deselect All")
         deselect_all.clicked.connect(self._deselect_all)
         bulk_layout.addWidget(deselect_all)
-        bulk_layout.addStretch()
         bulk_layout.addWidget(_make_help_btn("sca-content-areas"))
+        bulk_layout.addStretch()
         layout.addLayout(bulk_layout)
 
         # Media Types group
@@ -179,8 +191,9 @@ class AreaSelectorPage(QWidget):
         self._separators.append(media_sep)
         layout.addWidget(media_sep)
 
-        media_group = QGroupBox("Media Types to Download")
+        media_group = compact_group(QGroupBox("Media Types to Download"))
         media_layout = QHBoxLayout(media_group)
+        tune_group_layout(media_layout)
         media_layout.setSpacing(16)
 
         # Initialize checkboxes from the current config filter setting
@@ -190,28 +203,56 @@ class AreaSelectorPage(QWidget):
         self._mediatype_checks = {}
         for mt in ["Images", "Videos", "Audios"]:
             cb = QCheckBox(mt)
-            cb.setFont(QFont("Segoe UI", 11))
+            apply_font(cb, "Segoe UI", 11)
             cb.setChecked(mt.lower() in config_filter_lower)
             cb.setToolTip(f"Include {mt.lower()} in this scrape session.")
             media_layout.addWidget(cb)
             self._mediatype_checks[mt] = cb
 
-        media_layout.addStretch()
         media_layout.addWidget(_make_help_btn("sca-media-types"))
+        media_layout.addStretch()
         layout.addWidget(media_group)
 
-        # Include post text option
-        text_group = QGroupBox("Post Text")
-        text_layout = QHBoxLayout(text_group)
-        text_layout.setSpacing(16)
+        # Include post text options
+        text_group = compact_group(QGroupBox("Post Text"))
+        text_layout = QVBoxLayout(text_group)
+        tune_group_layout(text_layout)
+
         self.include_text_check = QCheckBox("Include Post Text")
-        self.include_text_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.include_text_check, "Segoe UI", 11)
         self.include_text_check.setChecked(False)
         self.include_text_check.setToolTip(
-            "Download the text content of posts in addition to media files."
+            "Download each post's caption/description as a .txt file alongside media.\n"
+            "Empty captions are skipped (counted as skipped, not failed)."
         )
         text_layout.addWidget(self.include_text_check)
-        text_layout.addStretch()
+
+        self.text_filename_from_post_check = QCheckBox(
+            "Name text files from post text (instead of post ID)"
+        )
+        apply_font(self.text_filename_from_post_check, "Segoe UI", 11)
+        self.text_filename_from_post_check.setChecked(False)
+        self.text_filename_from_post_check.setEnabled(False)
+        self.text_filename_from_post_check.setToolTip(
+            "When checked, .txt filenames use the truncated/sanitized post caption\n"
+            "(Configuration → File Options → Text Length / Text Type).\n"
+            "When unchecked (default), .txt files follow File Format\n"
+            "(e.g. {media_id}.{ext} becomes {post_id}.txt for text posts).\n\n"
+            "Keep Text Length under ~250 so name + \".txt\" stays within the\n"
+            "255-character (Windows) / 255-byte (Linux) single-filename limit."
+        )
+        text_layout.addWidget(self.text_filename_from_post_check)
+
+        self.text_filename_length_warning = QLabel(
+            "⚠ Filename limit: Windows NTFS allows 255 Unicode characters per filename "
+            "component; Linux (e.g. ext4) typically allows 255 bytes. Keep Configuration → "
+            "Text Length under ~250 when naming from captions so name + \".txt\" fits."
+        )
+        self.text_filename_length_warning.setWordWrap(True)
+        self.text_filename_length_warning.setProperty("muted", True)
+        self.text_filename_length_warning.setVisible(False)
+        text_layout.addWidget(self.text_filename_length_warning)
+
         layout.addWidget(text_group)
 
         # Extra options
@@ -221,43 +262,40 @@ class AreaSelectorPage(QWidget):
         self._separators.append(sep)
         layout.addWidget(sep)
 
-        extras_group = QGroupBox("Additional Options")
+        extras_group = compact_group(QGroupBox("Additional Options"))
         extras_layout = QVBoxLayout(extras_group)
-        h = QHBoxLayout()
-        h.addStretch()
-        h.addWidget(_make_help_btn("sca-additional-options"))
-        extras_layout.addLayout(h)
+        tune_group_layout(extras_layout)
 
         self.scrape_paid_check = QCheckBox(
             "Scrape entire paid page (slower but more comprehensive)"
         )
-        self.scrape_paid_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.scrape_paid_check, "Segoe UI", 11)
         self.scrape_paid_check.setToolTip(
             "Tries harder to enumerate all paid/purchased items.\n"
             "May be significantly slower but catches items missed by normal scraping."
         )
         row = QHBoxLayout()
         row.addWidget(self.scrape_paid_check)
-        row.addStretch()
         row.addWidget(_make_help_btn("sca-scrape-paid"))
+        row.addStretch()
         extras_layout.addLayout(row)
 
         self.scrape_labels_check = QCheckBox("Scrape labels")
-        self.scrape_labels_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.scrape_labels_check, "Segoe UI", 11)
         self.scrape_labels_check.setToolTip(
             "Pull content organized by the model's custom labels/categories when available."
         )
         row = QHBoxLayout()
         row.addWidget(self.scrape_labels_check)
-        row.addStretch()
         row.addWidget(_make_help_btn("sca-scrape-labels"))
+        row.addStretch()
         extras_layout.addLayout(row)
 
         # Discord webhook option (enabled only if config has a webhook URL)
         self.discord_updates_check = QCheckBox(
             "Send updates to Discord (requires webhook URL in Config → General)"
         )
-        self.discord_updates_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.discord_updates_check, "Segoe UI", 11)
         self.discord_updates_check.setChecked(False)
         self.discord_updates_check.setToolTip(
             "When enabled, log updates are posted to your configured Discord webhook.\n"
@@ -280,38 +318,56 @@ class AreaSelectorPage(QWidget):
         row = QHBoxLayout()
         row.addWidget(self.discord_updates_check)
         row.addWidget(self.discord_level_combo)
-        row.addStretch()
         row.addWidget(_make_help_btn("sca-discord-updates"))
+        row.addStretch()
         extras_layout.addLayout(row)
         layout.addWidget(extras_group)
 
         # Advanced options
-        adv_group = QGroupBox("Advanced Scrape Options")
+        adv_group = compact_group(QGroupBox("Advanced Scrape Options"))
         adv_layout = QVBoxLayout(adv_group)
-        h = QHBoxLayout()
-        h.addStretch()
-        h.addWidget(_make_help_btn("sca-advanced-options"))
-        adv_layout.addLayout(h)
+        tune_group_layout(adv_layout)
 
         self.allow_dupes_check = QCheckBox(
             "Allow duplicates (do NOT skip duplicates; treat reposts as new items)"
         )
-        self.allow_dupes_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.allow_dupes_check, "Segoe UI", 11)
         self.allow_dupes_check.setToolTip(
-            "When enabled, the duplicate media filter is bypassed completely.\n"
+            "When enabled, the duplicate media filter is bypassed for most cases.\n"
             "All media — including identical content reposted across multiple posts — will be included.\n"
-            "Other filters (locked, types, date ranges, etc.) still apply."
+            "Other filters (locked, types, date ranges, etc.) still apply.\n\n"
+            "Use the option below to control Messages ↔ Purchased overlap."
         )
         row = QHBoxLayout()
         row.addWidget(self.allow_dupes_check)
-        row.addStretch()
         row.addWidget(_make_help_btn("sca-allow-dupes"))
+        row.addStretch()
+        adv_layout.addLayout(row)
+
+        self.keep_msg_purchased_dupes_check = QCheckBox(
+            "Also keep Messages + Purchased copies of the same media"
+        )
+        apply_font(self.keep_msg_purchased_dupes_check, "Segoe UI", 11)
+        self.keep_msg_purchased_dupes_check.setEnabled(False)
+        self.keep_msg_purchased_dupes_check.setToolTip(
+            "Only applies when Allow duplicates is on.\n\n"
+            "Unchecked (default): if the same media appears in both Messages and\n"
+            "Purchased, keep Messages only. Other duplicates (reposts) are still kept.\n\n"
+            "Checked: download both the Messages and Purchased copies."
+        )
+        self.allow_dupes_check.toggled.connect(self._on_allow_dupes_toggled)
+        row = QHBoxLayout()
+        # Indent under Allow duplicates
+        row.addSpacing(24)
+        row.addWidget(self.keep_msg_purchased_dupes_check)
+        row.addWidget(_make_help_btn("sca-keep-msg-purchased-dupes"))
+        row.addStretch()
         adv_layout.addLayout(row)
 
         self.rescrape_all_check = QCheckBox(
             "Rescrape everything (ignore cache / scan from the beginning)"
         )
-        self.rescrape_all_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.rescrape_all_check, "Segoe UI", 11)
         self.rescrape_all_check.setToolTip(
             "Forces a full history scan, ignoring any cached 'after' timestamps.\n"
             "Useful if you suspect missed content or want a complete re-scan."
@@ -319,14 +375,14 @@ class AreaSelectorPage(QWidget):
         self.rescrape_all_check.toggled.connect(self._on_rescrape_toggled)
         row = QHBoxLayout()
         row.addWidget(self.rescrape_all_check)
-        row.addStretch()
         row.addWidget(_make_help_btn("sca-rescrape-all"))
+        row.addStretch()
         adv_layout.addLayout(row)
 
         self.delete_db_check = QCheckBox(
             "Delete model DB before scraping (resets downloaded/unlocked history)"
         )
-        self.delete_db_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.delete_db_check, "Segoe UI", 11)
         self.delete_db_check.setEnabled(False)
         self.delete_db_check.setToolTip(
             "Deletes the model's SQLite database before scraping starts.\n"
@@ -335,14 +391,14 @@ class AreaSelectorPage(QWidget):
         )
         row = QHBoxLayout()
         row.addWidget(self.delete_db_check)
-        row.addStretch()
         row.addWidget(_make_help_btn("sca-delete-db"))
+        row.addStretch()
         adv_layout.addLayout(row)
 
         self.delete_downloads_check = QCheckBox(
             "Also delete existing downloaded files for selected models"
         )
-        self.delete_downloads_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.delete_downloads_check, "Segoe UI", 11)
         self.delete_downloads_check.setEnabled(False)
         self.delete_downloads_check.setToolTip(
             "Removes previously downloaded files for the selected models.\n"
@@ -352,8 +408,8 @@ class AreaSelectorPage(QWidget):
         self.delete_downloads_check.toggled.connect(self._on_delete_downloads_toggled)
         row = QHBoxLayout()
         row.addWidget(self.delete_downloads_check)
-        row.addStretch()
         row.addWidget(_make_help_btn("sca-delete-downloads"))
+        row.addStretch()
         adv_layout.addLayout(row)
 
         hint = QLabel(
@@ -366,8 +422,9 @@ class AreaSelectorPage(QWidget):
         # Video quality selector
         quality_row = QHBoxLayout()
         quality_label = QLabel("Video quality:")
-        quality_label.setFont(QFont("Segoe UI", 11))
+        apply_font(quality_label, "Segoe UI", 11)
         quality_row.addWidget(quality_label)
+        quality_row.addWidget(_make_help_btn("sca-quality"))
         self.quality_combo = QComboBox()
         self.quality_combo.addItems(["Default", "240", "720", "source"])
         self.quality_combo.setFixedWidth(100)
@@ -379,7 +436,6 @@ class AreaSelectorPage(QWidget):
         )
         quality_row.addWidget(self.quality_combo)
         quality_row.addStretch()
-        quality_row.addWidget(_make_help_btn("sca-quality"))
         adv_layout.addLayout(quality_row)
 
         layout.addWidget(adv_group)
@@ -391,17 +447,14 @@ class AreaSelectorPage(QWidget):
         self._separators.append(sep_daemon)
         layout.addWidget(sep_daemon)
 
-        daemon_group = QGroupBox("Daemon Mode (Auto-Repeat Scraping)")
+        daemon_group = compact_group(QGroupBox("Daemon Mode (Auto-Repeat Scraping)"))
         daemon_layout = QVBoxLayout(daemon_group)
-        h = QHBoxLayout()
-        h.addStretch()
-        h.addWidget(_make_help_btn("sca-daemon-mode"))
-        daemon_layout.addLayout(h)
+        tune_group_layout(daemon_layout)
 
         self.daemon_check = QCheckBox(
             "Enable daemon mode (automatically re-scrape on a schedule)"
         )
-        self.daemon_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.daemon_check, "Segoe UI", 11)
         self.daemon_check.setToolTip(
             "Automatically repeats the scrape at a fixed interval.\n"
             "The GUI will show a countdown timer between runs."
@@ -409,14 +462,15 @@ class AreaSelectorPage(QWidget):
         self.daemon_check.toggled.connect(self._on_daemon_toggled)
         row = QHBoxLayout()
         row.addWidget(self.daemon_check)
-        row.addStretch()
         row.addWidget(_make_help_btn("sca-daemon-enable"))
+        row.addStretch()
         daemon_layout.addLayout(row)
 
         interval_layout = QHBoxLayout()
         interval_label = QLabel("Interval:")
-        interval_label.setFont(QFont("Segoe UI", 11))
+        apply_font(interval_label, "Segoe UI", 11)
         interval_layout.addWidget(interval_label)
+        interval_layout.addWidget(_make_help_btn("sca-daemon-interval"))
 
         self.daemon_interval = QDoubleSpinBox()
         self.daemon_interval.setRange(1.0, 1440.0)
@@ -424,43 +478,42 @@ class AreaSelectorPage(QWidget):
         self.daemon_interval.setSuffix(" minutes")
         self.daemon_interval.setDecimals(1)
         self.daemon_interval.setSingleStep(5.0)
-        self.daemon_interval.setFont(QFont("Segoe UI", 11))
+        apply_font(self.daemon_interval, "Segoe UI", 11)
         self.daemon_interval.setEnabled(False)
         self.daemon_interval.setToolTip(
             "Minutes between each automatic scrape run (1-1440).\n"
             "1440 minutes = 24 hours."
         )
         interval_layout.addWidget(self.daemon_interval)
-        interval_layout.addWidget(_make_help_btn("sca-daemon-interval"))
         interval_layout.addStretch()
         daemon_layout.addLayout(interval_layout)
 
         self.notify_check = QCheckBox("System notification when scraping starts")
-        self.notify_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.notify_check, "Segoe UI", 11)
         self.notify_check.setToolTip(
             "Show a system tray notification when each daemon scrape run begins."
         )
         row = QHBoxLayout()
         row.addWidget(self.notify_check)
-        row.addStretch()
         row.addWidget(_make_help_btn("sca-daemon-notify"))
+        row.addStretch()
         daemon_layout.addLayout(row)
 
         self.sound_check = QCheckBox("Sound alert when scraping starts")
-        self.sound_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.sound_check, "Segoe UI", 11)
         self.sound_check.setToolTip(
             "Play a beep sound when each daemon scrape run begins (Windows only)."
         )
         row = QHBoxLayout()
         row.addWidget(self.sound_check)
-        row.addStretch()
         row.addWidget(_make_help_btn("sca-daemon-sound"))
+        row.addStretch()
         daemon_layout.addLayout(row)
 
         self.daemon_discord_ping_check = QCheckBox(
             "@here Discord mention when new content is found"
         )
-        self.daemon_discord_ping_check.setFont(QFont("Segoe UI", 11))
+        apply_font(self.daemon_discord_ping_check, "Segoe UI", 11)
         self.daemon_discord_ping_check.setEnabled(False)
         self.daemon_discord_ping_check.setToolTip(
             "When daemon mode finds new content to download, prepend @here to the\n"
@@ -507,7 +560,7 @@ class AreaSelectorPage(QWidget):
         self.next_btn = StyledButton("Next: Select Models  >>", primary=True)
         self.next_btn.setFixedWidth(240)
         self.next_btn.setFixedHeight(38)
-        self.next_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        apply_font(self.next_btn, "Segoe UI", 12, QFont.Weight.Bold)
         self.next_btn.setStyleSheet(
             f"QPushButton {{ background-color: {c('blue')}; color: {c('base')};"
             f" font-weight: bold; border: none; border-radius: 6px;"
@@ -596,6 +649,11 @@ class AreaSelectorPage(QWidget):
             # Additional options
             if "include_text" in gs:
                 self.include_text_check.setChecked(bool(gs["include_text"]))
+            if "text_filename_from_post" in gs:
+                self.text_filename_from_post_check.setChecked(
+                    bool(gs["text_filename_from_post"])
+                )
+            self._sync_text_filename_option()
             if "scrape_paid" in gs:
                 self.scrape_paid_check.setChecked(bool(gs["scrape_paid"]))
             if "scrape_labels" in gs:
@@ -606,6 +664,15 @@ class AreaSelectorPage(QWidget):
                 self.rescrape_all_check.setChecked(bool(gs["rescrape_all"]))
             if "allow_dupes" in gs:
                 self.allow_dupes_check.setChecked(bool(gs["allow_dupes"]))
+            # Sub-option only meaningful when allow_dupes is on
+            self.keep_msg_purchased_dupes_check.setEnabled(
+                self.allow_dupes_check.isChecked()
+            )
+            if "keep_msg_purchased_dupes" in gs:
+                self.keep_msg_purchased_dupes_check.setChecked(
+                    bool(gs["keep_msg_purchased_dupes"])
+                    and self.allow_dupes_check.isChecked()
+                )
             if "delete_db" in gs:
                 self.delete_db_check.setChecked(bool(gs["delete_db"]))
             if "delete_downloads" in gs:
@@ -677,9 +744,14 @@ class AreaSelectorPage(QWidget):
             gs["area_checks"] = {area: cb.isChecked() for area, cb in self._area_checks.items()}
             gs["media_types"] = {mt: cb.isChecked() for mt, cb in self._mediatype_checks.items()}
             gs["include_text"] = self.include_text_check.isChecked()
+            gs["text_filename_from_post"] = self.text_filename_from_post_check.isChecked()
             gs["scrape_paid"] = self.scrape_paid_check.isChecked()
             gs["scrape_labels"] = self.scrape_labels_check.isChecked()
             gs["allow_dupes"] = self.allow_dupes_check.isChecked()
+            gs["keep_msg_purchased_dupes"] = (
+                self.allow_dupes_check.isChecked()
+                and self.keep_msg_purchased_dupes_check.isChecked()
+            )
             gs["rescrape_all"] = self.rescrape_all_check.isChecked()
             gs["delete_db"] = self.delete_db_check.isChecked()
             gs["delete_downloads"] = self.delete_downloads_check.isChecked()
@@ -706,8 +778,10 @@ class AreaSelectorPage(QWidget):
 
     # Area-settings keys that are owned by this page (exclude theme etc.)
     _AREA_SETTINGS_KEYS = (
-        "area_checks", "media_types", "include_text", "scrape_paid", "scrape_labels",
-        "allow_dupes", "rescrape_all", "delete_db", "delete_downloads", "quality",
+        "area_checks", "media_types", "include_text", "text_filename_from_post",
+        "scrape_paid", "scrape_labels",
+        "allow_dupes", "keep_msg_purchased_dupes", "rescrape_all",
+        "delete_db", "delete_downloads", "quality",
         "daemon_enabled", "daemon_interval", "daemon_notify", "daemon_sound",
         "after_mode", "after_date", "after_rel_value", "after_rel_unit", "after_enabled",
         "before_mode", "before_date", "before_rel_value", "before_rel_unit", "before_enabled",
@@ -757,10 +831,14 @@ class AreaSelectorPage(QWidget):
                 cb.setChecked(True)
             # Additional options
             self.include_text_check.setChecked(False)
+            self.text_filename_from_post_check.setChecked(False)
+            self._sync_text_filename_option()
             self.scrape_paid_check.setChecked(False)
             self.scrape_labels_check.setChecked(False)
             # Advanced options
             self.allow_dupes_check.setChecked(False)
+            self.keep_msg_purchased_dupes_check.setChecked(False)
+            self.keep_msg_purchased_dupes_check.setEnabled(False)
             self.rescrape_all_check.setChecked(False)
             self.delete_db_check.setChecked(False)
             self.delete_downloads_check.setChecked(False)
@@ -797,10 +875,16 @@ class AreaSelectorPage(QWidget):
             cb.toggled.connect(self._save_area_settings)
         for cb in self._mediatype_checks.values():
             cb.toggled.connect(self._save_area_settings)
+        self.include_text_check.toggled.connect(self._on_include_text_toggled)
+        self.text_filename_from_post_check.toggled.connect(
+            self._on_text_filename_from_post_toggled
+        )
         self.include_text_check.toggled.connect(self._save_area_settings)
+        self.text_filename_from_post_check.toggled.connect(self._save_area_settings)
         self.scrape_paid_check.toggled.connect(self._save_area_settings)
         self.scrape_labels_check.toggled.connect(self._save_area_settings)
         self.allow_dupes_check.toggled.connect(self._save_area_settings)
+        self.keep_msg_purchased_dupes_check.toggled.connect(self._save_area_settings)
         self.rescrape_all_check.toggled.connect(self._save_area_settings)
         self.delete_db_check.toggled.connect(self._save_area_settings)
         self.delete_downloads_check.toggled.connect(self._save_area_settings)
@@ -825,6 +909,10 @@ class AreaSelectorPage(QWidget):
     def _connect_signals(self):
         app_signals.action_selected.connect(self._on_action_selected)
         app_signals.theme_changed.connect(self._apply_theme)
+        self.include_text_check.toggled.connect(self._on_include_text_toggled)
+        self.text_filename_from_post_check.toggled.connect(
+            self._on_text_filename_from_post_toggled
+        )
 
     def _apply_theme(self, _is_dark=True):
         """Update hardcoded styles when theme changes."""
@@ -859,8 +947,10 @@ class AreaSelectorPage(QWidget):
 
     def _on_reload_models(self):
         """Force a fresh model fetch (uses the userlist already set in args)."""
+        self._cancel_models_worker()
         self._models_loaded = False
         self._models_loading = False
+        self._pending_model_load = False
         self.retry_models_btn.hide()
         self.reload_models_btn.hide()
         self._start_model_load()
@@ -869,8 +959,18 @@ class AreaSelectorPage(QWidget):
         super().showEvent(event)
         # If config changed, keep Discord checkbox state accurate.
         self._refresh_discord_option_state()
-        # If we already have actions but models haven't loaded yet, start loading.
-        if self._current_actions and not (self._models_loaded or self._models_loading):
+        # First entry is owned by MainWindow._prepare_area_page_entry (missing-deps
+        # gate). Only resume loads here after that gate has run this session.
+        mw = self.window()
+        gate_done = bool(
+            getattr(mw, "_missing_deps_notice_shown", False)
+            or getattr(mw, "_missing_deps_gate_cleared", False)
+        )
+        if not gate_done:
+            return
+        if self._pending_model_load and self._current_actions:
+            self.start_pending_model_load()
+        elif self._current_actions and not (self._models_loaded or self._models_loading):
             self._start_model_load()
 
     def _refresh_discord_option_state(self):
@@ -949,6 +1049,8 @@ class AreaSelectorPage(QWidget):
         self.discord_level_combo.setEnabled(False)
         # Reset advanced options
         self.allow_dupes_check.setChecked(False)
+        self.keep_msg_purchased_dupes_check.setChecked(False)
+        self.keep_msg_purchased_dupes_check.setEnabled(False)
         self.rescrape_all_check.setChecked(False)
         self.delete_db_check.setChecked(False)
         self.delete_downloads_check.setChecked(False)
@@ -966,8 +1068,10 @@ class AreaSelectorPage(QWidget):
         config_filter_lower = {x.lower() for x in config_filter}
         for mt, cb in self._mediatype_checks.items():
             cb.setChecked(mt.lower() in config_filter_lower)
-        # Reset post text checkbox
+        # Reset post text checkboxes
         self.include_text_check.setChecked(False)
+        self.text_filename_from_post_check.setChecked(False)
+        self._sync_text_filename_option()
         # Reset filter sidebar
         self.filter_sidebar.reset_all()
         # Reset model loading state so models reload on next visit
@@ -976,11 +1080,38 @@ class AreaSelectorPage(QWidget):
         self._refresh_discord_option_state()
 
     def _on_action_selected(self, actions):
-        """Update available areas based on selected actions."""
+        """Update available areas based on selected actions.
+
+        Model fetch is deferred until MainWindow finishes the missing-deps
+        notice (or skips it). Overlapping that popup with the fetch caused
+        hard GUI crashes when the popup was closed mid-load.
+        """
         self._current_actions = actions
         self._update_available_areas()
-        # Begin loading models immediately so the user sees progress here.
+        self._pending_model_load = True
+        try:
+            self.next_btn.setEnabled(False)
+            self.model_loading_label.setText("Waiting to load models...")
+            self.model_loading_label.show()
+            self.model_loading_bar.hide()
+        except RuntimeError:
+            pass
+
+    def start_pending_model_load(self):
+        """Called by MainWindow after the missing-deps gate completes."""
+        self._pending_model_load = False
+        if not self._current_actions:
+            return
+        if self._models_loaded or self._models_loading:
+            return
         self._start_model_load()
+
+    def _on_allow_dupes_toggled(self, checked):
+        """Enable the Messages+Purchased sub-option only when Allow duplicates is on."""
+        on = bool(checked)
+        self.keep_msg_purchased_dupes_check.setEnabled(on)
+        if not on:
+            self.keep_msg_purchased_dupes_check.setChecked(False)
 
     def _on_rescrape_toggled(self, checked):
         self.delete_db_check.setEnabled(checked)
@@ -996,201 +1127,411 @@ class AreaSelectorPage(QWidget):
 
     def _retry_model_load(self):
         """Reset state and re-fetch models (called from retry button)."""
+        self._cancel_models_worker()
         self._models_loaded = False
         self._models_loading = False
         self.retry_models_btn.hide()
         self._start_model_load()
 
+    def _widget_alive(self) -> bool:
+        """False if this page's Qt widgets were deleted (navigate-away / shutdown)."""
+        try:
+            _ = self.next_btn.isEnabled()
+            return True
+        except RuntimeError:
+            return False
+        except Exception:
+            return False
+
+    def _cancel_models_worker(self):
+        """Ignore any in-flight worker; stop poll timer; clean fetch environment."""
+        self._models_load_gen = int(getattr(self, "_models_load_gen", 0) or 0) + 1
+        self._stop_models_poll()
+        self._models_worker = None
+        self._models_finish_scheduled = False
+        try:
+            from ofscraper.gui.utils.model_fetch import clear_handoff
+
+            clear_handoff()
+        except Exception:
+            pass
+        self._cleanup_models_env()
+
+    def _stop_models_poll(self):
+        timer = getattr(self, "_models_poll_timer", None)
+        if timer is not None:
+            try:
+                timer.stop()
+            except Exception:
+                pass
+
+    def _cleanup_models_env(self):
+        if not getattr(self, "_models_env_prepared", False):
+            return
+        self._models_env_prepared = False
+        try:
+            from ofscraper.gui.utils.model_fetch import cleanup_model_fetch_environment
+
+            cleanup_model_fetch_environment()
+        except Exception:
+            pass
+
     def _start_model_load(self):
         """Fetch subscription models from API in background; disable Next until ready."""
-        if self._models_loading or self._models_loaded:
+        if self._models_loading:
             return
+        if self._models_loaded:
+            return
+
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+            breadcrumb("ui_start_model_load", "Areas page")
+        except Exception:
+            pass
 
         self._models_loading = True
         self._models_error = None
         self._loaded_model_count = 0
+        self._models_finish_scheduled = False
+        self._models_load_gen = int(getattr(self, "_models_load_gen", 0) or 0) + 1
+        load_gen = self._models_load_gen
         self.retry_models_btn.hide()
         self.reload_models_btn.hide()
 
-        self.next_btn.setEnabled(False)
-        self.model_loading_label.setText("Loading models from API...")
-        self.model_loading_label.show()
-        self.model_loading_bar.show()
-
-        # Defensive: close any stray legacy top-level loading popup that might
-        # still be created by older code paths or stale Qt objects.
         try:
-            from PyQt6.QtWidgets import QApplication, QLabel
-
-            for w in QApplication.topLevelWidgets():
-                if w is None or w is self.window():
-                    continue
-                try:
-                    # If a top-level window contains a QLabel with this exact text,
-                    # it's almost certainly the unwanted popup.
-                    lbls = w.findChildren(QLabel)
-                    if any((l.text() or "").strip() == "Loading models from API..." for l in lbls):
-                        w.close()
-                except Exception:
-                    continue
-        except Exception:
-            pass
+            self.next_btn.setEnabled(False)
+            self.model_loading_label.setText("Loading models from API...")
+            self.model_loading_label.show()
+            self.model_loading_bar.show()
+        except RuntimeError:
+            self._models_loading = False
+            return
 
         if not (self.manager and getattr(self.manager, "model_manager", None)):
             self._models_loading = False
             self._models_error = "Model manager not available"
-            self.model_loading_bar.hide()
-            self.model_loading_label.setText("Model manager not available")
-            self.next_btn.setEnabled(True)
+            try:
+                self.model_loading_bar.hide()
+                self.model_loading_label.setText("Model manager not available")
+                self.next_btn.setEnabled(True)
+            except RuntimeError:
+                pass
             return
 
-        worker = Worker(self._fetch_models)
-        worker.signals.finished.connect(self._on_models_loaded)
-        worker.signals.error.connect(self._on_models_error)
-        from PyQt6.QtCore import QThreadPool
-        QThreadPool.globalInstance().start(worker)
-
-    def _fetch_models(self):
-        import asyncio
-        import ofscraper.data.models.utils.retriver as retriver
-        import ofscraper.utils.paths.common as common_paths
-        import ofscraper.utils.auth.utils.dict as auth_dict_mod
-
-        # Log the auth file path and contents for debugging
+        # Clear profile cache on the UI thread only (not from the worker).
         try:
-            auth_path = common_paths.get_auth_file()
-            log.info(f"[GUI retry] Auth file path: {auth_path}")
-            auth_data = auth_dict_mod.get_auth_dict()
-            filled = {k: ("set" if v else "EMPTY") for k, v in auth_data.items()}
-            log.info(f"[GUI retry] Auth field status: {filled}")
+            import ofscraper.utils.profiles.data as profile_data
 
-            # Bail out early if required auth fields are empty — no point
-            # hammering the API with empty credentials.
-            required = ["sess", "auth_id", "user_agent", "x-bc"]
-            missing = [k for k in required if not auth_data.get(k)]
-            if missing:
-                raise Exception(
-                    f"Auth fields not configured: {', '.join(missing)}. "
-                    "Please fill in your auth credentials first."
-                )
-        except Exception as e:
-            log.warning(f"[GUI retry] Auth check failed: {e}")
-            raise
+            profile_data.currentData = None
+            profile_data.currentProfile = None
+        except Exception:
+            pass
 
-        # Clear cached data so we actually re-fetch from the API
-        self.manager.model_manager._all_subs_dict = {}
-
-        # Clear the profile/user info cache so stale None values from
-        # a previous failed auth attempt don't poison the retry.
-        import ofscraper.utils.profiles.data as profile_data
-        profile_data.currentData = None
-        profile_data.currentProfile = None
-
-        # Read the userlist from settings (set by the action page before this
-        # fetch was triggered).  The settings cache was already refreshed there,
-        # but call update_settings() once more in case this is a Reload triggered
-        # from this page without going through the action page again.
         try:
             import ofscraper.utils.settings as _settings_mod
+
             _settings_mod.update_settings()
-            _ul_for_fetch = self._get_active_userlist()
-            if _ul_for_fetch:
-                log.info(f"[GUI] Fetching models filtered to user lists: {_ul_for_fetch}")
-            else:
-                log.info("[GUI] Fetching all subscribed models (no user list filter)")
-        except Exception as _ule:
-            log.warning(f"[GUI] Could not read userlist from settings: {_ule}")
-            _ul_for_fetch = []
+        except Exception:
+            pass
 
-        # Run the async API call directly with a fresh event loop,
-        # bypassing the @run decorator which can leave stale loop state.
-        loop = asyncio.new_event_loop()
+        userlist = self._get_active_userlist()
+        load_gen = self._models_load_gen
+
+        def _job():
+            from ofscraper.gui.utils.model_fetch import (
+                fetch_subscription_models,
+                publish_handoff,
+                wait_for_ui_ack,
+            )
+
+            try:
+                dicts = fetch_subscription_models(userlist=userlist)
+                publish_handoff(gen=load_gen, payload=dicts)
+                wait_for_ui_ack()
+                return len(dicts or [])
+            except Exception as e:
+                publish_handoff(gen=load_gen, error=str(e))
+                wait_for_ui_ack()
+                raise
+
+        # Prepare NullLive / quiet console on the MAIN thread (not the worker).
         try:
-            asyncio.set_event_loop(loop)
-            if _ul_for_fetch:
-                # Bypass get_models() (which always fetches ALL subscriptions) and
-                # call get_otherlist() directly so we only get members of the named
-                # list(s).  The @run decorator detects the running loop and returns
-                # the raw coroutine, which we can then await inside _do_fetch.
-                import ofscraper.data.api.subscriptions.lists as _lists_mod
-                import ofscraper.classes.of.models as _models_cls
+            from ofscraper.gui.utils.model_fetch import (
+                clear_handoff,
+                prepare_model_fetch_environment,
+            )
 
-                async def _do_fetch_list():
-                    raw = _lists_mod.get_otherlist()
-                    if asyncio.iscoroutine(raw):
-                        raw = await raw
-                    raw = raw or []
-                    log.info(f"[GUI] User list fetch returned {len(raw)} member(s)")
-                    return [_models_cls.Model(m) for m in raw]
+            clear_handoff()
+            prepare_model_fetch_environment()
+            self._models_env_prepared = True
+        except Exception as e:
+            log.warning(f"[GUI] prepare_model_fetch_environment failed: {e}")
 
-                data = loop.run_until_complete(_do_fetch_list())
-            else:
-                data = loop.run_until_complete(retriver.get_models())
-            self.manager.model_manager.all_subs_dict = data
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
+        self._stop_models_poll()
+        # No cross-thread Qt signals — poll worker.done from a main-thread timer.
+        self._models_worker = Worker(_job, emit_signals=False)
+        from PyQt6.QtCore import QThreadPool, QTimer
 
-        return getattr(self.manager.model_manager, "all_subs_obj", None) or []
+        if self._models_poll_timer is None:
+            self._models_poll_timer = QTimer(self)
+            self._models_poll_timer.setInterval(50)
+            self._models_poll_timer.timeout.connect(self._poll_models_worker)
 
-    def _on_models_loaded(self, models):
-        self._models_loading = False
-        self._loaded_model_count = len(models or [])
-        self.model_loading_bar.hide()
-        if self._loaded_model_count == 0:
-            self._models_loaded = False  # allow retry after fixing auth
-            self._show_auth_failure_prompt()
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+            breadcrumb("ui_worker_queued", f"gen={load_gen} poll=1 handoff=1")
+        except Exception:
+            pass
+        QThreadPool.globalInstance().start(self._models_worker)
+        self._models_poll_timer.start()
+
+    def _poll_models_worker(self):
+        """Main-thread poll — takes plain dicts from the handoff box.
+
+        Prefer ``handoff_ready`` over ``worker.done``: the worker stays blocked
+        in ``wait_for_ui_ack`` until cleanup, so ``done`` flips only after ack.
+        """
+        worker = getattr(self, "_models_worker", None)
+        load_gen = getattr(self, "_models_load_gen", None)
+        ready = False
+        try:
+            from ofscraper.gui.utils.model_fetch import handoff_ready
+
+            ready = handoff_ready(int(load_gen or 0))
+        except Exception:
+            ready = False
+        if not ready and (worker is None or not getattr(worker, "done", False)):
             return
-        self._models_loaded = True
-        self.retry_models_btn.hide()
-        self.reload_models_btn.show()
-        self.model_loading_label.setText(f"Models loaded: {self._loaded_model_count}")
-        self.model_loading_label.show()
-        self.next_btn.setEnabled(True)
+        if getattr(self, "_models_finish_scheduled", False):
+            return
+        self._models_finish_scheduled = True
+        self._stop_models_poll()
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import breadcrumb
 
-    def _on_models_error(self, error_msg):
+            breadcrumb("ui_poll_seen_done", f"gen={load_gen}")
+        except Exception:
+            pass
+
+        from PyQt6.QtCore import QTimer
+
+        QTimer.singleShot(150, lambda g=load_gen: self._finish_models_load(g))
+
+    def _finish_models_load(self, load_gen=None):
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+            breadcrumb("ui_finish_models_load", f"gen={load_gen}")
+        except Exception:
+            pass
+
+        self._models_finish_scheduled = False
+        if load_gen is not None and load_gen != getattr(self, "_models_load_gen", None):
+            return
+
+        from ofscraper.gui.utils.model_fetch import take_handoff
+
+        handoff = take_handoff(int(load_gen or 0))
+        worker = getattr(self, "_models_worker", None)
+        self._models_worker = None
+        self._cleanup_models_env()
+
+        if handoff is None:
+            err = (
+                getattr(worker, "error_msg", None)
+                if worker
+                else "Model fetch handoff missing"
+            )
+            if err:
+                self._on_models_error(err, load_gen)
+            else:
+                self._apply_models_loaded([], load_gen)
+            return
+
+        err = handoff.get("error")
+        payload = handoff.get("payload")
+        if err:
+            self._on_models_error(err, load_gen)
+            return
+
+        from PyQt6.QtCore import QTimer
+        from ofscraper.gui.utils.model_fetch import dicts_to_models
+
+        def _build_and_apply():
+            try:
+                from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+                breadcrumb(
+                    "ui_build_models_start",
+                    f"dicts={len(payload or [])}",
+                )
+            except Exception:
+                pass
+            models = dicts_to_models(payload)
+            try:
+                from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+                breadcrumb("ui_build_models_done", f"count={len(models)}")
+            except Exception:
+                pass
+            self._apply_models_loaded(models, load_gen)
+
+        QTimer.singleShot(0, _build_and_apply)
+
+    def _apply_models_loaded(self, models, load_gen=None):
+        if load_gen is not None and load_gen != getattr(self, "_models_load_gen", None):
+            return
+        if not self._widget_alive():
+            return
+
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+            breadcrumb("ui_apply_models_start", f"count={len(models or [])}")
+        except Exception:
+            pass
+
+        self._models_worker = None
+        self._models_loading = False
+        try:
+            # Apply fetched models on the UI thread only.
+            if self.manager and getattr(self.manager, "model_manager", None) is not None:
+                self.manager.model_manager.all_subs_dict = models or []
+            self._loaded_model_count = len(models or [])
+            self.model_loading_bar.hide()
+            if self._loaded_model_count == 0:
+                self._models_loaded = False  # allow retry after fixing auth
+                self._show_auth_failure_prompt()
+                try:
+                    from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+                    breadcrumb("ui_apply_models_empty")
+                except Exception:
+                    pass
+                return
+            self._models_loaded = True
+            self.retry_models_btn.hide()
+            self.reload_models_btn.show()
+            self.model_loading_label.setText(f"Models loaded: {self._loaded_model_count}")
+            self.model_loading_label.show()
+            self.next_btn.setEnabled(True)
+            try:
+                from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+                breadcrumb("ui_apply_models_done", f"count={self._loaded_model_count}")
+            except Exception:
+                pass
+        except RuntimeError:
+            log.debug("[GUI] Model-load UI update skipped (widget deleted)")
+        except Exception as e:
+            log.warning(f"[GUI] Model-load UI update failed: {e}")
+            try:
+                self._on_models_error(str(e), load_gen)
+            except Exception:
+                pass
+
+    def _on_models_error(self, error_msg, load_gen=None):
+        if load_gen is not None and load_gen != getattr(self, "_models_load_gen", None):
+            log.debug("[GUI] Ignoring stale model-load error callback")
+            return
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+            breadcrumb("ui_models_error", f"gen={load_gen} msg={error_msg}")
+        except Exception:
+            pass
+        if not self._widget_alive():
+            return
+
+        self._models_worker = None
         self._models_loading = False
         self._models_loaded = False  # allow retry after fixing auth
         self._models_error = error_msg
-        self.model_loading_bar.hide()
-        self._show_auth_failure_prompt(error_msg)
+        try:
+            self.model_loading_bar.hide()
+            self._show_auth_failure_prompt(error_msg)
+        except RuntimeError:
+            log.debug("[GUI] Model-load error UI update skipped (widget deleted)")
+        except Exception as e:
+            log.warning(f"[GUI] Model-load error UI update failed: {e}")
 
     def _show_auth_failure_prompt(self, detail=None):
-        """Show a dialog when models can't be loaded, offering to go to auth settings or retry."""
+        """Show a dialog when models can't be loaded, offering to go to auth settings or retry.
+
+        Deferred one tick and guarded — showing a modal QMessageBox immediately
+        after the model-fetch worker finishes has hard-crashed the Qt event loop
+        on Windows (especially when normalize incorrectly returned 0 models).
+        """
+        if not self._widget_alive():
+            return
         self.model_loading_label.setText("Unable to get list of models.")
         self.model_loading_label.show()
         self.retry_models_btn.show()
         self.next_btn.setEnabled(False)
 
-        msg = QMessageBox(self)
-        msg.setIcon(QMessageBox.Icon.Warning)
-        msg.setWindowTitle("Unable to Load Models")
-        msg.setText(
-            "Unable to get list of models.\n"
-            "Please check your auth information.\n\n"
-            "If your auth is correct and the issue persists,\n"
-            "try changing the Dynamic Mode in Configuration \u2192 Advanced."
-        )
-        if detail:
-            msg.setDetailedText(str(detail))
-        retry_btn = msg.addButton("Retry", QMessageBox.ButtonRole.AcceptRole)
-        auth_btn = msg.addButton("Go to Authentication", QMessageBox.ButtonRole.ActionRole)
-        dynamic_btn = msg.addButton("Dynamic Mode (Config)", QMessageBox.ButtonRole.ActionRole)
-        help_btn = msg.addButton("Help / README", QMessageBox.ButtonRole.ActionRole)
-        msg.addButton("Close", QMessageBox.ButtonRole.RejectRole)
-        msg.exec()
+        from PyQt6.QtCore import QTimer
 
-        if msg.clickedButton() == retry_btn:
-            self._retry_model_load()
-        elif msg.clickedButton() == auth_btn:
-            app_signals.navigate_to_page.emit("auth")
-        elif msg.clickedButton() == dynamic_btn:
-            self._go_to_dynamic_mode_config()
-        elif msg.clickedButton() == help_btn:
-            self._go_to_auth_help()
+        def _show():
+            if not self._widget_alive():
+                return
+            try:
+                from ofscraper.gui.utils.crash_diagnostics import breadcrumb
 
-    def _go_to_dynamic_mode_config(self):
-        """Navigate to Configuration → Advanced tab with Dynamic Mode focused."""
+                breadcrumb("ui_auth_prompt_open")
+            except Exception:
+                pass
+            try:
+                msg = QMessageBox(self)
+                msg.setIcon(QMessageBox.Icon.Warning)
+                msg.setWindowTitle("Unable to Load Models")
+                from ofscraper.gui.utils.auth_errors import model_load_failure_dialog_text
+
+                main_text, detail_text = model_load_failure_dialog_text(detail)
+                msg.setText(main_text)
+                if detail_text:
+                    msg.setDetailedText(detail_text)
+                retry_btn = msg.addButton("Retry", QMessageBox.ButtonRole.AcceptRole)
+                auth_btn = msg.addButton(
+                    "Go to Authentication", QMessageBox.ButtonRole.ActionRole
+                )
+                dynamic_btn = msg.addButton(
+                    "Dynamic Mode (Config)", QMessageBox.ButtonRole.ActionRole
+                )
+                ssl_btn = msg.addButton(
+                    "SSL Verify (Config)", QMessageBox.ButtonRole.ActionRole
+                )
+                help_btn = msg.addButton("Help / README", QMessageBox.ButtonRole.ActionRole)
+                msg.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+                msg.exec()
+            except Exception as e:
+                log.warning(f"[GUI] Auth failure prompt failed: {e}")
+                return
+
+            try:
+                from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+                breadcrumb("ui_auth_prompt_closed")
+            except Exception:
+                pass
+
+            clicked = msg.clickedButton()
+            if clicked == retry_btn:
+                self._retry_model_load()
+            elif clicked == auth_btn:
+                app_signals.navigate_to_page.emit("auth")
+            elif clicked == dynamic_btn:
+                self._go_to_advanced_config_field("dynamic-mode-default")
+            elif clicked == ssl_btn:
+                self._go_to_advanced_config_field("ssl_verify")
+            elif clicked == help_btn:
+                self._go_to_auth_help()
+
+        QTimer.singleShot(0, _show)
+
+    def _go_to_advanced_config_field(self, field_key: str):
+        """Navigate to Configuration → Advanced and focus a field by key."""
         from PyQt6.QtCore import QTimer
         from PyQt6.QtWidgets import QApplication
 
@@ -1203,7 +1544,7 @@ class AreaSelectorPage(QWidget):
                     if pages and "config" in pages:
                         cfg_page = pages["config"]
                         if hasattr(cfg_page, "go_to_config_field"):
-                            cfg_page.go_to_config_field("Advanced", "dynamic-mode-default")
+                            cfg_page.go_to_config_field("Advanced", field_key)
                         break
             except Exception:
                 pass
@@ -1358,14 +1699,26 @@ class AreaSelectorPage(QWidget):
         tgt.max_date.setDate(src.max_date.date())
         tgt.before_enabled.setChecked(src.before_enabled.isChecked())
 
-        # Length
+        # Length / Price — set values first (block auto-Enable), then Enable flags.
+        tgt.min_time.blockSignals(True)
+        tgt.max_time.blockSignals(True)
+        try:
+            tgt.min_time.setTime(src.min_time.time())
+            tgt.max_time.setTime(src.max_time.time())
+        finally:
+            tgt.min_time.blockSignals(False)
+            tgt.max_time.blockSignals(False)
         tgt.length_enabled.setChecked(src.length_enabled.isChecked())
-        tgt.min_time.setTime(src.min_time.time())
-        tgt.max_time.setTime(src.max_time.time())
 
-        # Price
-        tgt.price_min.setValue(src.price_min.value())
-        tgt.price_max.setValue(src.price_max.value())
+        tgt.price_min.blockSignals(True)
+        tgt.price_max.blockSignals(True)
+        try:
+            tgt.price_min.setValue(src.price_min.value())
+            tgt.price_max.setValue(src.price_max.value())
+        finally:
+            tgt.price_min.blockSignals(False)
+            tgt.price_max.blockSignals(False)
+        tgt.price_enabled.setChecked(src.price_enabled.isChecked())
 
         # IDs
         tgt.media_id_input.setText(src.media_id_input.text())
@@ -1375,6 +1728,24 @@ class AreaSelectorPage(QWidget):
 
         # Username
         tgt.username_input.setText(src.username_input.text())
+
+    def _sync_text_filename_option(self):
+        """Enable caption naming only when Include Post Text is on."""
+        enabled = self.include_text_check.isChecked()
+        self.text_filename_from_post_check.setEnabled(enabled)
+        if not enabled:
+            self.text_filename_from_post_check.setChecked(False)
+        self.text_filename_length_warning.setVisible(
+            enabled and self.text_filename_from_post_check.isChecked()
+        )
+
+    def _on_include_text_toggled(self, checked: bool):
+        self._sync_text_filename_option()
+
+    def _on_text_filename_from_post_toggled(self, checked: bool):
+        self.text_filename_length_warning.setVisible(
+            self.include_text_check.isChecked() and checked
+        )
 
     def _on_back(self):
         parent_stack = self.parent()
@@ -1398,6 +1769,31 @@ class AreaSelectorPage(QWidget):
         mediatypes = self.get_selected_mediatypes()
         app_signals.mediatypes_configured.emit(mediatypes)
         app_signals.include_text_configured.emit(self.include_text_check.isChecked())
+        app_signals.text_filename_from_post_configured.emit(
+            self.include_text_check.isChecked()
+            and self.text_filename_from_post_check.isChecked()
+        )
+        # Emit advanced options here so check-mode auto-start (on model select)
+        # sees Allow duplicates / Rescrape / quality — table Start Scraping is skipped.
+        try:
+            app_signals.advanced_scrape_configured.emit(
+                {
+                    "allow_dupe_downloads": bool(self.allow_dupes_check.isChecked()),
+                    "keep_message_purchased_dupes": bool(
+                        self.allow_dupes_check.isChecked()
+                        and self.keep_msg_purchased_dupes_check.isChecked()
+                    ),
+                    "rescrape_all": bool(self.rescrape_all_check.isChecked()),
+                    "delete_model_db": bool(self.delete_db_check.isChecked()),
+                    "delete_downloads": bool(self.delete_downloads_check.isChecked()),
+                    "quality": self.quality_combo.currentText(),
+                }
+            )
+            app_signals.scrape_paid_toggled.emit(self.scrape_paid_check.isChecked())
+            if self.scrape_labels_check.isChecked():
+                app_signals.scrape_labels_toggled.emit(True)
+        except Exception:
+            pass
 
         # For check modes, emit areas immediately so the workflow stores them
         # before model selection triggers the auto-start.

@@ -1,0 +1,81 @@
+services:
+  ofscraper-gui:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        # Which GUI patch version to use at build time.
+        # Must match one of the OF-Scraper-X.X.X/patch_ofscraper_X.X.X_gui.py files.
+        # Available: 3.12.9, 3.14.3, 3.14.5, 3.14.7
+        GUI_PATCH_VERSION: "3.14.7"
+    container_name: ofscraper-gui
+    environment:
+      # Optional: set your timezone (examples: America/New_York, Europe/London, UTC)
+      - TZ=UTC
+      - SCREEN_WIDTH=1920
+      - SCREEN_HEIGHT=1080
+      - NOVNC_PORT=6699
+      - VNC_PORT=5900
+      # Seconds to wait before relaunching the GUI if it exits/crashes.
+      - GUI_RESTART_DELAY=5
+      # CLI args appended to "ofscraper --gui" at startup.
+      # Leave blank (or remove) to open the GUI without auto-starting a scrape.
+      # Example: --daemon 120 --username ALL -ts --posts all --discord low
+      - GUI_ARGS=
+      # ── Qt/rendering performance in Docker ──────────────────────────────────
+      # Use Qt's built-in 2D software rasterizer instead of llvmpipe (Mesa software
+      # OpenGL). For a widget-only app, Qt's own painter is faster and uses far less CPU.
+      - QT_OPENGL=software
+      # Ensure Mesa software rendering is used as fallback (belt-and-suspenders with
+      # the LIBGL_ALWAYS_SOFTWARE set by the app's Docker detection code).
+      - LIBGL_ALWAYS_SOFTWARE=1
+      # Silence verbose Qt debug output that can slow down the event loop.
+      - QT_LOGGING_RULES=*.debug=false;qt.qpa.*=false
+    volumes:
+      # ╔════════════════════════════════════════════════════════════════════════╗
+      # ║  CHANGE ME — replace every /home/YOU/... host path below with yours    ║
+      # ║  Left side = path on the Docker HOST    Right side = path in container ║
+      # ╚════════════════════════════════════════════════════════════════════════╝
+      #
+      # 1) REQUIRED — ofscraper config (auth.json, config.json, SQLite DBs,
+      #    logging/, gui_crash_logs/, device/ for CDM keys).
+      #    Mounted at /root/.config/ofscraper so ofscraper (running as root) finds it.
+      #    Put Widevine CDM keys here for the container-native path:
+      #      …/device/client_id.bin
+      #      …/device/private_key.pem
+      - /home/YOU/.config/ofscraper:/root/.config/ofscraper
+      #
+      # 2) OPTIONAL — only if config.json already stores absolute paths under your
+      #    host home (e.g. CDM keys at /home/YOU/.config/ofscraper/client_id.bin).
+      #    Keep left and right identical so those paths resolve without rewriting
+      #    config.json. Comment out if you only use the /root/.config mount above.
+      - /home/YOU/.config/ofscraper:/home/YOU/.config/ofscraper
+      #
+      # 3) REQUIRED — download / Save Location folder. The container path (right)
+      #    must match file_options.save_location in your config.json.
+      - /home/YOU/Photos/OnlyFans:/home/YOU/Photos/OnlyFans
+      #
+      # ffmpeg is installed natively in the container (see Dockerfile) — do not
+      # bind-mount a host ffmpeg binary (it often breaks DRM remux in the image).
+    # Fast temporary RAM storage for segmented downloads and Widevine decryption
+    tmpfs:
+      - /tmp:exec,mode=777
+    # Host networking: the container shares the host's network stack directly,
+    # eliminating Docker's NAT (iptables) for all API calls. On a 99k-item scrape
+    # this removes the per-connection NAT overhead on every OnlyFans API request.
+    # With host networking the noVNC port is exposed on the host directly:
+    #   open http://<host>:6699/ — no port mapping needed or allowed.
+    # NOTE: host network_mode only works on Linux Docker hosts.
+    # On Docker Desktop (Mac/Windows), remove this line and restore the ports: block below.
+    network_mode: host
+    # ports:  # Not used with network_mode: host — remove the above line to restore
+    #   - "6699:6699"
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    # Unrestricted memory — no mem_limit, no memswap_limit, no shm_size cap
+    shm_size: "2g"
+    mem_limit: 0
+    memswap_limit: 0

@@ -82,8 +82,24 @@ def edit_auth():
 
 
 def write_auth(auth):
-    if isinstance(auth, dict):
-        auth = json.dumps(auth, indent=4)
-    with open(common_paths.get_auth_file(), "w") as f:
-        f.write(auth)
-    return auth_dict.get_auth_dict(auth)
+    """Write auth.json with allowlisted keys only and restrictive file permissions."""
+    import ofscraper.utils.auth.cookie_allowlist as cookie_allowlist
+
+    if isinstance(auth, str):
+        try:
+            parsed = json.loads(auth)
+        except json.JSONDecodeError:
+            parsed = {}
+    elif isinstance(auth, dict):
+        parsed = auth
+    else:
+        parsed = {}
+
+    cleaned = cookie_allowlist.sanitize_auth_dict(parsed)
+    auth_path = common_paths.get_auth_file()
+    auth_path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(cleaned, indent=4)
+    with open(auth_path, "w", encoding="utf-8") as f:
+        f.write(text)
+    cookie_allowlist.harden_auth_file_permissions(auth_path)
+    return auth_dict.get_auth_dict(text)

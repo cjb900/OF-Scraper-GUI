@@ -78,7 +78,16 @@ class tempFilePlaceholder(basePlaceholder):
             self._tempfilepath = paths.truncate(pathlib.Path(dir, file))
         else:
             self._tempfilepath = paths.truncate(pathlib.Path(script_name))
-
+        try:
+            # Temp files must stay under the configured temp root (or save root).
+            root = data.get_TempDir() or common_paths.get_save_location()
+            confined = common_paths.assert_path_under_root(
+                self._tempfilepath, root, label="temp download path"
+            )
+            self._tempfilepath = pathlib.Path(confined)
+        except ValueError as e:
+            log.error(str(e))
+            raise
         return self
 
     @basePlaceholder.async_wrapper
@@ -153,7 +162,29 @@ class Placeholders(basePlaceholder):
         self._metadata = None
         self._filepath = None
         self._ele = ele
-        self._ext = ext
+        self._ext = self._maybe_override_ext(ele, ext)
+
+    @staticmethod
+    def _maybe_override_ext(ele, ext):
+        """Remap filename {ext} only when that mediatype's override flag is on.
+
+        Does not convert bytes — only the extension token used in File Format.
+        External naming_script (if set) still owns the final path when it returns one.
+        """
+        try:
+            mt = str(getattr(ele, "mediatype", None) or "").strip().lower()
+            if mt in {"images", "image"}:
+                if data.get_override_image_extension():
+                    return data.get_image_extension()
+            elif mt in {"videos", "video"}:
+                if data.get_override_video_extension():
+                    return data.get_video_extension()
+            elif mt in {"audios", "audio"}:
+                if data.get_override_audio_extension():
+                    return data.get_audio_extension()
+        except Exception:
+            pass
+        return ext
 
     async def init(self, create=True):
         dir = await self.getmediadir(create=create)
@@ -163,6 +194,16 @@ class Placeholders(basePlaceholder):
             self._filepath = paths.truncate(pathlib.Path(dir, file))
         else:
             self._filepath = paths.truncate(pathlib.Path(script_name))
+        # Naming scripts / absolute templates must stay under Save Location.
+        try:
+            root = common_paths.get_save_location()
+            confined = common_paths.assert_path_under_root(
+                self._filepath, root, label="download path"
+            )
+            self._filepath = pathlib.Path(confined)
+        except ValueError as e:
+            log.error(str(e))
+            raise
         return self
 
     def add_price_variables(self, username):
@@ -218,7 +259,7 @@ class Placeholders(basePlaceholder):
         self._variables.update({"media_type": ele.mediatype.capitalize()})
         self._variables.update({"value": ele.value.capitalize()})
         self._variables.update(
-            {"date": arrow.get(ele.postdate).format(data.get_date())}
+            {"date": arrow.get(ele.postdate).to("local").format(data.get_date())}
         )
         self._variables.update({"model_username": username})
         self._variables.update({"response_type": ele.modified_responsetype})
@@ -250,8 +291,14 @@ class Placeholders(basePlaceholder):
             f"modelid:{model_id}  mediadir placeholders {list(filter(lambda x:x[0] in set(list(self._variables.keys())),list(locals().items())))}"
         )
         downloadDir = pathlib.Path(data.get_dirformat().format(**self._variables))
-        final_path = pathlib.Path(
-            os.path.normpath(f"{str(root)}/{str(pathlib.Path(downloadDir))}")
+        if downloadDir.is_absolute():
+            final_path = downloadDir
+        else:
+            final_path = pathlib.Path(
+                os.path.normpath(str(root / pathlib.Path(downloadDir)))
+            )
+        final_path = common_paths.assert_path_under_root(
+            final_path, root, label="media directory"
         )
         log.trace(f"final mediadir path {final_path}")
         self._mediadir = final_path
@@ -365,13 +412,26 @@ class Textholders(basePlaceholder):
         self._ext = ext
 
     async def init(self, create=True):
-        dir = await self.getmediadir(create=create)
+        # Resolve filename before creating directories so a format KeyError
+        # cannot leave empty post folders behind.
+        dir = await self.getmediadir(create=False)
         file = await self.createfilename()
+        if create and dir:
+            pathlib.Path(dir).mkdir(parents=True, exist_ok=True)
         script_name = await naming_script(dir, file, self._ele)
         if not script_name:
             self._filepath = paths.truncate(pathlib.Path(dir, file))
         else:
             self._filepath = paths.truncate(pathlib.Path(script_name))
+        try:
+            root = common_paths.get_save_location()
+            confined = common_paths.assert_path_under_root(
+                self._filepath, root, label="text download path"
+            )
+            self._filepath = pathlib.Path(confined)
+        except ValueError as e:
+            log.error(str(e))
+            raise
         return self
 
     def add_price_variables(self, username):
@@ -424,7 +484,7 @@ class Textholders(basePlaceholder):
         self._variables.update({"post_id": ele.id})
         self._variables.update({"first_letter": username[0].capitalize()})
         self._variables.update({"value": ele.value.capitalize()})
-        self._variables.update({"date": arrow.get(ele.date).format(data.get_date())})
+        self._variables.update({"date": arrow.get(ele.date).to("local").format(data.get_date())})
         self._variables.update({"model_username": username})
         self._variables.update({"media_type": "Text"})
         self._variables.update({"response_type": ele.modified_responsetype})
@@ -443,6 +503,10 @@ class Textholders(basePlaceholder):
         self._variables.update({"original_filename": sanitized_name})
         self._variables.update({"only_file_name": sanitized_name})
         self._variables.update({"only_filename": sanitized_name})
+        # Text posts have no media row — alias media_id / filename for File Format
+        # templates like ``{media_id}.{ext}`` so text saves as ``{post_id}.txt``.
+        self._variables.update({"media_id": ele.id})
+        self._variables.update({"filename": sanitized_name or str(ele.id)})
 
     @basePlaceholder.async_wrapper
     async def getmediadir(self, root=None, create=True):
@@ -457,8 +521,14 @@ class Textholders(basePlaceholder):
         )
 
         downloadDir = pathlib.Path(data.get_dirformat().format(**self._variables))
-        final_path = pathlib.Path(
-            os.path.normpath(f"{str(root)}/{str(pathlib.Path(downloadDir))}")
+        if downloadDir.is_absolute():
+            final_path = downloadDir
+        else:
+            final_path = pathlib.Path(
+                os.path.normpath(str(root / pathlib.Path(downloadDir)))
+            )
+        final_path = common_paths.assert_path_under_root(
+            final_path, root, label="media directory"
         )
         log.trace(f"final mediadir path {final_path}")
         self._mediadir = final_path
@@ -478,12 +548,27 @@ class Textholders(basePlaceholder):
             f"model_id:{model_id}  filename placeholders {list(filter(lambda x:x[0] in set(list(self._variables.keys())),list(locals().items())))}"
         )
         out = None
-        if ele.responsetype.capitalize() == "Profile":
-            text = ele.file_sanitized_text
-            text = re.sub(" ", data.get_spacereplacer(), text)
-            out = f"{text}.{ext}"
+        use_post_text = bool(
+            getattr(settings.get_settings(), "text_filename_from_post", False)
+        )
+        if use_post_text:
+            # Name .txt from truncated/sanitized caption (Profile + Timeline share this rule)
+            text = ele.file_sanitized_text or ""
+            text = ele.text_trunicate(text) if text else ""
+            if text:
+                text = re.sub(" ", data.get_spacereplacer(), text)
+                out = f"{text}.{ext}"
+            else:
+                out = f"{ele.id}.{ext}"
         else:
-            out = data.get_fileformat().format(**self._variables)
+            # File Format (e.g. {media_id}.{ext} → {post_id}.txt via media_id alias)
+            try:
+                out = data.get_fileformat().format(**self._variables)
+            except (KeyError, ValueError) as e:
+                log.debug(
+                    f"Text file format failed ({e}); falling back to {{post_id}}.{{ext}}"
+                )
+                out = f"{ele.id}.{ext}"
         log.debug(f"final filename path {out}")
         self._filename = out
         return out

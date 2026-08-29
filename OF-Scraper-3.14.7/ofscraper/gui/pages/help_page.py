@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QUrl
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.styles import c
 
 log = logging.getLogger("shared")
@@ -41,7 +42,7 @@ def _inline_to_html(text: str) -> str:
     return t
 
 
-def _help_md_to_html(md: str) -> str:
+def _help_md_to_html(md: str, font_size_px: int = 13) -> str:
     """Convert our help markdown into HTML with reliable anchors.
 
     Qt's setMarkdown/scrollToAnchor behavior can be inconsistent, especially with
@@ -49,6 +50,15 @@ def _help_md_to_html(md: str) -> str:
     - TOC links are clickable
     - scrollToAnchor() works with <a id="..."></a>
     """
+    try:
+        font_size_px = int(font_size_px)
+    except Exception:
+        font_size_px = 13
+    font_size_px = max(11, min(22, font_size_px))
+    h2 = font_size_px + 5
+    h3 = font_size_px + 3
+    h4 = font_size_px + 1
+
     lines = (md or "").splitlines()
     out = []
     ul_stack = []  # indent levels
@@ -157,10 +167,12 @@ def _help_md_to_html(md: str) -> str:
     <html>
       <head>
         <style>
-          body {{ font-family: Segoe UI, Consolas, monospace; font-size: 13px; color: {c('text')}; }}
+          body {{ font-family: Segoe UI, Consolas, monospace; font-size: {font_size_px}px; color: {c('text')}; }}
           a {{ color: {c('blue')}; text-decoration: none; }}
           a:hover {{ text-decoration: underline; }}
-          h2,h3,h4 {{ color: {c('green')}; margin: 14px 0 6px 0; }}
+          h2 {{ color: {c('green')}; margin: 14px 0 6px 0; font-size: {h2}px; }}
+          h3 {{ color: {c('green')}; margin: 14px 0 6px 0; font-size: {h3}px; }}
+          h4 {{ color: {c('green')}; margin: 14px 0 6px 0; font-size: {h4}px; }}
           hr {{ border: 0; border-top: 1px solid {c('sep')}; margin: 14px 0; }}
           code {{ background: {c('mantle')}; color: {c('text')}; padding: 1px 4px; border-radius: 4px; }}
           ul {{ margin-top: 6px; margin-bottom: 6px; }}
@@ -208,6 +220,7 @@ This page explains what each section of the GUI does and how to use it.
 - **Configuration**: Edit `config.json` settings (save location, formats, performance, etc.).
 - **Profiles**: Manage profiles (each profile has separate auth + `.data`).
 - **Merge DBs**: Merge `user_data.db` files into a single database.
+- **Plugins**: List installed plugins, enable/disable, open folders.
 
 ## Scraper workflow (Scraper →)
 
@@ -320,7 +333,8 @@ Edit your OF-Scraper settings without touching `config.json` directly. Click **S
 - **Auto Resume**: When enabled, partially downloaded files are resumed rather than restarted from scratch.
 - **Max Post Count**: Limits how many posts are collected per model. Set to `0` for no limit.
 - **FFmpeg Path**: Full path to your `ffmpeg` (or `ffmpeg.exe`) binary. Required for merging DRM video/audio streams and for integrity checking.
-- **Verify All Integrity**: After each standard (non-DRM) video or audio download, uses `ffprobe` to measure the file's actual playback duration and compares it against the duration reported by the OnlyFans API. If they differ by more than 3 seconds the file is considered corrupted, deleted from disk, and the download is marked as failed so it will be retried. DRM-protected content is always integrity-checked regardless of this setting. Requires FFmpeg/ffprobe to be configured. Useful on unreliable connections to catch silently-truncated downloads.
+- **Verify All Integrity**: Also run duration checks on non-DRM video/audio (DRM merges are always checked). Uses `ffprobe` vs API duration; truncated/corrupt files are deleted and marked failed.
+- **DRM Duration Match %**: After remux, require actual playback duration ≥ this percent of the API/MPD expected length (default **98**), **or** at most **1.0s** shorter (API whole-second rounding). Also rejects empty/tiny muxes (&lt; 1 KB or ~0s). Higher = stricter; lower = looser. Failed checks delete the bad file and mark the download failed for retry. Full details: Help → Configuration → Download.
 - **Download Filter**: Choose which media types to include — **Images**, **Audios**, **Videos**, **Text**. This is the default filter applied to every scrape (individual runs can override it on the area selector page).
 - **Post Script**: Optional path to a script that is executed after each download completes.
 
@@ -365,9 +379,33 @@ class HelpPage(QWidget):
         super().__init__(parent)
         self.manager = manager
         self._pending_anchor = None
+        from ofscraper.gui.utils.ui_scale import get_gui_font_size
+
+        self._font_size = get_gui_font_size()
         self._setup_ui()
         self._load_help_text()
         app_signals.theme_changed.connect(lambda _: self._load_help_text())
+        try:
+            app_signals.font_size_changed.connect(self._on_global_font_size_changed)
+        except Exception:
+            pass
+
+    def _on_global_font_size_changed(self, size: int):
+        try:
+            size = int(size)
+        except Exception:
+            return
+        self._font_size = size
+        try:
+            self.font_size_combo.blockSignals(True)
+            idx = self.font_size_combo.findData(size)
+            if idx >= 0:
+                self.font_size_combo.setCurrentIndex(idx)
+            self.font_size_combo.blockSignals(False)
+        except Exception:
+            pass
+        self._sync_font_buttons()
+        self._load_help_text()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -375,7 +413,7 @@ class HelpPage(QWidget):
         layout.setSpacing(12)
 
         header = QLabel("Help / README")
-        header.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
+        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
         header.setProperty("heading", True)
         layout.addWidget(header)
 
@@ -391,6 +429,8 @@ class HelpPage(QWidget):
         self.jump_combo = QComboBox()
         self.jump_combo.setMinimumWidth(260)
         self.jump_combo.addItem("Jump to…", "")
+        self.jump_combo.addItem("Getting started", "getting-started")
+        self.jump_combo.addItem("Plugins", "plugins-root")
         self.jump_combo.addItem("Left navigation", "nav-left")
         self.jump_combo.addItem("Scraper workflow", "scraper-workflow")
         self.jump_combo.addItem("Select Content Areas & Filters", "sca-root")
@@ -406,11 +446,63 @@ class HelpPage(QWidget):
         self.jump_combo.addItem("Scraping by Post URL / ID", "manual-url-scrape")
         self.jump_combo.currentIndexChanged.connect(self._on_jump_changed)
         actions.addWidget(self.jump_combo)
+
+        actions.addSpacing(8)
+        size_lbl = QLabel("Text size")
+        size_lbl.setToolTip(
+            "Global GUI text size (also under About → Text size; "
+            "saved to gui_settings.json)"
+        )
+        actions.addWidget(size_lbl)
+        self.font_smaller_btn = QPushButton("A−")
+        self.font_smaller_btn.setFixedWidth(36)
+        self.font_smaller_btn.setToolTip("Decrease GUI text size")
+        self.font_smaller_btn.clicked.connect(lambda: self._nudge_font_size(-1))
+        actions.addWidget(self.font_smaller_btn)
+        self.font_size_combo = QComboBox()
+        self.font_size_combo.setMinimumWidth(110)
+        self.font_size_combo.setToolTip(
+            "Global GUI text size (Help body + rest of the app)"
+        )
+        from ofscraper.gui.utils.ui_scale import DESIGN_BASE, allowed_sizes
+
+        for px in allowed_sizes():
+            label = f"{px} px"
+            if px == DESIGN_BASE:
+                label = f"{px} px (default)"
+            self.font_size_combo.addItem(label, px)
+        idx = self.font_size_combo.findData(self._font_size)
+        self.font_size_combo.setCurrentIndex(idx if idx >= 0 else 1)
+        self.font_size_combo.currentIndexChanged.connect(self._on_font_size_changed)
+        actions.addWidget(self.font_size_combo)
+        self.font_larger_btn = QPushButton("A+")
+        self.font_larger_btn.setFixedWidth(36)
+        self.font_larger_btn.setToolTip("Increase GUI text size")
+        self.font_larger_btn.clicked.connect(lambda: self._nudge_font_size(1))
+        actions.addWidget(self.font_larger_btn)
+        self.font_reset_btn = QPushButton("Reset")
+        self.font_reset_btn.setToolTip(
+            f"Restore default GUI text size ({DESIGN_BASE} px)"
+        )
+        self.font_reset_btn.clicked.connect(self._reset_font_size)
+        actions.addWidget(self.font_reset_btn)
+        self._sync_font_buttons()
+
         actions.addStretch()
 
         self.additional_help_btn = QPushButton("Additional Help")
         self.additional_help_btn.clicked.connect(self._on_additional_help)
         actions.addWidget(self.additional_help_btn)
+
+        self.welcome_btn = QPushButton("Show Welcome")
+        self.welcome_btn.setToolTip("Reopen the first-run Welcome tip dialog")
+        self.welcome_btn.clicked.connect(self._on_show_welcome)
+        actions.addWidget(self.welcome_btn)
+
+        self.about_btn = QPushButton("About")
+        self.about_btn.setToolTip("About OF-Scraper (single window)")
+        self.about_btn.clicked.connect(self._on_about)
+        actions.addWidget(self.about_btn)
 
         self.reload_btn = QPushButton("Reload Help")
         self.reload_btn.clicked.connect(self._load_help_text)
@@ -434,6 +526,67 @@ class HelpPage(QWidget):
             Qt.TextInteractionFlag.TextBrowserInteraction
         )
         layout.addWidget(self.viewer, stretch=1)
+
+    def _sync_font_buttons(self):
+        from ofscraper.gui.utils.ui_scale import DESIGN_BASE, allowed_sizes
+
+        sizes = allowed_sizes()
+        try:
+            i = sizes.index(self._font_size)
+        except ValueError:
+            i = 1
+        self.font_smaller_btn.setEnabled(i > 0)
+        self.font_larger_btn.setEnabled(i < len(sizes) - 1)
+        try:
+            self.font_reset_btn.setEnabled(self._font_size != DESIGN_BASE)
+        except Exception:
+            pass
+
+    def _nudge_font_size(self, delta: int):
+        from ofscraper.gui.utils.ui_scale import allowed_sizes
+
+        sizes = allowed_sizes()
+        try:
+            i = sizes.index(self._font_size)
+        except ValueError:
+            i = 1
+        ni = max(0, min(len(sizes) - 1, i + int(delta)))
+        self.font_size_combo.setCurrentIndex(ni)
+
+    def _reset_font_size(self):
+        from ofscraper.gui.utils.ui_scale import DESIGN_BASE
+
+        win = self.window()
+        if hasattr(win, "_reset_gui_font_size"):
+            win._reset_gui_font_size()
+        elif hasattr(win, "_set_gui_font_size"):
+            win._set_gui_font_size(DESIGN_BASE)
+        else:
+            idx = self.font_size_combo.findData(DESIGN_BASE)
+            if idx >= 0:
+                self.font_size_combo.setCurrentIndex(idx)
+
+    def _on_font_size_changed(self, _idx: int = 0):
+        try:
+            size = self.font_size_combo.currentData()
+            if size is None:
+                return
+            size = int(size)
+            if size == self._font_size:
+                self._sync_font_buttons()
+                return
+            # Drive the global GUI size (About + QSS + Help body)
+            win = self.window()
+            if hasattr(win, "_set_gui_font_size"):
+                win._set_gui_font_size(size)
+            else:
+                from ofscraper.gui.utils.ui_scale import set_gui_font_size
+
+                self._font_size = set_gui_font_size(size, persist=True)
+                self._sync_font_buttons()
+                self._load_help_text()
+        except Exception as e:
+            log.debug(f"[GUI] Help font size change failed: {e}")
 
     def _on_jump_changed(self, idx: int):
         try:
@@ -475,6 +628,22 @@ class HelpPage(QWidget):
                 QDesktopServices.openUrl(QUrl(DISCORD_HELP_URL))
             except Exception:
                 pass
+
+    def _on_about(self):
+        try:
+            from ofscraper.gui.dialogs.about_dialog import show_about_dialog
+
+            show_about_dialog(parent=self.window())
+        except Exception as e:
+            log.debug(f"About dialog failed: {e}")
+
+    def _on_show_welcome(self):
+        try:
+            from ofscraper.gui.dialogs.welcome_dialog import show_welcome_dialog
+
+            show_welcome_dialog(parent=self.window())
+        except Exception as e:
+            log.debug(f"Welcome dialog failed: {e}")
 
     def _help_md_path(self) -> Path:
         # ofscraper/gui/pages/help_page.py → ofscraper/gui/help/GUI_HELP.md
@@ -548,7 +717,7 @@ class HelpPage(QWidget):
             md = _FALLBACK_HELP_MD
 
         try:
-            _html = _help_md_to_html(md)
+            _html = _help_md_to_html(md, font_size_px=self._font_size)
             self.viewer.setHtml(_html)
         except Exception:
             self.viewer.setPlainText(md)

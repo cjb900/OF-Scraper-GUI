@@ -47,8 +47,11 @@ async def get_text_process(username, ele):
             new_ele.text, width=of_env.getattr("MAX_TEXT_LENGTH")
         )
 
-        async with aiofiles.open(placeholderObj.filepath, "w") as p:
-            await p.writelines(wrapped_text)
+        # Explicit UTF-8 — Windows default (cp1252) cannot encode emoji captions
+        async with aiofiles.open(
+            placeholderObj.filepath, "w", encoding="utf-8", newline="\n"
+        ) as p:
+            await p.write("\n".join(wrapped_text))
 
         await after_download_script(placeholderObj.filepath)
 

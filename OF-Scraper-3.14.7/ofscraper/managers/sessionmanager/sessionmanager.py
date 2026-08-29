@@ -428,6 +428,7 @@ class sessionManager:
                     limit=self._connect_limit,
                     ssl=ssl_context,  # Passed to TCPConnector
                 ),
+                cookie_jar=aiohttp.DummyCookieJar(),
                 timeout=aiohttp.ClientTimeout(
                     total=self._total_timeout,
                     connect=self._connect_timeout,
@@ -685,6 +686,7 @@ class sessionManager:
         self._rate_limit_sleeper.sleep = val
 
     def _httpx_funct(self, method, **kwargs):
+        self._session.cookies.clear()
         t = self._session.request(method.upper(), **kwargs)
         t.ok = not t.is_error
         t.json_ = t.json

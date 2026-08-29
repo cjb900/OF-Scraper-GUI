@@ -13,8 +13,11 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QLineEdit,
+    QMessageBox,
+    QPushButton,
     QScrollArea,
     QSpinBox,
     QStackedWidget,
@@ -25,7 +28,9 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
+from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.utils.group_layout import compact_group, tune_group_layout
 
 
 def _make_help_btn(anchor: str) -> QToolButton:
@@ -224,32 +229,39 @@ class FilterSidebar(QWidget):
         outer_layout = QVBoxLayout(self)
         outer_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Keep input controls visually aligned across different widgets.
-        # (QLineEdit/QSpinBox/QDateEdit/etc have slightly different native heights otherwise.)
-        self.setStyleSheet(
-            """
-            QLineEdit, QSpinBox, QDoubleSpinBox, QDateEdit, QTimeEdit, QComboBox {
-                min-height: 28px;
-            }
-            """
-        )
+        def _control_h(w: QWidget):
+            """Align control heights without a local stylesheet (avoids clobbering QGroupBox theme)."""
+            try:
+                # Theme QSS: padding 4px + min-height 24px (+ border) — 28px FixedHeight
+                # clips QDateEdit/QTimeEdit bottom borders.
+                w.setMinimumHeight(34)
+                w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            except Exception:
+                pass
+            return w
 
         def _expanding(w: QWidget):
             """Force range widgets to consume the same available width."""
             try:
                 w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                w.setMinimumHeight(34)
+            except Exception:
+                pass
+            return w
+
+        def _fit_h(w: QWidget, height: int = 34) -> QWidget:
+            """Fixed row height tall enough for themed QDateEdit/QComboBox frames."""
+            try:
+                w.setFixedHeight(height)
             except Exception:
                 pass
             return w
 
         def _tune_range_grid(grid: QGridLayout):
             """Standard column sizing so From/To, Min/Max, Price Min/Max align identically."""
-            try:
-                grid.setContentsMargins(8, 6, 8, 6)
-            except Exception:
-                pass
+            tune_group_layout(grid)
             grid.setHorizontalSpacing(10)
-            grid.setVerticalSpacing(8)
+            grid.setVerticalSpacing(6)
             # Columns: 0 label, 1 field, 2 label, 3 field, 4 enable, 5 help
             grid.setColumnMinimumWidth(0, 46)  # fits "From:" / "Min:"
             grid.setColumnMinimumWidth(2, 34)  # fits "To:" / "Max:"
@@ -275,73 +287,144 @@ class FilterSidebar(QWidget):
         layout.setSpacing(8)
 
         title = QLabel("Filters")
-        title.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        apply_font(title, "Segoe UI", 14, QFont.Weight.Bold)
         layout.addWidget(title)
 
+        # Named presets (table sidebar only — not the embedded area-page copy)
+        if not self._embedded:
+            self.preset_combo = QComboBox()
+            self.preset_combo.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            self.preset_combo.setMinimumHeight(28)
+            self.preset_combo.setToolTip(
+                "Saved filter presets — pick one to load and apply"
+            )
+            layout.addWidget(self.preset_combo)
+
+            preset_btns = QHBoxLayout()
+            preset_btns.setSpacing(8)
+            self.preset_save_btn = QPushButton("Save")
+            self.preset_save_btn.setToolTip(
+                "Overwrite the selected preset with current filters "
+                "(or Save as… if none selected)"
+            )
+            self.preset_save_btn.setMinimumWidth(64)
+            self.preset_save_btn.setMinimumHeight(28)
+            preset_btns.addWidget(self.preset_save_btn)
+
+            self.preset_save_as_btn = QPushButton("Save as…")
+            self.preset_save_as_btn.setToolTip(
+                "Save current filters under a new preset name"
+            )
+            self.preset_save_as_btn.setMinimumWidth(72)
+            self.preset_save_as_btn.setMinimumHeight(28)
+            preset_btns.addWidget(self.preset_save_as_btn)
+            layout.addLayout(preset_btns)
+
+            preset_btns2 = QHBoxLayout()
+            preset_btns2.setSpacing(8)
+            self.preset_rename_btn = QPushButton("Rename")
+            self.preset_rename_btn.setToolTip("Rename the selected preset")
+            self.preset_rename_btn.setMinimumWidth(64)
+            self.preset_rename_btn.setMinimumHeight(28)
+            preset_btns2.addWidget(self.preset_rename_btn)
+
+            self.preset_delete_btn = QPushButton("Delete")
+            self.preset_delete_btn.setToolTip("Delete the selected preset")
+            self.preset_delete_btn.setMinimumWidth(64)
+            self.preset_delete_btn.setMinimumHeight(28)
+            preset_btns2.addWidget(self.preset_delete_btn)
+            preset_btns2.addStretch(1)
+            layout.addLayout(preset_btns2)
+
+            self._preset_loading = False
+            self._reload_preset_combo()
+            self.preset_combo.currentIndexChanged.connect(self._on_preset_selected)
+            self.preset_save_btn.clicked.connect(self._on_preset_save)
+            self.preset_save_as_btn.clicked.connect(self._on_preset_save_as)
+            self.preset_rename_btn.clicked.connect(self._on_preset_rename)
+            self.preset_delete_btn.clicked.connect(self._on_preset_delete)
+            self._restore_last_used_preset()
+
         # -- Text search --
-        text_group = QGroupBox("Text Search")
+        text_group = compact_group(QGroupBox("Text Search"))
         text_layout = QVBoxLayout(text_group)
-        h = QHBoxLayout()
-        h.addStretch()
-        h.addWidget(_make_help_btn("filters-text-search"))
-        text_layout.addLayout(h)
+        tune_group_layout(text_layout)
         self.text_input = QLineEdit()
         self.text_input.setPlaceholderText("Search text content...")
         self.text_input.setClearButtonEnabled(True)
-        text_layout.addWidget(self.text_input)
+        _control_h(self.text_input)
+        text_row = QHBoxLayout()
+        text_row.setContentsMargins(0, 0, 0, 0)
+        text_row.setSpacing(6)
+        text_row.addWidget(_make_help_btn("filters-text-search"))
+        text_row.addWidget(self.text_input, stretch=1)
+        text_layout.addLayout(text_row)
         self.fullstring_check = QCheckBox("Full string match")
         text_layout.addWidget(self.fullstring_check)
         layout.addWidget(text_group)
 
-        # -- Media type --
-        media_group = QGroupBox("Media Type")
-        media_layout = QVBoxLayout(media_group)
-        h = QHBoxLayout()
-        h.addStretch()
-        h.addWidget(_make_help_btn("filters-media-type"))
-        media_layout.addLayout(h)
+        # -- Media type (same single-row pattern as Areas → Media Types) --
+        media_group = compact_group(QGroupBox("Media Type"))
+        media_layout = QHBoxLayout(media_group)
+        tune_group_layout(media_layout)
+        media_layout.setSpacing(16)
+        media_layout.addWidget(_make_help_btn("filters-media-type"))
         self.media_checks = {}
         for mt in ["audios", "images", "videos"]:
             cb = QCheckBox(mt.capitalize())
             cb.setChecked(True)
             media_layout.addWidget(cb)
             self.media_checks[mt] = cb
+        media_layout.addStretch()
         layout.addWidget(media_group)
 
-        # -- Response type --
-        resp_group = QGroupBox("Response Type")
-        resp_layout = QVBoxLayout(resp_group)
-        h = QHBoxLayout()
-        h.addStretch()
-        h.addWidget(_make_help_btn("filters-response-type"))
-        resp_layout.addLayout(h)
+        # -- Response type (3-column grid like Content Areas) --
+        resp_group = compact_group(QGroupBox("Response Type"))
+        resp_outer = QVBoxLayout(resp_group)
+        tune_group_layout(resp_outer)
+        resp_hint = QHBoxLayout()
+        resp_hint.setContentsMargins(0, 0, 0, 0)
+        resp_hint.addWidget(_make_help_btn("filters-response-type"))
+        resp_hint.addStretch()
+        resp_outer.addLayout(resp_hint)
+        resp_grid = QGridLayout()
+        resp_grid.setHorizontalSpacing(16)
+        resp_grid.setVerticalSpacing(6)
         self.resp_checks = {}
-        for rt in ["pinned", "archived", "timeline", "stories", "highlights", "streams"]:
+        for i, rt in enumerate(
+            ["pinned", "archived", "timeline", "stories", "highlights", "streams"]
+        ):
             cb = QCheckBox(rt.capitalize())
             cb.setChecked(True)
-            resp_layout.addWidget(cb)
+            resp_grid.addWidget(cb, i // 3, i % 3)
             self.resp_checks[rt] = cb
+        resp_outer.addLayout(resp_grid)
         layout.addWidget(resp_group)
 
         # -- Downloaded / Unlocked --
-        status_group = QGroupBox("Status")
+        status_group = compact_group(QGroupBox("Status"))
         status_layout = QVBoxLayout(status_group)
-        h = QHBoxLayout()
-        h.addStretch()
-        h.addWidget(_make_help_btn("filters-status"))
-        status_layout.addLayout(h)
+        tune_group_layout(status_layout)
 
         # Use a grid so the checkbox columns align neatly.
         status_grid = QGridLayout()
         status_grid.setHorizontalSpacing(16)
-        status_grid.setVerticalSpacing(8)
+        status_grid.setVerticalSpacing(6)
         status_grid.setColumnStretch(0, 1)
         status_grid.setColumnStretch(1, 1)
         status_grid.setColumnStretch(2, 1)
 
         dl_label = QLabel("Downloaded:")
         dl_label.setProperty("muted", True)
-        status_grid.addWidget(dl_label, 0, 0, 1, 3)
+        dl_hdr = QHBoxLayout()
+        dl_hdr.setContentsMargins(0, 0, 0, 0)
+        dl_hdr.setSpacing(6)
+        dl_hdr.addWidget(dl_label)
+        dl_hdr.addWidget(_make_help_btn("filters-status"))
+        dl_hdr.addStretch()
+        status_grid.addLayout(dl_hdr, 0, 0, 1, 3)
 
         self.dl_true = QCheckBox("True")
         self.dl_true.setChecked(True)
@@ -371,28 +454,32 @@ class FilterSidebar(QWidget):
         layout.addWidget(status_group)
 
         # -- Date range --
-        date_group = QGroupBox("Post Date Range")
+        date_group = compact_group(QGroupBox("Post Date Range"))
         date_vbox = QVBoxLayout(date_group)
-        date_vbox.setSpacing(6)
-        date_vbox.setContentsMargins(8, 6, 8, 6)
-
-        date_help_row = QHBoxLayout()
-        date_help_row.addStretch()
-        date_help_row.addWidget(_make_help_btn("filters-date-range"))
-        date_vbox.addLayout(date_help_row)
+        tune_group_layout(date_vbox)
 
         _rel_units = ["hours ago", "days ago", "weeks ago", "months ago"]
+        # Label column width: "After:"/"Before:" + inline ? on After only.
+        _date_lbl_w = 74
 
         # After (--after) row
         after_row = QHBoxLayout()
         after_row.setSpacing(6)
+        after_lbl_wrap = QWidget()
+        after_lbl_wrap.setFixedWidth(_date_lbl_w)
+        after_lbl_h = QHBoxLayout(after_lbl_wrap)
+        after_lbl_h.setContentsMargins(0, 0, 0, 0)
+        after_lbl_h.setSpacing(4)
         after_lbl = QLabel("After:")
-        after_lbl.setFixedWidth(50)
-        after_row.addWidget(after_lbl)
+        after_lbl_h.addWidget(after_lbl)
+        after_lbl_h.addWidget(_make_help_btn("filters-date-range"))
+        after_lbl_h.addStretch()
+        after_row.addWidget(after_lbl_wrap)
 
         self.after_mode_combo = QComboBox()
         self.after_mode_combo.addItems(["Fixed date", "Relative"])
         self.after_mode_combo.setFixedWidth(100)
+        _fit_h(self.after_mode_combo)
         self.after_mode_combo.setToolTip(
             "Fixed date: pick a specific calendar date\n"
             "Relative: computed fresh at each scrape start (e.g. '7 days ago')"
@@ -403,6 +490,11 @@ class FilterSidebar(QWidget):
         self.min_date.setCalendarPopup(True)
         self.min_date.setDisplayFormat("M/d/yyyy")
         self.min_date.setDate(QDate(2000, 1, 1))
+        self.min_date.setMinimumWidth(88)
+        _fit_h(self.min_date)
+        self.min_date.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
 
         _after_rel = QWidget()
         _after_rel_h = QHBoxLayout(_after_rel)
@@ -412,17 +504,23 @@ class FilterSidebar(QWidget):
         self.after_rel_value.setRange(1, 9999)
         self.after_rel_value.setValue(1)
         self.after_rel_value.setToolTip("Number of units ago")
+        _fit_h(self.after_rel_value)
         _after_rel_h.addWidget(self.after_rel_value)
         self.after_rel_unit = QComboBox()
         self.after_rel_unit.addItems(_rel_units)
         self.after_rel_unit.setCurrentText("days ago")
+        _fit_h(self.after_rel_unit)
         _after_rel_h.addWidget(self.after_rel_unit)
 
         self.after_date_stack = QStackedWidget()
-        self.after_date_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.after_date_stack.setMinimumWidth(88)
+        _fit_h(self.after_date_stack)
+        self.after_date_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.after_date_stack.addWidget(self.min_date)   # index 0 = fixed
         self.after_date_stack.addWidget(_after_rel)       # index 1 = relative
-        after_row.addWidget(self.after_date_stack)
+        after_row.addWidget(self.after_date_stack, 1)
 
         self.after_enabled = QCheckBox("Enable")
         self.after_enabled.setToolTip(
@@ -436,12 +534,13 @@ class FilterSidebar(QWidget):
         before_row = QHBoxLayout()
         before_row.setSpacing(6)
         before_lbl = QLabel("Before:")
-        before_lbl.setFixedWidth(50)
+        before_lbl.setFixedWidth(_date_lbl_w)
         before_row.addWidget(before_lbl)
 
         self.before_mode_combo = QComboBox()
         self.before_mode_combo.addItems(["Fixed date", "Relative"])
         self.before_mode_combo.setFixedWidth(100)
+        _fit_h(self.before_mode_combo)
         self.before_mode_combo.setToolTip(
             "Fixed date: pick a specific calendar date\n"
             "Relative: computed fresh at each scrape start (e.g. '30 days ago')"
@@ -452,6 +551,11 @@ class FilterSidebar(QWidget):
         self.max_date.setCalendarPopup(True)
         self.max_date.setDisplayFormat("M/d/yyyy")
         self.max_date.setDate(QDate.currentDate())
+        self.max_date.setMinimumWidth(88)
+        _fit_h(self.max_date)
+        self.max_date.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
 
         _before_rel = QWidget()
         _before_rel_h = QHBoxLayout(_before_rel)
@@ -461,17 +565,23 @@ class FilterSidebar(QWidget):
         self.before_rel_value.setRange(1, 9999)
         self.before_rel_value.setValue(1)
         self.before_rel_value.setToolTip("Number of units ago")
+        _fit_h(self.before_rel_value)
         _before_rel_h.addWidget(self.before_rel_value)
         self.before_rel_unit = QComboBox()
         self.before_rel_unit.addItems(_rel_units)
         self.before_rel_unit.setCurrentText("days ago")
+        _fit_h(self.before_rel_unit)
         _before_rel_h.addWidget(self.before_rel_unit)
 
         self.before_date_stack = QStackedWidget()
-        self.before_date_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.before_date_stack.setMinimumWidth(88)
+        _fit_h(self.before_date_stack)
+        self.before_date_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.before_date_stack.addWidget(self.max_date)    # index 0 = fixed
         self.before_date_stack.addWidget(_before_rel)      # index 1 = relative
-        before_row.addWidget(self.before_date_stack)
+        before_row.addWidget(self.before_date_stack, 1)
 
         self.before_enabled = QCheckBox("Enable")
         self.before_enabled.setToolTip(
@@ -493,80 +603,141 @@ class FilterSidebar(QWidget):
         self.before_rel_value.valueChanged.connect(lambda _: self.before_enabled.setChecked(True))
 
         # -- Duration / Length --
-        length_group = QGroupBox("Duration (Length)")
-        length_layout = QGridLayout(length_group)
-        _tune_range_grid(length_layout)
+        # Match Price Range structure exactly so Min/Max fields share the same
+        # horizontal slots (separate grids diverge because QTimeEdit vs
+        # QDoubleSpinBox have different size hints).
+        length_group = compact_group(QGroupBox("Duration (Length)"))
+        length_vbox = QVBoxLayout(length_group)
+        tune_group_layout(length_vbox)
+
+        length_row = QHBoxLayout()
+        length_row.setSpacing(10)
+        _min_lbl_wrap = QWidget()
+        _min_lbl_wrap.setFixedWidth(58)
+        _min_lbl_h = QHBoxLayout(_min_lbl_wrap)
+        _min_lbl_h.setContentsMargins(0, 0, 0, 0)
+        _min_lbl_h.setSpacing(4)
+        _min_lbl = QLabel("Min:")
+        _min_lbl_h.addWidget(_min_lbl)
         length_help = _make_help_btn("filters-duration")
         length_help.setToolTip("Open help for Duration (Length)")
+        _min_lbl_h.addWidget(length_help)
+        _min_lbl_h.addStretch()
+        length_row.addWidget(_min_lbl_wrap)
         self.min_time = QTimeEdit()
         self.min_time.setDisplayFormat("HH:mm:ss")
         self.min_time.setSpecialValueText("No min")
-        length_layout.addWidget(QLabel("Min:"), 0, 0)
-        length_layout.addWidget(_expanding(self.min_time), 0, 1)
+        self.min_time.setMinimumWidth(100)
+        _fit_h(self.min_time)
+        length_row.addWidget(_expanding(self.min_time), 1)
+        _max_lbl = QLabel("Max:")
+        _max_lbl.setFixedWidth(36)
+        length_row.addWidget(_max_lbl)
         self.max_time = QTimeEdit()
         self.max_time.setDisplayFormat("HH:mm:ss")
         self.max_time.setSpecialValueText("No max")
-        length_layout.addWidget(QLabel("Max:"), 0, 2)
-        length_layout.addWidget(_expanding(self.max_time), 0, 3)
+        self.max_time.setMinimumWidth(100)
+        _fit_h(self.max_time)
+        length_row.addWidget(_expanding(self.max_time), 1)
         self.length_enabled = QCheckBox("Enable")
-        length_layout.addWidget(self.length_enabled, 0, 4)
-        length_layout.addWidget(length_help, 0, 5)
+        self.length_enabled.setFixedWidth(70)
+        length_row.addWidget(self.length_enabled)
+        length_vbox.addLayout(length_row)
         layout.addWidget(length_group)
 
         # -- Price range --
-        price_group = QGroupBox("Price Range")
-        price_layout = QGridLayout(price_group)
-        _tune_range_grid(price_layout)
+        price_group = compact_group(QGroupBox("Price Range"))
+        price_vbox = QVBoxLayout(price_group)
+        tune_group_layout(price_vbox)
+
+        price_row = QHBoxLayout()
+        price_row.setSpacing(10)
+        _pmin_lbl_wrap = QWidget()
+        _pmin_lbl_wrap.setFixedWidth(58)
+        _pmin_lbl_h = QHBoxLayout(_pmin_lbl_wrap)
+        _pmin_lbl_h.setContentsMargins(0, 0, 0, 0)
+        _pmin_lbl_h.setSpacing(4)
+        _pmin_lbl = QLabel("Min:")
+        _pmin_lbl_h.addWidget(_pmin_lbl)
         price_help = _make_help_btn("filters-price")
         price_help.setToolTip("Open help for Price Range")
+        _pmin_lbl_h.addWidget(price_help)
+        _pmin_lbl_h.addStretch()
+        price_row.addWidget(_pmin_lbl_wrap)
         self.price_min = QDoubleSpinBox()
         self.price_min.setRange(0, 99999)
         self.price_min.setSpecialValueText("No min")
         self.price_min.setDecimals(2)
-        price_layout.addWidget(QLabel("Min:"), 0, 0)
-        price_layout.addWidget(_expanding(self.price_min), 0, 1)
+        self.price_min.setMinimumWidth(100)
+        _fit_h(self.price_min)
+        price_row.addWidget(_expanding(self.price_min), 1)
+        _pmax_lbl = QLabel("Max:")
+        _pmax_lbl.setFixedWidth(36)
+        price_row.addWidget(_pmax_lbl)
         self.price_max = QDoubleSpinBox()
         self.price_max.setRange(0, 99999)
         self.price_max.setSpecialValueText("No max")
         self.price_max.setDecimals(2)
-        price_layout.addWidget(QLabel("Max:"), 0, 2)
-        price_layout.addWidget(_expanding(self.price_max), 0, 3)
-        price_layout.addWidget(price_help, 0, 5)
+        self.price_max.setMinimumWidth(100)
+        _fit_h(self.price_max)
+        price_row.addWidget(_expanding(self.price_max), 1)
+        # Same slot as Duration's Enable so the Max fields line up vertically.
+        self.price_enabled = QCheckBox("Enable")
+        self.price_enabled.setFixedWidth(70)
+        self.price_enabled.setToolTip(
+            "Apply the Min/Max price filter. Unchecked = ignore price values."
+        )
+        price_row.addWidget(self.price_enabled)
+        price_vbox.addLayout(price_row)
         layout.addWidget(price_group)
 
+        # Auto-enable when the user edits values (same UX as date / length)
+        self.min_time.timeChanged.connect(lambda *_: self.length_enabled.setChecked(True))
+        self.max_time.timeChanged.connect(lambda *_: self.length_enabled.setChecked(True))
+        self.price_min.valueChanged.connect(lambda *_: self.price_enabled.setChecked(True))
+        self.price_max.valueChanged.connect(lambda *_: self.price_enabled.setChecked(True))
+
         # -- Numeric IDs --
-        ids_group = QGroupBox("ID Filters")
+        ids_group = compact_group(QGroupBox("ID Filters"))
         ids_layout = QVBoxLayout(ids_group)
-        h = QHBoxLayout()
-        h.addStretch()
-        h.addWidget(_make_help_btn("filters-id"))
-        ids_layout.addLayout(h)
+        tune_group_layout(ids_layout)
 
         # Use a QFormLayout so all fields start at the same X position.
         ids_form = QFormLayout()
         ids_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         ids_form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
         ids_form.setHorizontalSpacing(10)
-        ids_form.setVerticalSpacing(10)
+        ids_form.setVerticalSpacing(6)
 
         self.media_id_input = QLineEdit()
         self.media_id_input.setPlaceholderText("Exact match")
         self.media_id_input.setClearButtonEnabled(True)
-        ids_form.addRow("Media ID:", self.media_id_input)
+        _control_h(self.media_id_input)
+        media_id_label = QWidget()
+        media_id_label_h = QHBoxLayout(media_id_label)
+        media_id_label_h.setContentsMargins(0, 0, 0, 0)
+        media_id_label_h.setSpacing(6)
+        media_id_label_h.addWidget(QLabel("Media ID:"))
+        media_id_label_h.addWidget(_make_help_btn("filters-id"))
+        media_id_label_h.addStretch()
+        ids_form.addRow(media_id_label, self.media_id_input)
 
         self.post_id_input = QLineEdit()
         self.post_id_input.setPlaceholderText("Exact match")
         self.post_id_input.setClearButtonEnabled(True)
+        _control_h(self.post_id_input)
         ids_form.addRow("Post ID:", self.post_id_input)
 
         self.post_media_count_input = QSpinBox()
         self.post_media_count_input.setRange(0, 99999)
         self.post_media_count_input.setSpecialValueText("Any")
+        self.post_media_count_input.setFixedHeight(28)
         ids_form.addRow("Post Media Count:", self.post_media_count_input)
 
         self.other_posts_input = QSpinBox()
         self.other_posts_input.setRange(0, 99999)
         self.other_posts_input.setSpecialValueText("Any")
+        self.other_posts_input.setFixedHeight(28)
         ids_form.addRow("Other Posts w/ Media:", self.other_posts_input)
 
         ids_layout.addLayout(ids_form)
@@ -574,16 +745,19 @@ class FilterSidebar(QWidget):
         layout.addWidget(ids_group)
 
         # -- Username --
-        user_group = QGroupBox("Username")
+        user_group = compact_group(QGroupBox("Username"))
         user_layout = QVBoxLayout(user_group)
-        h = QHBoxLayout()
-        h.addStretch()
-        h.addWidget(_make_help_btn("filters-username"))
-        user_layout.addLayout(h)
+        tune_group_layout(user_layout)
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("Filter by username...")
         self.username_input.setClearButtonEnabled(True)
-        user_layout.addWidget(self.username_input)
+        _control_h(self.username_input)
+        user_row = QHBoxLayout()
+        user_row.setContentsMargins(0, 0, 0, 0)
+        user_row.setSpacing(6)
+        user_row.addWidget(_make_help_btn("filters-username"))
+        user_row.addWidget(self.username_input, stretch=1)
+        user_layout.addLayout(user_row)
         layout.addWidget(user_group)
 
         if not self._embedded:
@@ -661,8 +835,12 @@ class FilterSidebar(QWidget):
             s.max_length = None
 
         # Price
-        s.min_price = self.price_min.value() if self.price_min.value() > 0 else None
-        s.max_price = self.price_max.value() if self.price_max.value() > 0 else None
+        if self.price_enabled.isChecked():
+            s.min_price = self.price_min.value() if self.price_min.value() > 0 else None
+            s.max_price = self.price_max.value() if self.price_max.value() > 0 else None
+        else:
+            s.min_price = None
+            s.max_price = None
 
         # IDs
         s.media_id = self.media_id_input.text().strip() or None
@@ -710,6 +888,7 @@ class FilterSidebar(QWidget):
         self.before_rel_unit.setCurrentText("days ago")
         self.before_enabled.setChecked(False)
         self.length_enabled.setChecked(False)
+        self.price_enabled.setChecked(False)
         self.price_min.setValue(0)
         self.price_max.setValue(0)
         self.media_id_input.clear()
@@ -718,6 +897,256 @@ class FilterSidebar(QWidget):
         self.other_posts_input.setValue(0)
         self.username_input.clear()
         self.state.reset()
+
+    # ------------------------------------------------------------------
+    # Filter presets
+    # ------------------------------------------------------------------
+
+    def _reload_preset_combo(self, select_name: str | None = None):
+        if self._embedded or not getattr(self, "preset_combo", None):
+            return
+        from ofscraper.gui.utils.filter_presets import preset_names
+
+        self._preset_loading = True
+        try:
+            current = select_name
+            if current is None and self.preset_combo.currentIndex() > 0:
+                current = self.preset_combo.currentText()
+            self.preset_combo.clear()
+            self.preset_combo.addItem("(select preset)")
+            for name in preset_names():
+                self.preset_combo.addItem(name)
+            if current:
+                idx = self.preset_combo.findText(current)
+                if idx >= 0:
+                    self.preset_combo.setCurrentIndex(idx)
+        finally:
+            self._preset_loading = False
+
+    def _on_preset_selected(self, index: int):
+        if self._embedded or self._preset_loading:
+            return
+        if index <= 0:
+            return
+        name = self.preset_combo.itemText(index)
+        try:
+            from ofscraper.gui.utils.filter_presets import (
+                apply_sidebar_filters,
+                get_preset,
+                set_last_used,
+            )
+
+            entry = get_preset(name)
+            if not entry:
+                return
+            if apply_sidebar_filters(self, entry.get("filters") or {}):
+                try:
+                    set_last_used(name)
+                except Exception:
+                    pass
+                self.filter_changed.emit()
+                try:
+                    app_signals.status_message.emit(f"Loaded filter preset: {name}")
+                except Exception:
+                    pass
+        except Exception as e:
+            import logging
+
+            logging.getLogger("shared").debug(f"[GUI] Load filter preset failed: {e}")
+
+    def _restore_last_used_preset(self):
+        """On sidebar create, load and apply the last-used preset if any."""
+        if self._embedded:
+            return
+        try:
+            from ofscraper.gui.utils.filter_presets import (
+                apply_sidebar_filters,
+                get_last_used,
+                get_preset,
+            )
+
+            name = get_last_used()
+            if not name:
+                return
+            entry = get_preset(name)
+            if not entry:
+                return
+            self._preset_loading = True
+            try:
+                idx = self.preset_combo.findText(name)
+                if idx >= 0:
+                    self.preset_combo.setCurrentIndex(idx)
+            finally:
+                self._preset_loading = False
+            if apply_sidebar_filters(self, entry.get("filters") or {}):
+                # Defer emit so the table page can finish connecting filter_changed.
+                from PyQt6.QtCore import QTimer
+
+                QTimer.singleShot(0, self.filter_changed.emit)
+        except Exception as e:
+            import logging
+
+            logging.getLogger("shared").debug(
+                f"[GUI] Restore last-used filter preset failed: {e}"
+            )
+
+    def _prompt_preset_name(self, title: str, suggested: str = "") -> str | None:
+        name, ok = QInputDialog.getText(
+            self,
+            title,
+            "Preset name:",
+            text=suggested or "",
+        )
+        if not ok:
+            return None
+        name = (name or "").strip()
+        if not name:
+            QMessageBox.warning(self, title, "Enter a preset name.")
+            return None
+        return name
+
+    def _save_preset_named(self, name: str, *, overwrite_ok: bool = False) -> bool:
+        from ofscraper.gui.utils.filter_presets import (
+            export_sidebar_filters,
+            preset_names,
+            set_last_used,
+            upsert_preset,
+        )
+
+        names = preset_names()
+        if name in names and not overwrite_ok:
+            reply = QMessageBox.question(
+                self,
+                "Overwrite preset?",
+                f'A preset named "{name}" already exists. Overwrite it?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return False
+
+        filters = export_sidebar_filters(self)
+        entry = upsert_preset(name, filters)
+        if not entry:
+            QMessageBox.warning(self, "Save preset", "Could not save the preset.")
+            return False
+        try:
+            set_last_used(name)
+        except Exception:
+            pass
+        self._reload_preset_combo(select_name=name)
+        try:
+            app_signals.status_message.emit(f"Saved filter preset: {name}")
+        except Exception:
+            pass
+        return True
+
+    def _on_preset_save(self):
+        """Overwrite selected preset, or fall back to Save as…."""
+        if self._embedded:
+            return
+        if self.preset_combo.currentIndex() > 0:
+            name = self.preset_combo.currentText()
+            try:
+                self._save_preset_named(name, overwrite_ok=True)
+            except Exception as e:
+                QMessageBox.warning(self, "Save preset", str(e))
+            return
+        self._on_preset_save_as()
+
+    def _on_preset_save_as(self):
+        if self._embedded:
+            return
+        suggested = ""
+        if self.preset_combo.currentIndex() > 0:
+            suggested = self.preset_combo.currentText()
+        name = self._prompt_preset_name("Save filter preset as…", suggested)
+        if not name:
+            return
+        try:
+            self._save_preset_named(name, overwrite_ok=False)
+        except Exception as e:
+            QMessageBox.warning(self, "Save preset", str(e))
+
+    def _on_preset_rename(self):
+        if self._embedded:
+            return
+        if self.preset_combo.currentIndex() <= 0:
+            QMessageBox.information(
+                self, "Rename preset", "Select a saved preset to rename."
+            )
+            return
+        old_name = self.preset_combo.currentText()
+        new_name = self._prompt_preset_name("Rename filter preset", old_name)
+        if not new_name:
+            return
+        if new_name == old_name:
+            return
+        try:
+            from ofscraper.gui.utils.filter_presets import (
+                preset_names,
+                rename_preset,
+                set_last_used,
+            )
+
+            if new_name in preset_names() and new_name.lower() != old_name.lower():
+                QMessageBox.warning(
+                    self,
+                    "Rename preset",
+                    f'A preset named "{new_name}" already exists.',
+                )
+                return
+            result = rename_preset(old_name, new_name)
+            if not result:
+                QMessageBox.warning(
+                    self, "Rename preset", "Could not rename the preset."
+                )
+                return
+            try:
+                set_last_used(result)
+            except Exception:
+                pass
+            self._reload_preset_combo(select_name=result)
+            try:
+                app_signals.status_message.emit(
+                    f'Renamed filter preset to "{result}"'
+                )
+            except Exception:
+                pass
+        except Exception as e:
+            QMessageBox.warning(self, "Rename preset", str(e))
+
+    def _on_preset_delete(self):
+        if self._embedded:
+            return
+        if self.preset_combo.currentIndex() <= 0:
+            QMessageBox.information(
+                self, "Delete preset", "Select a saved preset to delete."
+            )
+            return
+        name = self.preset_combo.currentText()
+        reply = QMessageBox.question(
+            self,
+            "Delete preset",
+            f'Delete filter preset "{name}"?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            from ofscraper.gui.utils.filter_presets import delete_preset
+
+            if delete_preset(name):
+                self._reload_preset_combo()
+                try:
+                    app_signals.status_message.emit(f"Deleted filter preset: {name}")
+                except Exception:
+                    pass
+            else:
+                QMessageBox.warning(self, "Delete preset", "Preset not found.")
+        except Exception as e:
+            QMessageBox.warning(self, "Delete preset", str(e))
 
     # ------------------------------------------------------------------
     # Date helper methods

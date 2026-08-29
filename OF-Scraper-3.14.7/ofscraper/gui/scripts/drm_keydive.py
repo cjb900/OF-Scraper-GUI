@@ -31,6 +31,9 @@ class WidevineMasterAutomator:
         self.sdkmanager  = os.path.join(tools_bin, f"sdkmanager{bat}")
         self.avdmanager  = os.path.join(tools_bin, f"avdmanager{bat}")
         self.emulator_bin = os.path.join(self.sdk_dir, "emulator", f"emulator{ext}")
+        self.emulator_check_bin = os.path.join(
+            self.sdk_dir, "emulator", f"emulator-check{ext}"
+        )
         self.adb          = os.path.join(self.sdk_dir, "platform-tools", f"adb{ext}")
 
         # KeyDive venv
@@ -46,6 +49,17 @@ class WidevineMasterAutomator:
         self.abi          = "x86_64"          # may be downgraded to "x86" at runtime
         self.system_image = SYSTEM_IMAGE
         self.target       = "localhost:5555"
+
+        # Windows emulator stability (Emulator 37+ / TCG hardening)
+        self._guest_ram_mb = 2048 if self.os_type == "Windows" else 2048
+        self._force_software_accel = False
+        self._accel_fallback_tried = False
+        self._accel_on_retried = False
+        self._x86_fallback_tried = False
+        self._windows_accel_name = None
+        self._windows_gpu_mode_idx = 0
+        self._host_ram_ladder = [1536, 1024, 768, 512]
+        self._host_ram_ladder_idx = 0
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -250,15 +264,23 @@ class WidevineMasterAutomator:
     # ── Android SDK setup ─────────────────────────────────────────────────────
 
     def _get_cmdline_tools_url(self):
+        """Return a classic sdkmanager cmdline-tools zip URL (not Android CLI).
+
+        cmdline-tools 20+ ship the new 'Android CLI' wrapper. On Windows that
+        path has been observed to download the emulator successfully while
+        never installing system-images, so avdmanager then fails with:
+        'Valid system image paths are: null'.
+        """
         os_map = {"Windows": "win", "Darwin": "mac", "Linux": "linux"}
         os_key = os_map.get(self.os_type, "linux")
+        # Classic sdkmanager era — keep majors in this band only.
+        max_classic_major = 13
         try:
             r = requests.get(
                 "https://dl.google.com/android/repository/repository2-3.xml", timeout=10
             )
             root = ET.fromstring(r.content)
             os_full = {"win": "windows", "mac": "macosx", "linux": "linux"}[os_key]
-            # Collect all cmdline-tools versions and pick the highest revision
             best_rev = -1
             best_url = None
             for pkg in root.iter("remotePackage"):
@@ -266,7 +288,7 @@ class WidevineMasterAutomator:
                     continue
                 rev_el = pkg.find(".//revision/major")
                 rev = int(rev_el.text) if rev_el is not None else 0
-                if rev <= best_rev:
+                if rev > max_classic_major or rev <= best_rev:
                     continue
                 for archive in pkg.iter("archive"):
                     host_os = archive.find(".//host-os")
@@ -279,14 +301,146 @@ class WidevineMasterAutomator:
                                 + url_el.text
                             )
             if best_url:
+                print(f"   Using classic cmdline-tools major={best_rev}")
                 return best_url
         except Exception:
             pass
-        # Fallback: cmdline-tools 12.0 (build 11076708) — known-good recent version
+        # Fallback: cmdline-tools 12.0 (build 11076708) — known-good classic sdkmanager
         return (
             f"https://dl.google.com/android/repository/"
             f"commandlinetools-{os_key}-11076708_latest.zip"
         )
+
+    def _cmdline_tools_is_android_cli(self):
+        """True when installed cmdline-tools is the new Android CLI (broken for us)."""
+        props = os.path.join(
+            self.sdk_dir, "cmdline-tools", "latest", "source.properties"
+        )
+        if os.path.isfile(props):
+            try:
+                with open(props, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        if line.startswith("Pkg.Revision="):
+                            major_s = line.split("=", 1)[1].strip().split(".", 1)[0]
+                            if int(major_s) >= 20:
+                                return True
+                            break
+            except Exception:
+                pass
+        if not os.path.exists(self.sdkmanager):
+            return False
+        try:
+            result = subprocess.run(
+                [self.sdkmanager, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=90,
+                env=self._sdk_env(),
+            )
+            blob = (result.stdout or "") + (result.stderr or "")
+            return "Android CLI" in blob
+        except Exception:
+            return False
+
+    def _system_image_dir(self):
+        return os.path.join(
+            self.sdk_dir, "system-images", "android-29", "google_apis", self.abi
+        )
+
+    def _system_image_installed(self):
+        """True when the AVD system image is fully present on disk."""
+        sysimg_dir = self._system_image_dir()
+        if not os.path.isdir(sysimg_dir):
+            return False
+        for name in ("system.img", "system.img.qcow2"):
+            if os.path.isfile(os.path.join(sysimg_dir, name)):
+                return True
+        try:
+            names = os.listdir(sysimg_dir)
+        except OSError:
+            return False
+        has_pkg = "package.xml" in names
+        has_img = any(n.endswith(".img") for n in names)
+        return has_pkg and has_img
+
+    def _install_cmdline_tools(self, force=False):
+        """Download/extract classic cmdline-tools into cmdline-tools/latest."""
+        if os.path.exists(self.sdkmanager) and not force:
+            return
+        if force and os.path.isdir(os.path.join(self.sdk_dir, "cmdline-tools", "latest")):
+            print("♻️  Replacing Android CLI cmdline-tools with classic sdkmanager...")
+            shutil.rmtree(
+                os.path.join(self.sdk_dir, "cmdline-tools", "latest"),
+                ignore_errors=True,
+            )
+
+        print("📦 Downloading Android SDK cmdline-tools...")
+        url = self._get_cmdline_tools_url()
+        print(f"   URL: {url}")
+        os.makedirs(self.sdk_dir, exist_ok=True)
+        zip_path = os.path.join(self.sdk_dir, "cmdline-tools.zip")
+
+        with requests.get(url, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            total = int(r.headers.get("content-length", 0))
+            downloaded = 0
+            with open(zip_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total:
+                        pct = min(downloaded * 100 // total, 100)
+                        print(f"\r   {pct}%", end="", flush=True)
+        print()
+
+        tmp = os.path.join(self.sdk_dir, "_clt_tmp")
+        if os.path.exists(tmp):
+            shutil.rmtree(tmp)
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            zf.extractall(tmp)
+
+        sdkmgr_name = "sdkmanager.bat" if self.os_type == "Windows" else "sdkmanager"
+        src_dir = None
+        for entry in os.listdir(tmp):
+            candidate = os.path.join(tmp, entry)
+            if os.path.isdir(candidate) and os.path.exists(
+                os.path.join(candidate, "bin", sdkmgr_name)
+            ):
+                src_dir = candidate
+                break
+        if src_dir is None:
+            print(
+                f"❌ Could not find sdkmanager inside extracted zip. "
+                f"Contents: {os.listdir(tmp)}"
+            )
+            sys.exit(1)
+
+        dest = os.path.join(self.sdk_dir, "cmdline-tools", "latest")
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        if os.path.exists(dest):
+            shutil.rmtree(dest)
+        shutil.move(src_dir, dest)
+        shutil.rmtree(tmp)
+        os.remove(zip_path)
+        if self.os_type != "Windows":
+            for f in os.listdir(os.path.join(dest, "bin")):
+                os.chmod(os.path.join(dest, "bin", f), 0o755)
+        print("✅ cmdline-tools installed.")
+
+    def _run_sdkmanager(self, packages):
+        """Install one or more SDK packages; stream output; return CompletedProcess."""
+        print(f"📦 Installing SDK components: {', '.join(packages)}")
+        print("   (This may take several minutes on first run)")
+        result = subprocess.run(
+            [self.sdkmanager, f"--sdk_root={self.sdk_dir}"] + list(packages),
+            input="y\n" * 20,
+            text=True,
+            capture_output=True,
+            env=self._sdk_env(),
+        )
+        for line in (result.stdout + result.stderr).splitlines():
+            print(f"   [sdkmanager] {line}")
+        return result
 
     def _accept_sdk_licenses(self):
         licenses_dir = os.path.join(self.sdk_dir, "licenses")
@@ -313,60 +467,13 @@ class WidevineMasterAutomator:
         print("\n🛠️  Setting up Android SDK...")
         self._ensure_java()
 
-        # 1. Download cmdline-tools if missing
-        if not os.path.exists(self.sdkmanager):
-            print("📦 Downloading Android SDK cmdline-tools...")
-            url = self._get_cmdline_tools_url()
-            print(f"   URL: {url}")
-            os.makedirs(self.sdk_dir, exist_ok=True)
-            zip_path = os.path.join(self.sdk_dir, "cmdline-tools.zip")
-
-            with requests.get(url, stream=True, timeout=60) as r:
-                r.raise_for_status()
-                total      = int(r.headers.get("content-length", 0))
-                downloaded = 0
-                with open(zip_path, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=1024 * 1024):
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total:
-                            pct = min(downloaded * 100 // total, 100)
-                            print(f"\r   {pct}%", end="", flush=True)
-            print()
-
-            # Extract and locate the folder that contains bin/sdkmanager.
-            # Old zips extract to tools/, new zips extract to cmdline-tools/.
-            tmp = os.path.join(self.sdk_dir, "_clt_tmp")
-            if os.path.exists(tmp):
-                shutil.rmtree(tmp)
-            with zipfile.ZipFile(zip_path, "r") as zf:
-                zf.extractall(tmp)
-
-            # Find the subfolder that has a bin/ directory with sdkmanager inside
-            sdkmgr_name = "sdkmanager.bat" if self.os_type == "Windows" else "sdkmanager"
-            src_dir = None
-            for entry in os.listdir(tmp):
-                candidate = os.path.join(tmp, entry)
-                if os.path.isdir(candidate) and os.path.exists(
-                    os.path.join(candidate, "bin", sdkmgr_name)
-                ):
-                    src_dir = candidate
-                    break
-            if src_dir is None:
-                print(f"❌ Could not find sdkmanager inside extracted zip. Contents: {os.listdir(tmp)}")
-                sys.exit(1)
-
-            dest = os.path.join(self.sdk_dir, "cmdline-tools", "latest")
-            os.makedirs(os.path.dirname(dest), exist_ok=True)
-            if os.path.exists(dest):
-                shutil.rmtree(dest)
-            shutil.move(src_dir, dest)
-            shutil.rmtree(tmp)
-            os.remove(zip_path)
-            if self.os_type != "Windows":
-                for f in os.listdir(os.path.join(dest, "bin")):
-                    os.chmod(os.path.join(dest, "bin", f), 0o755)
-            print("✅ cmdline-tools installed.")
+        # 1. Classic cmdline-tools (sdkmanager). Replace Android CLI if present —
+        # cmdline-tools 20+ can install the emulator while skipping system-images.
+        if self._cmdline_tools_is_android_cli():
+            print("⚠️  Detected Android CLI cmdline-tools (skips system images) — repairing...")
+            self._install_cmdline_tools(force=True)
+        elif not os.path.exists(self.sdkmanager):
+            self._install_cmdline_tools(force=False)
         else:
             print("✅ Android SDK cmdline-tools already present.")
 
@@ -374,35 +481,42 @@ class WidevineMasterAutomator:
         self._accept_sdk_licenses()
 
         # 3. Install platform-tools, emulator, system image
-        sysimg_dir = os.path.join(
-            self.sdk_dir, "system-images", "android-29", "google_apis", self.abi
-        )
         missing = []
         if not os.path.exists(self.adb):
             missing.append("platform-tools")
         if not os.path.exists(self.emulator_bin):
             missing.append("emulator")
-        if not os.path.exists(sysimg_dir):
+        if not self._system_image_installed():
             missing.append(self.system_image)
 
         if missing:
-            print(f"📦 Installing SDK components: {', '.join(missing)}")
-            print("   (This may take several minutes on first run)")
-            result = subprocess.run(
-                [self.sdkmanager, f"--sdk_root={self.sdk_dir}"] + missing,
-                input="y\n" * 20,
-                text=True,
-                capture_output=True,
-                env=self._sdk_env(),
-            )
-            # Always print sdkmanager output so failures are visible
-            for line in (result.stdout + result.stderr).splitlines():
-                print(f"   [sdkmanager] {line}")
-            if result.returncode != 0:
-                print("❌ sdkmanager failed. Check your internet connection.")
-                sys.exit(1)
+            # Install packages one-by-one so a failure on the system image is visible
+            # and does not hide behind a successful emulator download.
+            for pkg in missing:
+                result = self._run_sdkmanager([pkg])
+                if result.returncode != 0:
+                    print(f"❌ sdkmanager failed installing '{pkg}'. Check your internet connection.")
+                    sys.exit(1)
         else:
             print("✅ SDK components already installed.")
+
+        # System image is required for AVD create — verify on disk (do not trust exit code alone).
+        if not self._system_image_installed():
+            print("⚠️  System image still missing after install — retrying once...")
+            result = self._run_sdkmanager([self.system_image])
+            if result.returncode != 0 or not self._system_image_installed():
+                print("❌ Android system image was not installed.")
+                print(f"   Expected package: {self.system_image}")
+                print(f"   Expected folder:  {self._system_image_dir()}")
+                print("   Without it, avdmanager fails with: Valid system image paths are: null")
+                print("   Tip: delete %USERPROFILE%\\widevine-sdk\\cmdline-tools and re-run if this persists.")
+                sys.exit(1)
+            print("✅ System image installed.")
+
+        # emulator.exe alone is not enough — -accel-check needs emulator-check next to it.
+        # Antivirus often quarantines emulator-check.exe; treat that as a repair case.
+        if os.path.exists(self.emulator_bin):
+            self._ensure_emulator_check_binary()
 
         # On Linux: upgrade emulator to >= 36.5 if older — 36.4.x crashes under
         # TCG software emulation when frida-server starts on kernel 7.x.
@@ -462,6 +576,11 @@ class WidevineMasterAutomator:
         need_create  = not os.path.exists(avd_ini) or existing_abi != self.abi
 
         if need_create:
+            if not self._system_image_installed():
+                print("❌ Cannot create AVD — system image is missing.")
+                print(f"   Expected: {self.system_image}")
+                print(f"   Folder:   {self._system_image_dir()}")
+                sys.exit(1)
             if existing_abi and existing_abi != self.abi:
                 print(f"📦 AVD ABI mismatch ({existing_abi} → {self.abi}), recreating AVD...")
             else:
@@ -481,6 +600,14 @@ class WidevineMasterAutomator:
             )
             if result.returncode != 0:
                 print(f"❌ Failed to create AVD:\n{result.stderr[:500]}")
+                if "Package path is not valid" in (result.stderr or "") or (
+                    "Valid system image paths" in (result.stderr or "")
+                ):
+                    print(f"   Requested image: {self.system_image}")
+                    print(
+                        f"   On-disk image ready: {self._system_image_installed()} "
+                        f"({self._system_image_dir()})"
+                    )
                 sys.exit(1)
             print(f"✅ AVD '{self.avd_name}' created.")
 
@@ -609,11 +736,152 @@ class WidevineMasterAutomator:
 
     def _default_accel(self):
         if self.os_type == "Windows":
-            return ["-accel", "auto"]   # emulator picks WHPX/HAXM/TCG automatically
+            return self._detect_windows_accel()
         elif self.os_type == "Linux":
             return ["-accel", "on"] if os.path.exists("/dev/kvm") else ["-accel", "auto"]
         else:
             return ["-accel", "hvf"]
+
+    def _detect_windows_accel(self):
+        """Detect WHPX / AEHD / HAXM and return Emulator-37-valid ``-accel`` flags.
+
+        Emulator 37+ only accepts ``-accel on|off|auto`` (not ``whpx`` / ``aehd`` /
+        ``haxm``). When a named accelerator is present, ``-accel on`` selects it.
+        """
+        self._windows_accel_name = None
+        try:
+            result = subprocess.run(
+                [self.emulator_bin, "-accel-check"],
+                capture_output=True, text=True, timeout=20,
+                env=self._sdk_env(),
+            )
+            output = result.stdout + result.stderr
+            out_lower = output.lower()
+        except Exception:
+            print("   Could not run accel-check — using -accel auto")
+            return ["-accel", "auto"]
+
+        def _ok(name: str) -> bool:
+            for line in out_lower.splitlines():
+                if name not in line:
+                    continue
+                if any(bad in line for bad in (
+                    "not installed", "not usable", "not available", "cannot",
+                )):
+                    continue
+                if "is installed and usable" in line or " works" in line or line.strip().endswith("works"):
+                    return True
+                if "usable" in line and "not" not in line:
+                    return True
+            return False
+
+        if _ok("whpx"):
+            # Emulator 37+ only accepts -accel on|off|auto (not "whpx").
+            # When WHPX is present, "-accel on" selects it.
+            self._windows_accel_name = "whpx"
+            print("   Hardware acceleration available: WHPX (-accel on)")
+            return ["-accel", "on"]
+        if _ok("aehd") or _ok("gvm"):
+            self._windows_accel_name = "aehd"
+            print("   Hardware acceleration available: AEHD (-accel on)")
+            return ["-accel", "on"]
+        if _ok("haxm"):
+            self._windows_accel_name = "haxm"
+            print("   Hardware acceleration available: HAXM (-accel on)")
+            return ["-accel", "on"]
+
+        if result.returncode == 0 and any(
+            k in out_lower for k in ("works", "usable", "installed and usable")
+        ):
+            print("   Hardware acceleration reported available (-accel on)")
+            return ["-accel", "on"]
+
+        print("   No WHPX/AEHD/HAXM detected — using -accel auto")
+        return ["-accel", "auto"]
+
+    def _windows_software_gpu_modes(self):
+        """Short GPU ladder for Windows TCG (Emulator 37)."""
+        return ["swiftshader_indirect", "off"]
+
+    def _ensure_vulkan_disabled_ini(self):
+        """Write ~/.android/advancedFeatures.ini with Vulkan / related GLES flags off."""
+        android_dir = os.path.join(self.home_dir, ".android")
+        os.makedirs(android_dir, exist_ok=True)
+        ini_path = os.path.join(android_dir, "advancedFeatures.ini")
+        flags = {
+            "Vulkan": "off",
+            "GLDirectMem": "on",
+            "VirtioGpuNativeSync": "on",
+            "VulkanAllocateDeviceMemoryOnly": "off",
+            "VulkanAllocateHostMemory": "off",
+        }
+        existing = {}
+        if os.path.exists(ini_path):
+            try:
+                with open(ini_path, encoding="utf-8", errors="replace") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        k, _, v = line.partition("=")
+                        existing[k.strip()] = v.strip()
+            except Exception:
+                pass
+        existing.update(flags)
+        try:
+            with open(ini_path, "w", encoding="utf-8") as f:
+                for k, v in existing.items():
+                    f.write(f"{k} = {v}\n")
+            print(f"   Wrote Vulkan-disabled advancedFeatures.ini → {ini_path}")
+        except Exception as e:
+            print(f"   ⚠️  Could not write advancedFeatures.ini: {e}")
+
+    def _avd_config_path(self):
+        return os.path.join(
+            self.home_dir, ".android", "avd", f"{self.avd_name}.avd", "config.ini"
+        )
+
+    def _patch_avd_config(self, updates: dict):
+        """Merge key=value pairs into the AVD config.ini."""
+        cfg = self._avd_config_path()
+        if not os.path.exists(cfg):
+            return
+        try:
+            with open(cfg, encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+            keys_done = set()
+            out = []
+            for line in lines:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    k = stripped.split("=", 1)[0].strip()
+                    if k in updates:
+                        out.append(f"{k}={updates[k]}\n")
+                        keys_done.add(k)
+                        continue
+                out.append(line)
+            for k, v in updates.items():
+                if k not in keys_done:
+                    out.append(f"{k}={v}\n")
+            with open(cfg, "w", encoding="utf-8") as f:
+                f.writelines(out)
+        except Exception as e:
+            print(f"   ⚠️  Could not patch AVD config.ini: {e}")
+
+    def _configure_avd_gpu(self, gpu: str):
+        self._patch_avd_config({
+            "hw.gpu.enabled": "yes" if gpu not in ("off", "guest") else "no",
+            "hw.gpu.mode": gpu if gpu != "off" else "off",
+        })
+
+    def _configure_avd_ram(self, ram_mb: int):
+        """Align AVD hw.ramSize / heap / data partition with ``-memory``."""
+        heap = max(256, min(512, ram_mb // 4))
+        self._patch_avd_config({
+            "hw.ramSize": str(ram_mb),
+            "vm.heapSize": str(heap),
+            "disk.dataPartition.size": "6G",
+        })
 
     def _userdata_partition_mb(self):
         """Return a userdata partition size (MB) that fits the available disk space."""
@@ -634,48 +902,192 @@ class WidevineMasterAutomator:
             print(f"   Disk: {free_mb} MB free → userdata partition: {size} MB")
         return size
 
-    def _launch_emulator_proc(self, accel):
+    def _launch_emulator_proc(self, accel, gpu=None):
         os.makedirs(self.work_dir, exist_ok=True)
         self.emulator_log = os.path.join(self.work_dir, "emulator.log")
         log_file = open(self.emulator_log, "w")
-        # On Windows, gfxstream/swiftshader_indirect hangs during TCG (software)
-        # emulation because it needs hypervisor support to init render workers.
-        # Use "-gpu off" only on Windows TCG to avoid the hang.
-        # On Linux/macOS, swiftshader_indirect works fine with TCG and is needed
-        # for the Android DRM/HAL service to start — "-gpu off" breaks Widevine there.
         is_software = "-accel" in accel and accel[accel.index("-accel") + 1] == "off"
-        gpu = ("off" if (is_software and self.os_type == "Windows")
-               else "swiftshader_indirect")
+
+        if gpu is None:
+            if is_software and self.os_type == "Windows":
+                # Preferred Windows TCG GPU is swiftshader_indirect (GLES/Widevine).
+                # Bare "-gpu off" alone still loads lavapipe and can AV (0xC0000005).
+                modes = self._windows_software_gpu_modes()
+                idx = min(getattr(self, "_windows_gpu_mode_idx", 0), len(modes) - 1)
+                gpu = modes[idx]
+                self._ensure_vulkan_disabled_ini()
+                self._configure_avd_gpu(gpu)
+            else:
+                # Linux/macOS (and Windows HW accel): swiftshader for DRM/HAL.
+                gpu = "swiftshader_indirect"
+
+        ram_mb = int(getattr(self, "_guest_ram_mb", 2048))
+        if self.os_type == "Windows":
+            self._configure_avd_ram(ram_mb)
+
         cmd = [
             self.emulator_bin,
             "-avd",   self.avd_name,
             "-port",  "5554",
             "-no-window", "-no-audio", "-no-boot-anim", "-no-snapshot",
+            "-no-metrics",
             "-gpu",   gpu,
+            "-memory", str(ram_mb),
             "-partition-size", str(self._userdata_partition_mb()),
-        ] + accel
+        ] + list(accel)
+
+        if is_software and self.os_type == "Windows":
+            cmd.extend(["-feature", "-Vulkan", "-GLDirectMem", "-VirtioGpuNativeSync"])
+
         if getattr(self, "_emulator_upgraded", False):
             cmd.append("-wipe-data")
             print("   (Wiping AVD data — emulator was just upgraded, old AVD state may be incompatible)")
             self._emulator_upgraded = False
+
         accel_label = " ".join(accel) if accel else "none"
-        print(f"   Acceleration: {accel_label}  GPU: {gpu}")
+        name = getattr(self, "_windows_accel_name", None)
+        if name and not is_software:
+            print(
+                f"   Acceleration: {accel_label} ({name.upper()})  "
+                f"GPU: {gpu}  Memory: {ram_mb} MB"
+            )
+        else:
+            print(f"   Acceleration: {accel_label}  GPU: {gpu}  Memory: {ram_mb} MB")
         print(f"   Command: {' '.join(cmd)}")
         self._last_emulator_cmd = cmd
         return subprocess.Popen(cmd, env=self._sdk_env(), stdout=log_file, stderr=log_file)
 
+    def _ensure_emulator_check_binary(self):
+        """Reinstall the emulator package if emulator-check is missing.
+
+        ``emulator -accel-check`` shells out to ``emulator-check`` beside
+        ``emulator``. A missing binary usually means antivirus quarantine or a
+        partial SDK extract — not missing CPU virtualization.
+        """
+        if os.path.exists(self.emulator_check_bin):
+            return True
+        print(
+            "\n⚠️  emulator-check is missing next to emulator.exe "
+            f"({self.emulator_check_bin})."
+        )
+        print("   This usually means a corrupted/incomplete emulator install or")
+        print("   antivirus quarantining emulator-check.exe — not missing VT-x/AMD-V.")
+        if not os.path.exists(self.sdkmanager):
+            print("   sdkmanager not found; cannot auto-repair.")
+            return False
+        print("   Reinstalling the 'emulator' SDK package…")
+        try:
+            # Uninstall first so sdkmanager does not skip a "already installed" package.
+            subprocess.run(
+                [self.sdkmanager, f"--sdk_root={self.sdk_dir}", "--uninstall", "emulator"],
+                input="y\n" * 5,
+                text=True,
+                capture_output=True,
+                timeout=300,
+                env=self._sdk_env(),
+            )
+            result = subprocess.run(
+                [self.sdkmanager, f"--sdk_root={self.sdk_dir}", "emulator"],
+                input="y\n" * 20,
+                text=True,
+                capture_output=True,
+                timeout=600,
+                env=self._sdk_env(),
+            )
+            for line in (result.stdout + result.stderr).splitlines():
+                if line.strip():
+                    print(f"   [sdkmanager] {line}")
+        except Exception as e:
+            print(f"   ⚠️  emulator reinstall failed: {e}")
+            return False
+        if os.path.exists(self.emulator_check_bin):
+            print("✅ emulator-check restored.")
+            return True
+        print("❌ emulator-check still missing after reinstall.")
+        print("   Check antivirus quarantine / protection history for:")
+        print(f"   {self.emulator_check_bin}")
+        print(f"   Then add an exclusion for: {self.sdk_dir}")
+        print("   and delete the emulator folder before re-running:")
+        print(f"   {os.path.join(self.sdk_dir, 'emulator')}")
+        return False
+
+    def _windows_virt_status(self):
+        """Return firmware / extension / hypervisor flags from WMI.
+
+        Under Hyper-V / VBS, ``VMMonitorModeExtensions`` is often False even when
+        AMD-V/VT-x is present — the host hypervisor owns the extensions. Prefer
+        ``VirtualizationFirmwareEnabled`` and ``HypervisorPresent``.
+        """
+        bios_enabled = False
+        cpu_ext = False
+        hypervisor = False
+        try:
+            _ps_exe = self._find_powershell()
+            if not _ps_exe:
+                raise FileNotFoundError("PowerShell not found")
+            ps = subprocess.run(
+                [_ps_exe, "-NoProfile", "-Command",
+                 "$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1; "
+                 "$cs = Get-CimInstance Win32_ComputerSystem; "
+                 "[pscustomobject]@{"
+                 "VirtualizationFirmwareEnabled=[bool]$cpu.VirtualizationFirmwareEnabled; "
+                 "VMMonitorModeExtensions=[bool]$cpu.VMMonitorModeExtensions; "
+                 "HypervisorPresent=[bool]$cs.HypervisorPresent"
+                 "} | ConvertTo-Json"],
+                capture_output=True, text=True, timeout=10,
+            )
+            import json as _json
+            info = _json.loads(ps.stdout)
+            bios_enabled = bool(info.get("VirtualizationFirmwareEnabled", False))
+            cpu_ext = bool(info.get("VMMonitorModeExtensions", False))
+            hypervisor = bool(info.get("HypervisorPresent", False))
+        except Exception:
+            pass
+        return bios_enabled, cpu_ext, hypervisor
+
     def _check_windows_acceleration(self):
-        """Run `emulator -accel-check` and abort with actionable instructions if no
-        hardware virtualization is available.  Only called on Windows."""
+        """Run `emulator -accel-check` and abort only when virt is truly unavailable.
+
+        Missing ``emulator-check`` must not be reported as "CPU has no VT-x".
+        Only called on Windows.
+        """
+        # Repair incomplete SDK before trusting accel-check.
+        if not os.path.exists(self.emulator_check_bin):
+            if not self._ensure_emulator_check_binary():
+                print("\n❌ Cannot run hardware-accel check: emulator-check is missing.")
+                print("   This is an SDK / antivirus issue, not missing CPU virtualization.")
+                sys.exit(1)
+
         try:
             result = subprocess.run(
                 [self.emulator_bin, "-accel-check"],
                 capture_output=True, text=True, timeout=20,
                 env=self._sdk_env(),
             )
-            output = (result.stdout + result.stderr).lower()
+            raw = result.stdout + result.stderr
+            output = raw.lower()
         except Exception:
             return   # can't run check — let the normal launch attempt proceed
+
+        # Incomplete package (should be rare after repair above).
+        if "can't find the emulator-check" in output or "corrupted tools" in output:
+            print("\n❌ emulator -accel-check failed: emulator-check executable missing.")
+            print("   This is a corrupted Android Emulator install (or antivirus quarantine),")
+            print("   not proof that VT-x / AMD-V is disabled.")
+            if self._ensure_emulator_check_binary():
+                try:
+                    result = subprocess.run(
+                        [self.emulator_bin, "-accel-check"],
+                        capture_output=True, text=True, timeout=20,
+                        env=self._sdk_env(),
+                    )
+                    raw = result.stdout + result.stderr
+                    output = raw.lower()
+                except Exception:
+                    return
+            else:
+                print(f"\n   Last accel-check output:\n   {raw.strip()}")
+                sys.exit(1)
 
         # Success: emulator -accel-check returns 0 when any accelerator is available.
         # Different drivers report differently: WHPX says "works", AEHD/HAXM say
@@ -684,37 +1096,30 @@ class WidevineMasterAutomator:
         if result.returncode == 0 or any(k in output for k in GOOD):
             return
 
-        # Failure: no usable accelerator.
-        # Use PowerShell to distinguish "CPU doesn't support VT-x" from
-        # "CPU supports it but BIOS/firmware has it disabled".
-        cpu_has_vt    = False
-        bios_enabled  = False
-        try:
-            _ps_exe = self._find_powershell()
-            if not _ps_exe:
-                raise FileNotFoundError("PowerShell not found")
-            ps = subprocess.run(
-                [_ps_exe, "-NoProfile", "-Command",
-                 "(Get-CimInstance Win32_Processor | "
-                 "Select-Object -First 1 "
-                 "VirtualizationFirmwareEnabled,VMMonitorModeExtensions) | "
-                 "ConvertTo-Json"],
-                capture_output=True, text=True, timeout=10,
-            )
-            import json as _json
-            info = _json.loads(ps.stdout)
-            cpu_has_vt   = bool(info.get("VMMonitorModeExtensions", False))
-            bios_enabled = bool(info.get("VirtualizationFirmwareEnabled", False))
-        except Exception:
-            pass
+        bios_enabled, cpu_ext, hypervisor = self._windows_virt_status()
+        # Host hypervisor / firmware virt ⇒ CPU virt exists; accel-check failure is
+        # usually WHPX / Windows features / VMware conflict — not "unsupported CPU".
+        if bios_enabled or hypervisor:
+            print("\n⚠️  emulator -accel-check did not report a usable accelerator.")
+            print("   System reports virtualization is available "
+                  f"(BIOS={bios_enabled}, HypervisorPresent={hypervisor}).")
+            print("   Continuing; launch will use -accel on/auto.")
+            print()
+            print("   If the emulator fails to boot, enable 'Windows Hypervisor Platform':")
+            print("   Settings → System → Optional features → More Windows features")
+            print("   → check 'Windows Hypervisor Platform' → OK → Reboot")
+            print("   (VMware/VirtualBox can conflict with WHPX — close them if needed.)")
+            print()
+            print(f"   emulator -accel-check output:\n   {raw.strip()}")
+            return
 
         print("\n❌ Hardware virtualization is not available on this system.")
         print("   The Android Emulator requires VT-x (Intel) or AMD-V (AMD) to run on Windows.")
         print()
-        if cpu_has_vt and not bios_enabled:
+        if cpu_ext and not bios_enabled:
             print("   ✅ Your CPU SUPPORTS virtualization, but it is DISABLED in BIOS/UEFI.")
             print()
-            print("   How to fix (VT-x is disabled in BIOS):")
+            print("   How to fix (VT-x / SVM is disabled in BIOS):")
             print("   1. Restart your PC and enter BIOS/UEFI  (Del / F2 / F10 at boot)")
             print("   2. Find 'Intel Virtualization Technology', 'VT-x', or 'SVM Mode'")
             print("      and set it to ENABLED")
@@ -723,15 +1128,15 @@ class WidevineMasterAutomator:
             print("   Then also ensure 'Windows Hypervisor Platform' is enabled:")
             print("   Settings → System → Optional features → More Windows features")
             print("   → check 'Windows Hypervisor Platform' → OK → Reboot")
-        elif not cpu_has_vt:
-            print("   ❌ Your CPU does not support hardware virtualization (VT-x / AMD-V).")
-            print("   The Android Emulator cannot run on this hardware.")
+        elif not cpu_ext and not bios_enabled and not hypervisor:
+            print("   ❌ Virtualization does not appear enabled on this machine.")
+            print("   Confirm SVM Mode / VT-x is ON in BIOS, then reboot.")
             print()
             print("   Options:")
+            print("   - Fix BIOS / Windows Hypervisor Platform and retry")
             print("   - Run this script on a different PC that supports VT-x/AMD-V")
             print("   - Copy the output files from another machine where you ran it successfully")
         else:
-            # Can't determine — give generic instructions
             print("   How to fix:")
             print("   1. Restart your PC and enter BIOS/UEFI  (Del / F2 / F10 at boot)")
             print("   2. Find 'Intel Virtualization Technology' (VT-x) or 'SVM Mode' (AMD)")
@@ -742,7 +1147,7 @@ class WidevineMasterAutomator:
             print("   Settings → System → Optional features → More Windows features")
             print("   → check 'Windows Hypervisor Platform' → OK → Reboot")
         print()
-        print(f"   emulator -accel-check output:\n   {(result.stdout + result.stderr).strip()}")
+        print(f"   emulator -accel-check output:\n   {raw.strip()}")
         sys.exit(1)
 
     def start_emulator(self):
@@ -769,6 +1174,9 @@ class WidevineMasterAutomator:
 
         self._emulator_proc = self._launch_emulator_proc(self._default_accel())
         self._accel_fallback_tried = False
+        self._accel_on_retried = False
+        self._force_software_accel = False
+        self._windows_gpu_mode_idx = 0
         # target will be updated to emulator-5554 once ADB detects it
         self.target = "emulator-5554"
 
@@ -879,9 +1287,7 @@ class WidevineMasterAutomator:
         return None
 
     def _cleanup_stale_emulator(self):
-        """Kill any stale emulator processes and remove AVD lock files."""
-        # Kill ALL emulator-related processes using PowerShell on Windows
-        # (catches emulator.exe, emulator64-x86_64.exe, qemu-system-x86_64.exe, etc.)
+        """Kill stale emulator / qemu / crashpad processes and remove AVD lock files."""
         if self.os_type == "Windows":
             ps = self._find_powershell()
             if ps:
@@ -889,21 +1295,24 @@ class WidevineMasterAutomator:
                     [
                         ps, "-NoProfile", "-Command",
                         "Get-Process | Where-Object {"
-                        "  $_.Name -match 'emulator' -or $_.Name -match 'qemu'"
+                        "  $_.Name -match 'emulator|qemu|crashpad'"
                         "} | Stop-Process -Force -ErrorAction SilentlyContinue",
                     ],
                     capture_output=True,
                 )
-            else:
-                # PowerShell not found — fall back to taskkill (always present on Windows)
-                for proc in ("emulator.exe", "qemu-system-x86_64.exe",
-                             "emulator64-x86_64.exe"):
-                    subprocess.run(
-                        ["taskkill", "/F", "/IM", proc],
-                        capture_output=True,
-                    )
+            for proc in (
+                "emulator.exe",
+                "qemu-system-x86_64.exe",
+                "emulator64-x86_64.exe",
+                "crashpad_handler.exe",
+            ):
+                subprocess.run(
+                    ["taskkill", "/F", "/IM", proc],
+                    capture_output=True,
+                )
         else:
             subprocess.run(["pkill", "-9", "-f", "emulator"], capture_output=True)
+            subprocess.run(["pkill", "-9", "-f", "qemu-system"], capture_output=True)
         time.sleep(8)   # give OS time to release file handles (Windows needs longer)
 
         # Kill ADB server (removes stale emulator registrations)
@@ -917,9 +1326,7 @@ class WidevineMasterAutomator:
                 print("   ⚠️  adb not found — skipping kill-server")
         time.sleep(1)
 
-        # Remove AVD lock files.
-        # On Windows the emulator may use a named mutex (not a file), but it also
-        # writes hardware-qemu.ini.lock and multiinstance.lock as file sentinels.
+        # Remove AVD lock files (retry — crashpad may respawn briefly).
         avd_dir = os.path.join(
             self.home_dir, ".android", "avd", f"{self.avd_name}.avd"
         )
@@ -928,13 +1335,27 @@ class WidevineMasterAutomator:
             contents = os.listdir(avd_dir)
             locks = [f for f in contents if ".lock" in f or f.endswith(".lock")]
             print(f"   AVD files: {contents}")
-            for fname in locks:
-                fpath = os.path.join(avd_dir, fname)
-                try:
-                    os.remove(fpath)
-                    print(f"   Removed stale lock: {fname}")
-                except OSError as e:
-                    print(f"   Could not remove {fname}: {e}")
+            for attempt in range(3):
+                remaining = []
+                for fname in locks:
+                    fpath = os.path.join(avd_dir, fname)
+                    if not os.path.exists(fpath):
+                        continue
+                    try:
+                        os.remove(fpath)
+                        print(f"   Removed stale lock: {fname}")
+                    except OSError as e:
+                        remaining.append(fname)
+                        print(f"   Could not remove {fname}: {e}")
+                if not remaining:
+                    break
+                locks = remaining
+                if self.os_type == "Windows":
+                    subprocess.run(
+                        ["taskkill", "/F", "/IM", "crashpad_handler.exe"],
+                        capture_output=True,
+                    )
+                time.sleep(2)
         else:
             print(f"   AVD dir not found: {avd_dir}")
 
@@ -947,19 +1368,12 @@ class WidevineMasterAutomator:
         self.system_image = "system-images;android-29;google_apis;x86"
 
         # Install the x86 system image if not already present
-        sysimg_dir = os.path.join(
-            self.sdk_dir, "system-images", "android-29", "google_apis", "x86"
-        )
-        if not os.path.exists(sysimg_dir):
+        if not self._system_image_installed():
             print("📦 Installing x86 system image (may take a few minutes)...")
-            result = subprocess.run(
-                [self.sdkmanager, f"--sdk_root={self.sdk_dir}", self.system_image],
-                input="y\n" * 10,
-                text=True,
-                env=self._sdk_env(),
-            )
-            if result.returncode != 0:
+            result = self._run_sdkmanager([self.system_image])
+            if result.returncode != 0 or not self._system_image_installed():
                 print("❌ Failed to install x86 system image.")
+                print(f"   Expected folder: {self._system_image_dir()}")
                 sys.exit(1)
             print("✅ x86 system image installed.")
 
@@ -1001,9 +1415,9 @@ class WidevineMasterAutomator:
                 os.remove(old_fs)
 
     def _retry_with_software_accel(self):
-        """Kill the current emulator and restart with -accel off (TCG/software).
-        If the log indicates no hardware virtualization support, switch to the x86
-        (32-bit) system image first — x86_64 TCG on Windows does not work without VT-x.
+        """Kill the current emulator and relaunch with a Windows-aware recovery path.
+
+        Returns True if a new emulator process was started, False if giving up.
         """
         proc = getattr(self, "_emulator_proc", None)
         if proc and proc.poll() is None:
@@ -1014,29 +1428,138 @@ class WidevineMasterAutomator:
                 proc.kill()
         self._cleanup_stale_emulator()
 
-        # Detect "no virtualization" and switch to x86 if on x86_64
         log_content = ""
         log_path = getattr(self, "emulator_log", None)
         if log_path and os.path.exists(log_path):
-            with open(log_path) as f:
+            with open(log_path, encoding="utf-8", errors="replace") as f:
                 log_content = f.read()
+        log_lower = log_content.lower()
+
+        access_violation = (
+            "0xc0000005" in log_lower
+            or "access violation" in log_lower
+            or "3221225477" in log_content
+            or "exit code 3221225477" in log_lower
+        )
+        host_ram_fatal = "available system ram is not enough" in log_lower
+        aehd_missing = (
+            "aehd is not installed" in log_lower
+            or "android emulator hypervisor driver is not installed" in log_lower
+        )
+        invalid_named_accel = (
+            "invalid '-accel whpx'" in log_lower
+            or "invalid '-accel aehd'" in log_lower
+            or "invalid '-accel haxm'" in log_lower
+            or "valid values are: on off auto" in log_lower
+        )
         virt_absent = (
             "Virtualization extension is not supported" in log_content
-            or "virtualization extension" in log_content.lower()
-            or "requires hardware acceleration" in log_content
+            or "virtualization extension" in log_lower
+            or "requires hardware acceleration" in log_lower
         )
-        # On Linux/macOS, x86_64 with -accel off (TCG) works fine — no ABI switch needed.
-        # On Windows, emulator 36.x broke x86_64 TCG even with -accel off, so we must
-        # fall back to x86 (32-bit) which TCG still supports on Windows.
-        if virt_absent and self.abi == "x86_64" and self.os_type == "Windows":
-            self._switch_to_x86()
 
         subprocess.run([self.adb, "start-server"], capture_output=True, text=True)
-        print("🔄 Retrying with software acceleration (-accel off)...")
-        print("   NOTE: Software emulation is very slow — allow up to 15 minutes.")
-        self._emulator_proc = self._launch_emulator_proc(["-accel", "off"])
+
+        def _relaunch(accel, note, gpu=None):
+            print(note)
+            self._emulator_proc = self._launch_emulator_proc(accel, gpu=gpu)
+            self.target = "emulator-5554"
+            return True
+
+        # 1. AEHD-missing OR invalid named accel → once: -accel on
+        if (aehd_missing or invalid_named_accel) and not getattr(self, "_accel_on_retried", False):
+            self._accel_on_retried = True
+            self._force_software_accel = False
+            return _relaunch(
+                ["-accel", "on"],
+                "🔄 Invalid/named accel rejected or AEHD missing — "
+                "relaunching once with -accel on (Emulator 37 WHPX/AEHD/HAXM)...",
+            )
+
+        # 2. Host RAM fatal → lower guest RAM ladder + -accel off (do not spin GPU)
+        if host_ram_fatal:
+            ladder = getattr(self, "_host_ram_ladder", [1536, 1024, 768, 512])
+            idx = getattr(self, "_host_ram_ladder_idx", 0)
+            if idx >= len(ladder):
+                print("❌ Host RAM still insufficient after lowering guest memory ladder.")
+                return False
+            self._guest_ram_mb = ladder[idx]
+            self._host_ram_ladder_idx = idx + 1
+            self._force_software_accel = True
+            self._accel_fallback_tried = True
+            return _relaunch(
+                ["-accel", "off"],
+                f"🔄 Host RAM fatal — lowering guest RAM to {self._guest_ram_mb} MB "
+                f"and relaunching with -accel off...",
+            )
+
+        # 3. Already on software path → AV / GPU ladder / x86 ABI fallback
+        if getattr(self, "_force_software_accel", False) or getattr(self, "_accel_fallback_tried", False):
+            if access_violation and self.os_type == "Windows":
+                if int(getattr(self, "_guest_ram_mb", 0) or 0) < 2048:
+                    self._guest_ram_mb = 2048
+                    print("   Access violation on TCG — aligning guest RAM to 2048 MB.")
+                if not getattr(self, "_accel_on_retried", False):
+                    self._accel_on_retried = True
+                    self._force_software_accel = False
+                    return _relaunch(
+                        ["-accel", "on"],
+                        "🔄 Access violation — trying one hardware relaunch with -accel on...",
+                    )
+
+            if self.os_type == "Windows":
+                modes = self._windows_software_gpu_modes()
+                next_idx = getattr(self, "_windows_gpu_mode_idx", 0) + 1
+                if next_idx < len(modes):
+                    self._windows_gpu_mode_idx = next_idx
+                    self._force_software_accel = True
+                    self._accel_fallback_tried = True
+                    gpu = modes[next_idx]
+                    return _relaunch(
+                        ["-accel", "off"],
+                        f"🔄 Advancing Windows TCG GPU mode → {gpu} "
+                        f"(~8 minutes per software attempt)...",
+                        gpu=gpu,
+                    )
+
+            if (
+                self.os_type == "Windows"
+                and self.abi == "x86_64"
+                and not getattr(self, "_x86_fallback_tried", False)
+            ):
+                self._x86_fallback_tried = True
+                self._windows_gpu_mode_idx = 0
+                self._force_software_accel = True
+                self._accel_fallback_tried = True
+                self._switch_to_x86()
+                return _relaunch(
+                    ["-accel", "off"],
+                    "🔄 Switching ABI x86_64 → x86 and resetting GPU cycle...",
+                )
+
+            print("❌ Software GPU / ABI recovery exhausted.")
+            if self.os_type == "Windows":
+                print("   Advice: confirm Windows Hypervisor Platform / WHPX is enabled,")
+                print("   then re-run. Launch should show: -accel on  (not -accel whpx).")
+            return False
+
+        # First software fallback (Linux virt-absent may switch ABI; Windows stays x86_64 first)
+        if virt_absent and self.abi == "x86_64" and self.os_type == "Windows":
+            # Prefer staying on x86_64 TCG with swiftshader first; ABI switch is later.
+            pass
+
+        self._force_software_accel = True
         self._accel_fallback_tried = True
-        self.target = "emulator-5554"
+        self._windows_gpu_mode_idx = 0
+        if self.os_type == "Windows":
+            self._ensure_vulkan_disabled_ini()
+            if int(getattr(self, "_guest_ram_mb", 0) or 0) < 2048:
+                self._guest_ram_mb = 2048
+        return _relaunch(
+            ["-accel", "off"],
+            "🔄 Retrying with software acceleration (-accel off)...\n"
+            "   NOTE: Software emulation is slow — allow up to ~8 minutes per attempt.",
+        )
 
     def _find_emulator_serial(self):
         """Scan adb devices and return the serial of any online/booting emulator."""
@@ -1066,9 +1589,9 @@ class WidevineMasterAutomator:
             exit_code = proc.poll() if proc else None
             self._show_emulator_log()
             self._dump_system_diagnostics(exit_code=exit_code)
-            if not self._accel_fallback_tried:
-                self._retry_with_software_accel()
-                self.wait_for_boot(timeout=900)   # 15 min for slow TCG
+            if self._retry_with_software_accel():
+                retry_timeout = 480 if getattr(self, "_force_software_accel", False) else 600
+                self.wait_for_boot(timeout=retry_timeout)
             else:
                 sys.exit(1)
 
@@ -1882,12 +2405,13 @@ class WidevineMasterAutomator:
             if emulator_dead:
                 print("\n⚠️  Emulator crashed during DRM extraction under KVM.")
                 print("   Some kernels have KVM + Widevine compatibility issues.")
-                self._retry_with_software_accel()
-                self.wait_for_boot(timeout=900)
-                self.install_frida()
-                self._wait_for_package_manager()
-                self._preinstall_kaltura()
-                success = self.run_keydive()
+                if self._retry_with_software_accel():
+                    retry_timeout = 480 if getattr(self, "_force_software_accel", False) else 600
+                    self.wait_for_boot(timeout=retry_timeout)
+                    self.install_frida()
+                    self._wait_for_package_manager()
+                    self._preinstall_kaltura()
+                    success = self.run_keydive()
         self.cleanup()
         if not success:
             sys.exit(1)

@@ -8,18 +8,26 @@ def _asset_path(filename):
     return os.path.join(_ASSETS_DIR, filename).replace("\\", "/")
 
 
-def get_dark_theme_qss():
+def get_dark_theme_qss(font_size=None):
     """Return the dark-theme QSS with resolved asset paths for indicator icons."""
+    from ofscraper.gui.utils.ui_scale import qss_font_vars
+
     check = _asset_path("check.svg")
     radio = _asset_path("radio.svg")
-    return _DARK_THEME_TEMPLATE.format(check_svg=check, radio_svg=radio)
+    return _DARK_THEME_TEMPLATE.format(
+        check_svg=check, radio_svg=radio, **qss_font_vars(font_size)
+    )
 
 
-def get_light_theme_qss():
+def get_light_theme_qss(font_size=None):
     """Return the light-theme QSS (Catppuccin Latte) with resolved asset paths."""
+    from ofscraper.gui.utils.ui_scale import qss_font_vars
+
     check = _asset_path("check.svg")
     radio = _asset_path("radio.svg")
-    return _LIGHT_THEME_TEMPLATE.format(check_svg=check, radio_svg=radio)
+    return _LIGHT_THEME_TEMPLATE.format(
+        check_svg=check, radio_svg=radio, **qss_font_vars(font_size)
+    )
 
 
 # Sidebar background colors used by main_window.py (kept in sync with QSS)
@@ -83,14 +91,15 @@ COLORS = {
         "blue": "#1e66f5",
         "sky": "#04a5e5",
         "teal": "#179299",
-        "green": "#40a02b",
-        "yellow": "#df8e1d",
+        "green": "#2d8a22",
+        # Darker than Catppuccin Latte yellow so text stays readable on white.
+        "yellow": "#9a6700",
         "peach": "#fe640b",
         "red": "#d20f39",
         "mauve": "#8839ef",
         "lavender": "#7287fd",
         "sep": "#ccd0da",
-        "warning": "#d35400",
+        "warning": "#9a3412",
     },
 }
 
@@ -107,7 +116,7 @@ QWidget {{
     background-color: #1e1e2e;
     color: #cdd6f4;
     font-family: "Segoe UI", "Consolas", monospace;
-    font-size: 13px;
+    font-size: {font_base}px;
 }}
 
 /* ==================== Main Window ==================== */
@@ -200,7 +209,7 @@ QPushButton.nav_button {{
     border-radius: 8px;
     padding: 10px 16px;
     text-align: left;
-    font-size: 14px;
+    font-size: {font_14}px;
     min-height: 32px;
 }}
 
@@ -392,14 +401,18 @@ QTabBar::tab:hover:!selected {{
 QGroupBox {{
     border: 1px solid #313244;
     border-radius: 6px;
-    margin-top: 12px;
-    padding-top: 16px;
+    margin-top: 10px;
+    padding-top: 12px;
+    padding-bottom: 6px;
+    padding-left: 2px;
+    padding-right: 2px;
     font-weight: bold;
 }}
 
 QGroupBox::title {{
     subcontrol-origin: margin;
     subcontrol-position: top left;
+    left: 8px;
     padding: 0 6px;
     color: #cdd6f4;
 }}
@@ -428,6 +441,14 @@ QSplitter::handle:hover {{
     background-color: #89b4fa;
 }}
 
+QSplitter::handle:horizontal {{
+    height: 8px;
+}}
+
+QSplitter::handle:vertical {{
+    width: 6px;
+}}
+
 /* ==================== Labels ==================== */
 QLabel {{
     color: #cdd6f4;
@@ -435,19 +456,25 @@ QLabel {{
 }}
 
 QLabel[heading="true"] {{
-    font-size: 18px;
+    font-size: {font_18}px;
     font-weight: bold;
     color: #cdd6f4;
 }}
 
 QLabel[subheading="true"] {{
-    font-size: 14px;
+    font-size: {font_14}px;
     color: #bac2de;
 }}
 
 QLabel[muted="true"] {{
     color: #9399b2;
-    font-size: 11px;
+    font-size: {font_11}px;
+}}
+
+QLabel[hint="true"] {{
+    color: #a6adc8;
+    font-size: {font_12_5}px;
+    line-height: 1.35;
 }}
 
 /* ==================== Status Bar ==================== */
@@ -469,7 +496,7 @@ QPlainTextEdit, QTextEdit {{
     border: 1px solid #313244;
     border-radius: 4px;
     font-family: "Consolas", "Courier New", monospace;
-    font-size: 12px;
+    font-size: {font_12}px;
     selection-background-color: #89b4fa;
     selection-color: #1e1e2e;
 }}
@@ -501,7 +528,7 @@ QWidget {{
     background-color: #eff1f5;
     color: #11111b;
     font-family: "Segoe UI", "Consolas", monospace;
-    font-size: 13px;
+    font-size: {font_base}px;
 }}
 
 /* ==================== Main Window ==================== */
@@ -594,7 +621,7 @@ QPushButton.nav_button {{
     border-radius: 8px;
     padding: 10px 16px;
     text-align: left;
-    font-size: 14px;
+    font-size: {font_14}px;
     min-height: 32px;
 }}
 
@@ -786,14 +813,18 @@ QTabBar::tab:hover:!selected {{
 QGroupBox {{
     border: 1px solid #ccd0da;
     border-radius: 6px;
-    margin-top: 12px;
-    padding-top: 16px;
+    margin-top: 10px;
+    padding-top: 12px;
+    padding-bottom: 6px;
+    padding-left: 2px;
+    padding-right: 2px;
     font-weight: bold;
 }}
 
 QGroupBox::title {{
     subcontrol-origin: margin;
     subcontrol-position: top left;
+    left: 8px;
     padding: 0 6px;
     color: #2c2f47;
 }}
@@ -822,6 +853,14 @@ QSplitter::handle:hover {{
     background-color: #1e66f5;
 }}
 
+QSplitter::handle:horizontal {{
+    height: 8px;
+}}
+
+QSplitter::handle:vertical {{
+    width: 6px;
+}}
+
 /* ==================== Labels ==================== */
 QLabel {{
     color: #11111b;
@@ -829,19 +868,25 @@ QLabel {{
 }}
 
 QLabel[heading="true"] {{
-    font-size: 18px;
+    font-size: {font_18}px;
     font-weight: bold;
     color: #11111b;
 }}
 
 QLabel[subheading="true"] {{
-    font-size: 14px;
+    font-size: {font_14}px;
     color: #3c3f58;
 }}
 
 QLabel[muted="true"] {{
     color: #4c4f69;
-    font-size: 11px;
+    font-size: {font_11}px;
+}}
+
+QLabel[hint="true"] {{
+    color: #3c3f58;
+    font-size: {font_12_5}px;
+    line-height: 1.35;
 }}
 
 /* ==================== Status Bar ==================== */
@@ -863,7 +908,7 @@ QPlainTextEdit, QTextEdit {{
     border: 1px solid #ccd0da;
     border-radius: 4px;
     font-family: "Consolas", "Courier New", monospace;
-    font-size: 12px;
+    font-size: {font_12}px;
     selection-background-color: #1e66f5;
     selection-color: #eff1f5;
 }}

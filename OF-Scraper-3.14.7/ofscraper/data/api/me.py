@@ -30,7 +30,14 @@ def _scraper_user_helper(c):
     try:
         with c.requests(of_env.getattr("meEP")) as r:
             data = r.json_()
-            if data["isAuth"]:
+            if not isinstance(data, dict):
+                raise ValueError(
+                    "OnlyFans returned an empty or invalid profile response. "
+                    "Usually sess and auth_id do not match (Wrong user), the "
+                    "session expired, or dynamic signing rules failed — "
+                    "re-import cookies from one logged-in Network request."
+                )
+            if data.get("isAuth"):
                 sensitive.add_sensitive_pattern(data["id"], "userid")
                 sensitive.add_sensitive_pattern(
                     f"{data['username']} | {data['username']}|\\b{data['username']}\\b",

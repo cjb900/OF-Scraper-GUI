@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from ofscraper.gui.utils.ui_scale import apply_font, scale_px
 from ofscraper.gui.widgets.styled_button import StyledButton
 
 log = logging.getLogger("shared")
@@ -56,7 +57,7 @@ class ModelSelectorDialog(QDialog):
         layout.setSpacing(12)
 
         header = QLabel("Select Models to Scrape")
-        header.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
+        apply_font(header, "Segoe UI", 18, QFont.Weight.Bold)
         layout.addWidget(header)
 
         subtitle = QLabel("Search and select the creators you want to process.")
@@ -130,10 +131,21 @@ class ModelSelectorDialog(QDialog):
 
         layout.addLayout(bulk_layout)
 
-        # Model list
+        # Model list — monospace via stylesheet (global QSS prefers Segoe UI)
         self.model_list = QListWidget()
         self.model_list.setAlternatingRowColors(True)
+        apply_font(self.model_list, "Consolas", 11)
+        self.model_list.setStyleSheet(
+            f'QListWidget {{ font-family: Consolas, "Courier New", monospace; font-size: {scale_px(11)}pt; }}'
+        )
         self.model_list.itemChanged.connect(self._update_count)
+        self._model_list_header = QLabel("")
+        apply_font(self._model_list_header, "Consolas", 11, QFont.Weight.Bold)
+        self._model_list_header.setStyleSheet(
+            f'QLabel {{ font-family: Consolas, "Courier New", monospace; font-size: {scale_px(11)}pt;'
+            " color: #a6adc8; padding: 2px 4px 2px 28px; }"
+        )
+        layout.addWidget(self._model_list_header)
         layout.addWidget(self.model_list)
 
         return widget
@@ -145,7 +157,7 @@ class ModelSelectorDialog(QDialog):
         layout.setContentsMargins(8, 0, 0, 0)
 
         filter_label = QLabel("Filters")
-        filter_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        apply_font(filter_label, "Segoe UI", 14, QFont.Weight.Bold)
         layout.addWidget(filter_label)
 
         # Subscription type
@@ -198,14 +210,47 @@ class ModelSelectorDialog(QDialog):
     def _populate_list(self, names):
         self.model_list.blockSignals(True)
         self.model_list.clear()
+        try:
+            name_width = max((len(str(n or "")) for n in names), default=12)
+            name_width = max(12, min(name_width, 32))
+        except Exception:
+            name_width = 28
+        try:
+            from ofscraper.gui.utils.privacy_mode import model_list_header_line
+
+            self._model_list_header.setText(model_list_header_line(name_width))
+            self._model_list_header.show()
+        except Exception:
+            try:
+                self._model_list_header.hide()
+            except Exception:
+                pass
         for name in names:
             model = self._all_models.get(name)
             if model:
                 sub_date = getattr(model, "subscribed_string", None) or "N/A"
                 price = getattr(model, "final_current_price", 0) or 0
-                display = f"{name}  =>  subscribed: {sub_date} | price: {price}"
+                try:
+                    from ofscraper.gui.utils.privacy_mode import format_model_list_line
+
+                    display = format_model_list_line(
+                        name,
+                        sub_date=sub_date,
+                        price=price,
+                        style="dialog",
+                        name_width=name_width,
+                    )
+                except Exception:
+                    display = (
+                        f"{str(name):<{name_width}}  {str(sub_date):<10}  {str(price):>8}"
+                    )
             else:
-                display = name
+                try:
+                    from ofscraper.gui.utils.privacy_mode import mask_username
+
+                    display = mask_username(name) or name
+                except Exception:
+                    display = name
             item = QListWidgetItem(display)
             item.setData(Qt.ItemDataRole.UserRole, name)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -218,7 +263,9 @@ class ModelSelectorDialog(QDialog):
         text_lower = text.lower()
         for i in range(self.model_list.count()):
             item = self.model_list.item(i)
-            item.setHidden(text_lower not in item.text().lower())
+            real = str(item.data(Qt.ItemDataRole.UserRole) or "").lower()
+            shown = item.text().lower()
+            item.setHidden(text_lower not in f"{real} {shown}")
 
     def _select_all(self):
         self.model_list.blockSignals(True)

@@ -58,7 +58,7 @@ def load_general_config():
         "OFSC_DELETED_MODEL_PLACEHOLDER", "modeldeleted"
     )
 
-    # APP_TOKEN: A generic application token (example, usually sensitive and not hardcoded).
+    # APP_TOKEN: A generic application token.
     # Default: "33d57ade8c02dbc5a333db99ff9ae26a"
     config["APP_TOKEN"] = os.getenv(
         "OFSC_APP_TOKEN", "33d57ade8c02dbc5a333db99ff9ae26a"

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 
@@ -38,7 +39,7 @@ class ProfilePage(QWidget):
 
         # Header
         header = QLabel("Profile Manager")
-        header.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
+        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
         header.setProperty("heading", True)
         layout.addWidget(header)
 
@@ -51,7 +52,7 @@ class ProfilePage(QWidget):
 
         # Current profile indicator
         self.current_label = QLabel("Current profile: loading...")
-        self.current_label.setFont(QFont("Segoe UI", 13))
+        apply_font(self.current_label, "Segoe UI", 13)
         self.current_label.setStyleSheet(f"color: {c('blue')};")
         app_signals.theme_changed.connect(
             lambda _: self.current_label.setStyleSheet(f"color: {c('blue')};")
@@ -113,11 +114,11 @@ class ProfilePage(QWidget):
             for name in profiles:
                 item = QListWidgetItem(name)
                 if name == active:
-                    item.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+                    apply_font(item, "Segoe UI", 12, QFont.Weight.Bold)
                     item.setForeground(Qt.GlobalColor.cyan)
                     item.setText(f"{name} (active)")
                 else:
-                    item.setFont(QFont("Segoe UI", 12))
+                    apply_font(item, "Segoe UI", 12)
                 self.profile_list.addItem(item)
 
             app_signals.status_message.emit(f"Found {len(profiles)} profiles")

@@ -13,7 +13,7 @@ Plugins are loaded from the `plugins` folder next to your OF-Scraper `config.jso
 
 The folder is created automatically on first launch if it does not exist.
 
-Plugins are loaded in both **GUI mode** (`ofscraper --gui`) and **headless/CLI mode** (`ofscraper`). The only hook that is GUI-only is `on_ui_setup`.
+Plugins are loaded in both **GUI mode** (`ofscraper --gui`) and **headless/CLI mode** (`ofscraper`). GUI-only hooks are `on_ui_setup` and `on_ui_teardown`.
 
 ---
 
@@ -183,12 +183,13 @@ Override any of these methods in your `Plugin` class. All hooks are called via `
 | Method | Status | When it is called |
 | :--- | :--- | :--- |
 | `on_load()` | **Active** | Right after the plugin is instantiated. Use for initialisation. |
-| `on_ui_setup(main_window)` | **Active (GUI only)** | After the PyQt6 main window is fully built. |
+| `on_ui_setup(main_window)` | **Active (GUI only)** | After the PyQt6 main window is fully built (and on **Load now**). |
+| `on_ui_teardown(main_window)` | **Active (GUI only)** | Before unload / **Unload now** — remove pages/nav from `on_ui_setup`. |
 | `on_item_downloaded(item_data, file_path)` | **Active** | Each time a media file is successfully saved to disk. Fires in both GUI and CLI mode. |
 | `on_scrape_start(config, models)` | **Active** | Before the scrape begins. Must return the `models` list (may be modified). |
 | `on_posts_collected(posts, model_username)` | **Active** | After each batch of messages is collected for a model during scraping. |
 | `on_scrape_complete(stats)` | **Active** | When a scraping session finishes completely. |
-| `on_unload()` | **Reserved** | Defined but not yet dispatched. |
+| `on_unload()` | **Active** | App exit or **Unload now** (after UI teardown). |
 
 ### `on_item_downloaded(item_data, file_path)`
 
@@ -495,9 +496,8 @@ class Plugin(BasePlugin):
 
     def on_unload(self):
         """
-        Reserved — not yet dispatched by the Plugin Manager.
-        Implement now for future compatibility; use for releasing
-        model weights, DB connections, threads, etc.
+        Called on app exit or Plugins → Unload now (after on_ui_teardown).
+        Release model weights, DB connections, threads, etc.
         """
         pass
 

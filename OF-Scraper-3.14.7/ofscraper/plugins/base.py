@@ -19,6 +19,10 @@ class BasePlugin:
         """Called when the PyQt6 GUI layout is initialized."""
         pass
 
+    def on_ui_teardown(self, main_window):
+        """Called before unload to remove GUI pages/nav added in on_ui_setup."""
+        pass
+
     def on_scrape_start(self, config, models):
         """Called before the main scraper loop begins. Should return the models list (possibly modified)."""
         return models

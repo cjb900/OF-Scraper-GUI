@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 
@@ -40,9 +41,10 @@ SYSTEM REQUIREMENTS
   Disk:     8 GB free space (SDK + emulator image + APKs)
   Internet: Required — downloads ~3 GB of tools on first run
 
-  Hardware virtualization (VT-x / KVM) is strongly recommended.
+  Hardware virtualization (VT-x / KVM / WHPX) is strongly recommended.
   Without it the script falls back to software emulation which may
-  take 45–90 minutes instead of 10–20 minutes.
+  take longer (~8 minutes per GPU attempt). On Windows Emulator 37+,
+  hardware accel uses ``-accel on`` (not ``-accel whpx``).
 
 REQUIRED PYTHON PACKAGES
 ────────────────────────
@@ -134,7 +136,7 @@ class DRMKeyPage(QWidget):
 
         # ── Header ────────────────────────────────────────────────────────────
         header = QLabel("DRM Key Creation")
-        header.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
+        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
         header.setProperty("heading", True)
         layout.addWidget(header)
 
@@ -210,7 +212,7 @@ class DRMKeyPage(QWidget):
         self.output_text.setReadOnly(True)
         self.output_text.setMaximumBlockCount(2000)
         self.output_text.setPlaceholderText("Script output will appear here...")
-        self.output_text.setFont(QFont("Consolas", 9))
+        apply_font(self.output_text, "Consolas", 9)
         self.output_text.setMinimumHeight(300)
         layout.addWidget(self.output_text)
 
@@ -225,11 +227,11 @@ class DRMKeyPage(QWidget):
         req_layout.setSpacing(4)
 
         req_title = QLabel("Requirements & Information")
-        req_title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        apply_font(req_title, "Segoe UI", 11, QFont.Weight.Bold)
         req_layout.addWidget(req_title)
 
         req_body = QLabel(_REQUIREMENTS_TEXT)
-        req_body.setFont(QFont("Consolas", 9))
+        apply_font(req_body, "Consolas", 9)
         req_body.setWordWrap(False)
         req_body.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         req_layout.addWidget(req_body)
@@ -442,13 +444,14 @@ class DRMKeyPage(QWidget):
 
     def _update_config(self, client_id: str, private_key: str):
         from ofscraper.utils.config.file import open_config, write_config
+        from ofscraper.utils.config.path_norm import normalize_windows_path
         import ofscraper.utils.config.config as config_module
 
         config = open_config()
         cdm = config.setdefault("cdm_options", {})
         cdm["key-mode-default"] = "manual"
-        cdm["client-id"] = client_id
-        cdm["private-key"] = private_key
+        cdm["client-id"] = normalize_windows_path(client_id)
+        cdm["private-key"] = normalize_windows_path(private_key)
         write_config(config)
         # Clear the module-level cache so the next read_config() call re-reads the file
         config_module.config = None

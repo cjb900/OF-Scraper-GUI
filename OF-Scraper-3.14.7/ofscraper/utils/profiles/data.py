@@ -12,14 +12,17 @@ currentData = None
 def get_my_info():
     global currentData
     global currentProfile
-    if currentProfile == get_active_profile():
+    if currentProfile == get_active_profile() and currentData is not None:
         return currentData
     else:
         import ofscraper.data.api.me as me
 
-        currentProfile = get_active_profile()
-        currentData = me.scrape_user()
-    return currentData
+        data = me.scrape_user()
+        if data:
+            currentProfile = get_active_profile()
+            currentData = data
+            return currentData
+    return None
 
 
 def get_profiles() -> list:

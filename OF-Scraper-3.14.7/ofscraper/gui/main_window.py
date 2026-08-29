@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -22,7 +23,6 @@ from ofscraper.gui.styles import (
     get_dark_theme_qss,
     get_light_theme_qss,
     set_theme,
-    c,
     DARK_SIDEBAR_BG,
     LIGHT_SIDEBAR_BG,
     DARK_SEP_COLOR,
@@ -30,10 +30,23 @@ from ofscraper.gui.styles import (
     DARK_LOGO_COLOR,
     LIGHT_LOGO_COLOR,
 )
+from ofscraper.gui.utils.ui_scale import (
+    DESIGN_BASE,
+    allowed_sizes,
+    apply_application_font,
+    get_gui_font_size,
+    load_gui_font_size_from_settings,
+    refresh_scaled_fonts,
+    scale_px,
+    set_gui_font_size,
+)
 from ofscraper.gui.utils.workflow import GUIWorkflow
 from ofscraper.gui.widgets.styled_button import NavButton
 
 log = logging.getLogger("shared")
+
+# Sidebar ASCII logo stays fixed so GUI text scaling cannot distort it.
+_LOGO_PT = 5
 
 
 class MainWindow(QMainWindow):
@@ -49,15 +62,24 @@ class MainWindow(QMainWindow):
         self._pages = {}
         self._nav_buttons = {}
 
-        # Load saved theme preference (dark by default)
+        # Load saved theme preference (dark by default) + GUI font size
         try:
             from ofscraper.gui.utils.gui_settings import load_gui_settings
             _saved = load_gui_settings()
             self._is_dark = _saved.get("theme", "dark") == "dark"
             self._verbose_log = bool(_saved.get("verbose_log", False))
+            from ofscraper.gui.utils.privacy_mode import load_privacy_mode_from_settings
+
+            self._privacy_mode = load_privacy_mode_from_settings()
         except Exception:
             self._is_dark = True
             self._verbose_log = False
+            self._privacy_mode = False
+        try:
+            load_gui_font_size_from_settings()
+            apply_application_font()
+        except Exception:
+            pass
         set_theme(self._is_dark)
         if self._verbose_log:
             self._apply_verbose_log(True)
@@ -66,12 +88,21 @@ class MainWindow(QMainWindow):
         self.workflow = GUIWorkflow(manager)
 
         self._setup_ui()
-        # _setup_ui hardcodes dark visuals; fix up if light mode is preferred
-        if not self._is_dark:
-            self._apply_theme_visuals(emit_signal=False)
+        # Always apply theme QSS so font-size placeholders match gui_font_size
+        self._apply_theme_visuals(emit_signal=False)
         # Sync verbose button label to loaded preference
         if self._verbose_log:
             self._verbose_btn.setText("Verbose Log: On")
+        # Sync privacy button (emit so pages apply masking after creation)
+        try:
+            from ofscraper.gui.utils.privacy_mode import set_privacy_mode
+
+            set_privacy_mode(self._privacy_mode, persist=False, emit=True)
+            self._privacy_btn.setText(
+                f"Privacy: {'On' if self._privacy_mode else 'Off'}"
+            )
+        except Exception:
+            pass
         self._connect_signals()
 
         # Load custom plugins and let them patch the UI if desired
@@ -80,10 +111,12 @@ class MainWindow(QMainWindow):
         plugin_manager.dispatch_event("on_ui_setup", self)
 
         self._navigate("scraper")
-        # After the window is created and painted, show missing dependency notices once.
-        QTimer.singleShot(250, self._maybe_show_missing_dependency_notice)
+        # Startup dialogs: Welcome first (if needed), then missing FFmpeg/CDM — never stack both.
+        QTimer.singleShot(250, self._maybe_run_startup_dialogs)
         # Optional: if CLI args fully specify a scrape run, auto-start in GUI mode.
         QTimer.singleShot(350, self._maybe_autostart_from_cli_args)
+        # Quiet PyPI update check (only prompts when a newer release exists).
+        QTimer.singleShot(1400, self._maybe_check_for_updates)
 
     def _maybe_autostart_from_cli_args(self):
         """If invoked with --gui and sufficient CLI args, skip the GUI wizard and start scraping.
@@ -235,6 +268,53 @@ class MainWindow(QMainWindow):
         except Exception:
             pass
 
+        # Allow dupes (allow_dupe_downloads)
+        try:
+            allow_dupes_val = bool(getattr(args, "allow_dupe_downloads", False))
+            self.area_page.allow_dupes_check.setChecked(allow_dupes_val)
+            keep_msg_paid = bool(
+                allow_dupes_val
+                and getattr(args, "keep_message_purchased_dupes", False)
+            )
+            self.area_page.keep_msg_purchased_dupes_check.setEnabled(allow_dupes_val)
+            self.area_page.keep_msg_purchased_dupes_check.setChecked(keep_msg_paid)
+        except Exception:
+            pass
+
+        # Daemon discord ping
+        try:
+            discord_ping_val = bool(getattr(args, "discord_ping", False))
+            self.area_page.daemon_discord_ping_check.setChecked(discord_ping_val)
+        except Exception:
+            pass
+
+        # Discord webhook level (--discord / -dc). Must flip the GUI checkbox so
+        # workflow._discord_level is not left OFF (scrape summaries / @here depend on it).
+        try:
+            discord_level = str(getattr(args, "discord_level", None) or "").strip().upper()
+            if discord_level in ("LOW", "NORMAL"):
+                self.area_page._block_discord_prompt = True
+                if self.area_page.discord_updates_check.isEnabled():
+                    self.area_page.discord_updates_check.setChecked(True)
+                    self.area_page.discord_level_combo.setCurrentText(discord_level)
+                self.area_page._block_discord_prompt = False
+        except Exception:
+            try:
+                self.area_page._block_discord_prompt = False
+            except Exception:
+                pass
+
+        # Video quality combo box
+        try:
+            quality_val = getattr(args, "quality", None)
+            if quality_val:
+                for i in range(self.area_page.quality_combo.count()):
+                    if self.area_page.quality_combo.itemText(i).strip().lower() == str(quality_val).strip().lower():
+                        self.area_page.quality_combo.setCurrentIndex(i)
+                        break
+        except Exception:
+            pass
+
         # Load models in the background, then auto-select, then start scraping.
         try:
             from ofscraper.gui.utils.thread_worker import Worker
@@ -246,39 +326,75 @@ class MainWindow(QMainWindow):
             return
 
         def _fetch_models():
-            if active_userlist:
-                # Bypass the additive get_models() path; fetch ONLY members of
-                # the named list(s) by calling get_otherlist() directly.
-                import asyncio
-                import ofscraper.data.api.subscriptions.lists as _lists_mod
-                import ofscraper.classes.of.models as _models_cls
+            from ofscraper.gui.utils.model_fetch import (
+                fetch_subscription_models,
+                publish_handoff,
+                wait_for_ui_ack,
+            )
 
-                async def _do_fetch():
-                    raw = _lists_mod.get_otherlist()
-                    if asyncio.iscoroutine(raw):
-                        raw = await raw
-                    return [_models_cls.Model(m) for m in (raw or [])]
-
-                loop = asyncio.new_event_loop()
-                try:
-                    asyncio.set_event_loop(loop)
-                    data = loop.run_until_complete(_do_fetch())
-                finally:
-                    loop.close()
-                    asyncio.set_event_loop(None)
-                # Store on manager so the rest of the auto-start flow works normally
-                self.manager.model_manager.all_subs_dict = data
-                return data
-            else:
-                self.manager.model_manager.all_subs_retriver()
-                return getattr(self.manager.model_manager, "all_subs_obj", None) or []
-
-        def _on_models(models):
             try:
-                models = list(models or [])
+                dicts = fetch_subscription_models(
+                    userlist=active_userlist if active_userlist else None
+                )
+                publish_handoff(gen=1, payload=dicts)
+                wait_for_ui_ack()
+                return len(dicts or [])
+            except Exception as e:
+                publish_handoff(gen=1, error=str(e))
+                wait_for_ui_ack()
+                raise
+
+        def _apply_quick_start():
+            try:
+                from ofscraper.gui.utils.model_fetch import handoff_ready
+
+                worker = getattr(self, "_quick_start_worker", None)
+                ready = handoff_ready(1)
+                if not ready and (worker is None or not getattr(worker, "done", False)):
+                    return
+                try:
+                    self._quick_start_poll.stop()
+                except Exception:
+                    pass
+                # Defer so cleanup can ack the waiting worker cleanly.
+                _QT.singleShot(150, _finish_quick_start)
+            except Exception:
+                return
+
+        def _finish_quick_start():
+            try:
+                worker = getattr(self, "_quick_start_worker", None)
+                from ofscraper.gui.utils.model_fetch import (
+                    cleanup_model_fetch_environment,
+                    dicts_to_models,
+                    take_handoff,
+                )
+
+                handoff = take_handoff(1)
+                try:
+                    cleanup_model_fetch_environment()
+                except Exception:
+                    pass
+                if handoff is None:
+                    err = getattr(worker, "error_msg", None) if worker else None
+                    if err:
+                        log.warning(f"[GUI] Auto-start model fetch failed: {err}")
+                    return
+                if handoff.get("error"):
+                    log.warning(
+                        f"[GUI] Auto-start model fetch failed: {handoff['error']}"
+                    )
+                    return
+                models = dicts_to_models(handoff.get("payload"))
+                if self.manager and getattr(self.manager, "model_manager", None):
+                    self.manager.model_manager.all_subs_dict = models or []
+                try:
+                    models = self.manager.model_manager._apply_filters()
+                except Exception as e:
+                    log.warning(f"[GUI] Auto-start filter error: {e}. Falling back to unfiltered models.")
+                    models = list(models or [])
                 if not models:
                     return
-                # Apply excluded usernames from CLI args (if any)
                 excluded = set()
                 try:
                     excluded = {
@@ -304,12 +420,9 @@ class MainWindow(QMainWindow):
                         and getattr(m, "name", "").strip().lower() not in excluded
                     ]
                 if not selected_models:
-                    # Fall back to normal flow if no matches.
                     log.warning("[GUI] Auto-start: no matching models found for usernames")
                     return
 
-                # Seed action selection into the GUI workflow (without triggering the
-                # AreaSelectorPage model loader twice).
                 try:
                     app_signals.action_selected.emit(set(actions))
                 except Exception:
@@ -317,9 +430,30 @@ class MainWindow(QMainWindow):
 
                 app_signals.models_selected.emit(selected_models)
 
-                # After the table page is shown, start scraping automatically.
                 def _start():
                     try:
+                        # Unattended CLI auto-start (Docker GUI_ARGS): do not block on
+                        # interactive confirm / disk / remote-key dialogs.
+                        try:
+                            import ofscraper.gui.utils.scrape_confirm as _sc_confirm
+
+                            _sc_confirm._scrape_confirm_ack = True
+                            _sc_confirm._session_skip = True
+                        except Exception:
+                            pass
+                        try:
+                            import ofscraper.gui.utils.disk_space_check as _disk_check
+
+                            _disk_check._disk_check_ack = True
+                            _disk_check._session_skip = True
+                        except Exception:
+                            pass
+                        try:
+                            import ofscraper.gui.utils.key_mode_warning as _key_warn
+
+                            _key_warn._session_skip_scrape_warning = True
+                        except Exception:
+                            pass
                         self.table_page._on_start_scraping()
                     except Exception:
                         pass
@@ -328,12 +462,25 @@ class MainWindow(QMainWindow):
             except Exception:
                 return
 
-        worker = Worker(_fetch_models)
-        worker.signals.finished.connect(_on_models)
         try:
-            QThreadPool.globalInstance().start(worker)
+            from ofscraper.gui.utils.model_fetch import (
+                clear_handoff,
+                prepare_model_fetch_environment,
+            )
+
+            clear_handoff()
+            prepare_model_fetch_environment()
         except Exception:
-            # If the threadpool isn't available, do nothing (normal GUI flow remains).
+            pass
+
+        self._quick_start_worker = Worker(_fetch_models, emit_signals=False)
+        self._quick_start_poll = _QT(self)
+        self._quick_start_poll.setInterval(50)
+        self._quick_start_poll.timeout.connect(_apply_quick_start)
+        try:
+            QThreadPool.globalInstance().start(self._quick_start_worker)
+            self._quick_start_poll.start()
+        except Exception:
             return
 
     def _setup_ui(self):
@@ -366,11 +513,20 @@ class MainWindow(QMainWindow):
             r"      | |  (_)  | |    | |  (_)  | |          ",
             r"       \_\     /_/      \_\     /_/           ",
         ]
-        _logo_html = "<pre style='color:#89b4fa; font-family:Consolas,monospace; font-size:5pt; margin:0;'>" + "\n".join(_html.escape(l) for l in _logo_lines) + "</pre>"
+        _logo_html = (
+            f"<pre style='color:#89b4fa; font-family:Consolas,monospace; "
+            f"font-size:{_LOGO_PT}pt; margin:0; line-height:1;'>"
+            + "\n".join(_html.escape(l) for l in _logo_lines)
+            + "</pre>"
+        )
         title_label = QLabel(_logo_html)
         title_label.setTextFormat(Qt.TextFormat.RichText)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title_label.setFont(QFont("Consolas", _LOGO_PT))
         title_label.setStyleSheet("padding: 4px 0 12px 0;")
+        title_label.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
         nav_layout.addWidget(title_label)
 
         # Separator
@@ -385,13 +541,14 @@ class MainWindow(QMainWindow):
         self._nav_group.setExclusive(True)
 
         nav_items = [
-            ("scraper", "Scraper"),
-            ("auth", "Authentication"),
-            ("config", "Configuration"),
-            ("drm", "DRM Key Creation"),
-            ("profiles", "Profiles"),
-            ("merge", "Merge DBs"),
-            ("help", "Help / README"),
+            ("scraper", "⚡ Scraper"),
+            ("auth", "🔑 Authentication"),
+            ("config", "⚙️ Configuration"),
+            ("drm", "🔒 DRM Key Creation"),
+            ("profiles", "👥 Profiles"),
+            ("merge", "🔀 Merge DBs"),
+            ("plugins", "🧩 Plugins"),
+            ("help", "📖 Help / README"),
         ]
 
         for page_id, label in nav_items:
@@ -403,34 +560,67 @@ class MainWindow(QMainWindow):
 
         nav_layout.addStretch()
 
+        def _style_sidebar_util_btn(btn: QPushButton) -> None:
+            """Identical chrome for Light / Verbose / Privacy / version."""
+            btn.setFixedHeight(28)
+            btn.setMinimumHeight(28)
+            btn.setMaximumHeight(28)
+            btn.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+            )
+            fs = scale_px(11)
+            btn.setStyleSheet(
+                "QPushButton {"
+                f" font-size: {fs}px;"
+                " padding: 2px 8px;"
+                " min-height: 28px;"
+                " max-height: 28px;"
+                "}"
+            )
+
+        self._style_sidebar_util_btn = _style_sidebar_util_btn
+
         # Theme toggle button
         self._theme_btn = QPushButton("Light Mode")
-        self._theme_btn.setFixedHeight(28)
-        self._theme_btn.setStyleSheet(
-            "QPushButton { font-size: 11px; padding: 2px 8px; }"
-        )
+        _style_sidebar_util_btn(self._theme_btn)
         self._theme_btn.clicked.connect(self._toggle_theme)
         nav_layout.addWidget(self._theme_btn)
 
+        # Keep theme button disabled during model fetch / scrape (avoids AV).
+        self._busy_chrome_timer = QTimer(self)
+        self._busy_chrome_timer.setInterval(250)
+        self._busy_chrome_timer.timeout.connect(self._sync_busy_chrome)
+        self._busy_chrome_timer.start()
+
         # Verbose log toggle button
         self._verbose_btn = QPushButton("Verbose Log: Off")
-        self._verbose_btn.setFixedHeight(28)
-        self._verbose_btn.setStyleSheet(
-            "QPushButton { font-size: 11px; padding: 2px 8px; }"
-        )
+        _style_sidebar_util_btn(self._verbose_btn)
         self._verbose_btn.clicked.connect(self._toggle_verbose_log)
         nav_layout.addWidget(self._verbose_btn)
 
-        nav_layout.addSpacing(4)
+        # Privacy / demo mode — hide secrets & paths for screenshots
+        self._privacy_btn = QPushButton("Privacy: Off")
+        _style_sidebar_util_btn(self._privacy_btn)
+        self._privacy_btn.setToolTip(
+            "Privacy / demo mode: hide auth cookies, paths, Discord webhooks, "
+            "and usernames in the UI (safe for screenshots)."
+        )
+        self._privacy_btn.clicked.connect(self._toggle_privacy_mode)
+        nav_layout.addWidget(self._privacy_btn)
 
-        # Version label at bottom of nav
+        # Version button (click → About). Same spacing as the toggles above —
+        # no extra spacer so the stack stays uniform.
         try:
             from ofscraper.__version__ import __version__
-            ver_label = QLabel(f"v{__version__}")
+            _ver_text = f"v{__version__}"
         except Exception:
-            ver_label = QLabel("v3.12.9")
-        ver_label.setProperty("muted", True)
-        ver_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            _ver_text = "v3.12.9"
+        ver_label = QPushButton(_ver_text)
+        ver_label.setFlat(False)
+        _style_sidebar_util_btn(ver_label)
+        ver_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        ver_label.setToolTip("About OF-Scraper — click for version, patch ID, and FFmpeg info")
+        ver_label.clicked.connect(self._open_about_dialog)
         nav_layout.addWidget(ver_label)
 
         # Store references for theme switching
@@ -464,11 +654,91 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage("Ready")
 
     def _toggle_theme(self):
-        """Switch between dark and light themes, then offer to save as default."""
+        """Switch between dark and light themes, then offer to save as default.
+
+        Full stylesheet + theme_changed rebuilds hard-crash Qt on Windows when
+        done during model-list fetch (seen in crash breadcrumbs as Light Mode
+        click while model_fetch=1, then die after worker_done). Defer instead.
+        """
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import (
+                gui_action,
+                is_heavy_background_active,
+            )
+
+            if is_heavy_background_active():
+                gui_action("theme_deferred", "model_fetch_or_scrape_active")
+                self._pending_theme_toggle = True
+                if getattr(self, "_theme_defer_timer", None) is None:
+                    t = QTimer(self)
+                    t.setInterval(200)
+                    t.timeout.connect(self._flush_pending_theme)
+                    self._theme_defer_timer = t
+                self._theme_defer_timer.start()
+                try:
+                    app_signals.status_message.emit(
+                        "Theme change waiting until model list / scrape finishes…"
+                    )
+                except Exception:
+                    pass
+                return
+        except Exception:
+            pass
+        self._do_toggle_theme()
+
+    def _flush_pending_theme(self):
+        if not getattr(self, "_pending_theme_toggle", False):
+            try:
+                self._theme_defer_timer.stop()
+            except Exception:
+                pass
+            return
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import is_heavy_background_active
+
+            if is_heavy_background_active():
+                return
+        except Exception:
+            pass
+        self._pending_theme_toggle = False
+        try:
+            self._theme_defer_timer.stop()
+        except Exception:
+            pass
+        self._do_toggle_theme()
+
+    def _do_toggle_theme(self):
+        """Apply theme switch + optional save prompt (must not run during fetch)."""
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import gui_action
+
+            gui_action("theme_toggle", f"to_dark={not self._is_dark}")
+        except Exception:
+            pass
         self._is_dark = not self._is_dark
         set_theme(self._is_dark)
         self._apply_theme_visuals()
         self._prompt_save_theme()
+
+    def _sync_busy_chrome(self):
+        """Disable theme toggle while model fetch / scrape is in flight."""
+        busy = False
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import is_heavy_background_active
+
+            busy = is_heavy_background_active()
+        except Exception:
+            busy = False
+        btn = getattr(self, "_theme_btn", None)
+        if btn is None:
+            return
+        btn.setEnabled(not busy)
+        if busy:
+            btn.setToolTip(
+                "Disabled while the model list is loading or a scrape is running"
+            )
+        else:
+            btn.setToolTip("")
 
     def _toggle_verbose_log(self):
         """Toggle verbose (DEBUG-level) logging on or off."""
@@ -483,6 +753,21 @@ class MainWindow(QMainWindow):
             pass
         state = "On" if self._verbose_log else "Off"
         app_signals.status_message.emit(f"Verbose logging {state}")
+
+    def _toggle_privacy_mode(self):
+        """Toggle privacy / demo mode (mask secrets and paths in the UI)."""
+        self._privacy_mode = not getattr(self, "_privacy_mode", False)
+        try:
+            from ofscraper.gui.utils.privacy_mode import set_privacy_mode
+
+            set_privacy_mode(self._privacy_mode, persist=True, emit=True)
+        except Exception:
+            pass
+        self._privacy_btn.setText(
+            f"Privacy: {'On' if self._privacy_mode else 'Off'}"
+        )
+        state = "On" if self._privacy_mode else "Off"
+        app_signals.status_message.emit(f"Privacy / demo mode {state}")
 
     def _apply_verbose_log(self, enable: bool):
         """Toggle verbose (DEBUG) logging on or off.
@@ -587,6 +872,7 @@ class MainWindow(QMainWindow):
         import html as _html
 
         app = QApplication.instance()
+        apply_application_font()
         if self._is_dark:
             app.setStyleSheet(get_dark_theme_qss())
             self._theme_btn.setText("Light Mode")
@@ -618,16 +904,116 @@ class MainWindow(QMainWindow):
             r"      | |  (_)  | |    | |  (_)  | |          ",
             r"       \_\     /_/      \_\     /_/           ",
         ]
+        # Keep ASCII logo at a fixed point size — GUI text scaling must not
+        # stretch/squash monospace art (and QLabel may not shrink after grow).
         _logo_html = (
             f"<pre style='color:{logo_color}; font-family:Consolas,monospace; "
-            f"font-size:5pt; margin:0;'>"
+            f"font-size:{_LOGO_PT}pt; margin:0; line-height:1;'>"
             + "\n".join(_html.escape(l) for l in _logo_lines)
             + "</pre>"
         )
-        self._title_label.setText(_logo_html)
+        try:
+            self._title_label.setFont(QFont("Consolas", _LOGO_PT))
+            self._title_label.setMinimumSize(0, 0)
+            self._title_label.setText(_logo_html)
+            self._title_label.adjustSize()
+        except Exception:
+            pass
+
+        # Keep util buttons on the same chrome (scaled font-size).
+        try:
+            for btn in (
+                getattr(self, "_theme_btn", None),
+                getattr(self, "_verbose_btn", None),
+                getattr(self, "_privacy_btn", None),
+                getattr(self, "_ver_label", None),
+            ):
+                if btn is not None and callable(getattr(self, "_style_sidebar_util_btn", None)):
+                    self._style_sidebar_util_btn(btn)
+        except Exception:
+            pass
+
+        try:
+            refresh_scaled_fonts(self)
+        except Exception:
+            pass
+        # Re-assert fixed logo font after refresh_scaled_fonts / app font change.
+        try:
+            self._title_label.setFont(QFont("Consolas", _LOGO_PT))
+        except Exception:
+            pass
 
         if emit_signal:
             app_signals.theme_changed.emit(self._is_dark)
+
+    def _nudge_gui_font_size(self, delta: int):
+        sizes = allowed_sizes()
+        try:
+            i = sizes.index(get_gui_font_size())
+        except ValueError:
+            i = 1
+        ni = max(0, min(len(sizes) - 1, i + int(delta)))
+        self._set_gui_font_size(sizes[ni])
+
+    def _reset_gui_font_size(self):
+        """Restore the default GUI text size (13 px)."""
+        self._set_gui_font_size(DESIGN_BASE)
+
+    def _set_gui_font_size(self, size: int):
+        """Persist and apply a global GUI text size."""
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import (
+                gui_action,
+                is_heavy_background_active,
+            )
+
+            if is_heavy_background_active():
+                gui_action("font_size_deferred", f"size={size}")
+                app_signals.status_message.emit(
+                    "Text size change waiting until model list / scrape finishes…"
+                )
+                self._pending_font_size = int(size)
+                if getattr(self, "_font_defer_timer", None) is None:
+                    t = QTimer(self)
+                    t.setInterval(200)
+                    t.timeout.connect(self._flush_pending_font_size)
+                    self._font_defer_timer = t
+                self._font_defer_timer.start()
+                return
+        except Exception:
+            pass
+        self._apply_gui_font_size(size)
+
+    def _flush_pending_font_size(self):
+        if not hasattr(self, "_pending_font_size") or self._pending_font_size is None:
+            try:
+                self._font_defer_timer.stop()
+            except Exception:
+                pass
+            return
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import is_heavy_background_active
+
+            if is_heavy_background_active():
+                return
+        except Exception:
+            pass
+        size = self._pending_font_size
+        self._pending_font_size = None
+        try:
+            self._font_defer_timer.stop()
+        except Exception:
+            pass
+        self._apply_gui_font_size(size)
+
+    def _apply_gui_font_size(self, size: int):
+        size = set_gui_font_size(size, persist=True)
+        self._apply_theme_visuals(emit_signal=True)
+        try:
+            app_signals.font_size_changed.emit(size)
+        except Exception:
+            pass
+        app_signals.status_message.emit(f"GUI text size: {size} px")
 
     def _prompt_save_theme(self):
         """Ask the user if they want to save the current theme as the default."""
@@ -664,6 +1050,7 @@ class MainWindow(QMainWindow):
         from ofscraper.gui.pages.area_selector_page import AreaSelectorPage
         from ofscraper.gui.pages.table_page import TablePage
         from ofscraper.gui.pages.help_page import HelpPage
+        from ofscraper.gui.pages.plugins_page import PluginsPage
         from ofscraper.gui.pages.url_input_page import UrlInputPage
         from ofscraper.gui.dialogs.auth_dialog import AuthPage
         from ofscraper.gui.dialogs.config_dialog import ConfigPage
@@ -685,6 +1072,7 @@ class MainWindow(QMainWindow):
         self.scraper_stack.addWidget(self.area_page)
         self.scraper_stack.addWidget(self.url_input_page)
         self.scraper_stack.addWidget(self.table_page)
+        self.scraper_stack.currentChanged.connect(self._on_scraper_stack_changed)
 
         self._add_page("scraper", self.scraper_stack)
         self._add_page("auth", AuthPage(manager=self.manager))
@@ -692,13 +1080,70 @@ class MainWindow(QMainWindow):
         self._add_page("drm", DRMKeyPage(manager=self.manager))
         self._add_page("profiles", ProfilePage(manager=self.manager))
         self._add_page("merge", MergePage(manager=self.manager))
+        self.plugins_page = PluginsPage(manager=self.manager)
+        self._add_page("plugins", self.plugins_page)
         self._add_page("help", HelpPage(manager=self.manager))
 
     def _add_page(self, page_id, widget):
         self._pages[page_id] = widget
         self.stack.addWidget(widget)
 
+    def _remove_page(self, page_id: str) -> bool:
+        """Remove a stack page and its sidebar nav button (used when unloading plugins)."""
+        removed = False
+        page_id = str(page_id or "")
+        if not page_id:
+            return False
+
+        # If we are viewing the page being removed, leave it first.
+        try:
+            current = self.stack.currentWidget()
+            page = self._pages.get(page_id)
+            if page is not None and current is page:
+                self._navigate("scraper")
+        except Exception:
+            pass
+
+        btn = self._nav_buttons.pop(page_id, None)
+        if btn is not None:
+            try:
+                self._nav_group.removeButton(btn)
+            except Exception:
+                pass
+            try:
+                layout = self._nav_frame.layout()
+                if layout is not None:
+                    layout.removeWidget(btn)
+            except Exception:
+                pass
+            try:
+                btn.setParent(None)
+                btn.deleteLater()
+            except Exception:
+                pass
+            removed = True
+
+        widget = self._pages.pop(page_id, None)
+        if widget is not None:
+            try:
+                self.stack.removeWidget(widget)
+            except Exception:
+                pass
+            try:
+                widget.setParent(None)
+                widget.deleteLater()
+            except Exception:
+                pass
+            removed = True
+        return removed
+
     def _connect_signals(self):
+        try:
+            from ofscraper.gui.utils.host_callbacks import ensure_gui_host
+
+            ensure_gui_host()
+        except Exception:
+            pass
         app_signals.navigate_to_page.connect(self._on_navigate_signal)
         app_signals.status_message.connect(self._on_status_message)
         app_signals.error_occurred.connect(self._on_error)
@@ -718,8 +1163,14 @@ class MainWindow(QMainWindow):
         try:
             from ofscraper.plugins.manager import plugin_manager
             plugin_manager.dispatch_event("on_scrape_complete", {})
+            # If no plugin registered async work, unblock the daemon countdown now.
+            plugin_manager.post_scrape_complete_dispatch()
         except Exception:
-            pass
+            try:
+                from ofscraper.plugins.manager import plugin_manager as _pm_err
+                _pm_err.signal_post_scrape_done()
+            except Exception:
+                pass
 
     def _navigate(self, page_id):
         if page_id in self._pages:
@@ -727,14 +1178,62 @@ class MainWindow(QMainWindow):
             # Update nav button states
             if page_id in self._nav_buttons:
                 self._nav_buttons[page_id].setChecked(True)
+            if page_id == "plugins":
+                try:
+                    page = self._pages.get("plugins")
+                    if page is not None and hasattr(page, "refresh"):
+                        page.refresh()
+                except Exception:
+                    pass
+            elif page_id == "config":
+                # Always re-check when opening Configuration (paths may still be empty).
+                self._schedule_missing_dependency_notice(force=True)
 
     @pyqtSlot(str)
     def _on_navigate_signal(self, page_id):
         self._navigate(page_id)
 
+    @pyqtSlot(int)
+    def _on_scraper_stack_changed(self, index):
+        """When the user reaches Select Content Areas & Filters, gate model fetch."""
+        try:
+            if self.scraper_stack.widget(index) is self.area_page:
+                self._prepare_area_page_entry()
+        except Exception:
+            pass
+
+    def _prepare_area_page_entry(self):
+        """Show missing-deps (safe exec dialog) if needed, then start model fetch."""
+        def _after_deps():
+            try:
+                page = getattr(self, "area_page", None)
+                if page is None or not hasattr(page, "start_pending_model_load"):
+                    return
+                on_scraper = self.stack.currentWidget() is self._pages.get("scraper")
+                on_areas = self.scraper_stack.currentWidget() is page
+                if on_scraper and on_areas:
+                    page.start_pending_model_load()
+                else:
+                    page._pending_model_load = True
+            except Exception as e:
+                log.debug(f"[GUI] Areas model-load gate failed: {e}")
+
+        # Slight defer so the Areas page paints, then blocking safe dialog if needed.
+        QTimer.singleShot(
+            0,
+            lambda: self._maybe_show_missing_dependency_notice(on_finished=_after_deps),
+        )
+
+    def _schedule_missing_dependency_notice(self, *, force: bool = False):
+        """Defer missing-deps popup slightly so the target page can paint first."""
+        QTimer.singleShot(
+            200,
+            lambda: self._maybe_show_missing_dependency_notice(force=force),
+        )
+
     @pyqtSlot(str)
     def _on_help_anchor_requested(self, anchor):
-        """Navigate to Help page and scroll to requested anchor."""
+        """Navigate to Help page and scroll to requested anchor (single Help page)."""
         try:
             self._navigate("help")
             help_page = self._pages.get("help")
@@ -745,6 +1244,15 @@ class MainWindow(QMainWindow):
                 )
         except Exception:
             pass
+
+    def _open_about_dialog(self):
+        """Open or raise the single About window."""
+        try:
+            from ofscraper.gui.dialogs.about_dialog import show_about_dialog
+
+            show_about_dialog(parent=self)
+        except Exception as e:
+            log.debug(f"About dialog failed: {e}")
 
     @pyqtSlot(str)
     def _on_status_message(self, message):
@@ -804,16 +1312,135 @@ class MainWindow(QMainWindow):
         if 0 <= step_index < self.scraper_stack.count():
             self.scraper_stack.setCurrentIndex(step_index)
 
-    def _maybe_show_missing_dependency_notice(self):
-        """Popup a single combined notice if FFmpeg or manual CDM key paths are missing."""
-        # Ensure we only show once per session
-        if getattr(self, "_missing_deps_notice_shown", False):
+    def _maybe_run_startup_dialogs(self):
+        """First-run Welcome only (once).
+
+        Missing FFmpeg / manual DRM keys are not shown at launch — they appear when
+        the user opens Configuration or reaches Select Content Areas & Filters.
+        """
+        if getattr(self, "_startup_dialogs_attempted", False):
             return
-        self._missing_deps_notice_shown = True
+        self._startup_dialogs_attempted = True
+        self._first_run_welcome_attempted = True
 
         try:
-            from ofscraper.utils.config.config import read_config
+            from ofscraper.gui.dialogs.welcome_dialog import (
+                should_show_first_run_welcome,
+                show_welcome_dialog,
+            )
 
+            if should_show_first_run_welcome():
+                show_welcome_dialog(parent=self)
+        except Exception as e:
+            log.debug(f"[GUI] First-run welcome failed: {e}")
+
+    def _maybe_show_first_run_welcome(self):
+        """Backward-compatible alias; startup uses ``_maybe_run_startup_dialogs``."""
+        self._maybe_run_startup_dialogs()
+
+    def _maybe_check_for_updates(self):
+        """Background PyPI check; prompt only when a newer release is available."""
+        if getattr(self, "_update_check_started", False):
+            return
+        self._update_check_started = True
+        try:
+            from ofscraper.gui.utils.thread_worker import Worker
+            from ofscraper.gui.utils.version_check import check_for_updates
+            from PyQt6.QtCore import QThreadPool
+
+            worker = Worker(check_for_updates)
+            self._startup_update_worker = worker
+            worker.signals.finished.connect(self._on_startup_update_check)
+            worker.signals.error.connect(
+                lambda _msg: None
+            )  # silent on startup network errors
+            QThreadPool.globalInstance().start(worker)
+        except Exception as e:
+            log.debug(f"[GUI] Startup update check failed to start: {e}")
+
+    def _on_startup_update_check(self, result):
+        try:
+            from ofscraper.gui.utils.version_check import should_prompt_startup
+
+            if not should_prompt_startup(result):
+                return
+        except Exception:
+            return
+
+        latest = getattr(result, "latest", None) or ""
+        current = getattr(result, "current", "") or ""
+        url = getattr(result, "project_url", None) or "https://pypi.org/project/ofscraper/"
+        msg = getattr(result, "message", None) or (
+            f"A newer OF-Scraper version is available: {latest} (you have {current})."
+        )
+
+        try:
+            app_signals.status_message.emit(msg)
+            app_signals.show_notification.emit("OF-Scraper update", msg)
+        except Exception:
+            pass
+
+        from PyQt6.QtWidgets import QMessageBox
+        from PyQt6.QtGui import QDesktopServices
+        from PyQt6.QtCore import QUrl
+
+        box = QMessageBox(self)
+        box.setWindowTitle("Update available")
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setText(msg)
+        box.setInformativeText(
+            "Open the PyPI project page to review the release, "
+            "or dismiss this version so you are not prompted again until another release."
+        )
+        open_btn = box.addButton("Open PyPI", QMessageBox.ButtonRole.AcceptRole)
+        dismiss_btn = box.addButton(
+            "Dismiss this version", QMessageBox.ButtonRole.DestructiveRole
+        )
+        box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(open_btn)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked is open_btn:
+            QDesktopServices.openUrl(QUrl(url))
+        elif clicked is dismiss_btn and latest:
+            try:
+                from ofscraper.gui.utils.version_check import dismiss_update_version
+
+                dismiss_update_version(latest)
+            except Exception:
+                pass
+
+    def _maybe_show_missing_dependency_notice(self, on_finished=None, force: bool = False):
+        """Popup a single combined notice if FFmpeg or manual CDM key paths are missing.
+
+        Shown when opening Configuration or Select Content Areas & Filters (not at launch).
+        Normally once per session; Configuration uses ``force=True`` so an empty
+        FFmpeg path still prompts every time you open that page.
+
+        Uses blocking ``exec()`` on a simple label-based dialog (no QTextBrowser).
+        """
+        def _done():
+            self._missing_deps_gate_cleared = True
+            if not callable(on_finished):
+                return
+
+            def _safe_finish():
+                try:
+                    on_finished()
+                except Exception as e:
+                    log.debug(f"[GUI] missing-deps on_finished failed: {e}")
+
+            QTimer.singleShot(0, _safe_finish)
+
+        if getattr(self, "_missing_deps_notice_shown", False) and not force:
+            _done()
+            return
+
+        try:
+            from ofscraper.utils.config.config import read_config, reset_config_cache
+
+            reset_config_cache()
             cfg = read_config(update=False) or {}
         except Exception:
             cfg = {}
@@ -835,20 +1462,16 @@ class MainWindow(QMainWindow):
             else None
         )
 
-        # Missing/invalid FFmpeg path: show notice if empty OR points to a non-file.
         ffmpeg_raw = (str(ffmpeg_path).strip() if ffmpeg_path is not None else "")
         missing_ffmpeg = True
         if ffmpeg_raw:
             try:
-                p = Path(ffmpeg_raw)
-                missing_ffmpeg = not p.is_file()
+                missing_ffmpeg = not Path(ffmpeg_raw).is_file()
             except Exception:
                 missing_ffmpeg = True
-        # CDM key check: warn whenever manual key files are not configured/valid,
-        # regardless of the current key mode.  Users on cdrm/cdrm2/keydb should
-        # still be prompted to set up manual keys as a fallback.
+
         cdm_opts = cfg.get("cdm_options") if isinstance(cfg.get("cdm_options"), dict) else {}
-        key_mode = str(cdm_opts.get("key-mode-default") or "cdrm").lower().strip() or "cdrm"
+        key_mode = str(cdm_opts.get("key-mode-default") or "manual").lower().strip() or "manual"
         client_raw = str(cdm_client).strip() if cdm_client is not None else ""
         priv_raw = str(cdm_private).strip() if cdm_private is not None else ""
         missing_manual_cdm = True
@@ -859,6 +1482,7 @@ class MainWindow(QMainWindow):
                 missing_manual_cdm = True
 
         if not (missing_ffmpeg or missing_manual_cdm):
+            _done()
             return
 
         def open_ffmpeg():
@@ -875,7 +1499,6 @@ class MainWindow(QMainWindow):
                 self._navigate("config")
                 page = self._pages.get("config")
                 if page and hasattr(page, "go_to_config_field"):
-                    # Focus first missing field; prefer client-id
                     field = "client-id" if not bool(client_raw) else "private-key"
                     page.go_to_config_field("CDM", field)
             except Exception:
@@ -889,16 +1512,68 @@ class MainWindow(QMainWindow):
 
         try:
             from ofscraper.gui.dialogs.missing_deps_dialog import MissingDepsDialog
+            from ofscraper.gui.utils.window_registry import close_if_open
 
-            self._missing_deps_dlg = MissingDepsDialog(
+            try:
+                close_if_open("missing_deps")
+            except Exception:
+                pass
+
+            dlg = MissingDepsDialog(
                 missing_ffmpeg=missing_ffmpeg,
                 missing_manual_cdm=missing_manual_cdm,
                 key_mode=key_mode,
-                on_open_ffmpeg=open_ffmpeg,
-                on_open_cdm=open_cdm,
-                on_open_drm=open_drm,
                 parent=self,
             )
-            self._missing_deps_dlg.show()
+            self._missing_deps_dlg = dlg
+            self._missing_deps_notice_shown = True
+            chosen = None
+            try:
+                dlg.exec()
+                chosen = getattr(dlg, "chosen_action", None)
+            finally:
+                try:
+                    dlg.hide()
+                except Exception:
+                    pass
+                self._missing_deps_dlg = None
+
+            # Navigate only after the modal is gone.
+            if chosen == "ffmpeg":
+                open_ffmpeg()
+            elif chosen == "cdm":
+                open_cdm()
+            elif chosen == "drm":
+                open_drm()
+
+            _done()
         except Exception as e:
-            log.debug(f"Missing deps dialog failed: {e}")
+            log.warning(f"Missing deps dialog failed: {e}")
+            # Last-resort visible prompt so a broken custom dialog never
+            # silently skips the missing-FFmpeg/CDM warning.
+            try:
+                from PyQt6.QtWidgets import QMessageBox
+
+                parts = []
+                if missing_ffmpeg:
+                    parts.append("• FFmpeg path is missing or invalid")
+                if missing_manual_cdm:
+                    parts.append("• Manual DRM key paths are missing or invalid")
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Icon.Warning)
+                box.setWindowTitle("Missing configuration paths")
+                box.setText(
+                    "Required paths are missing from config.json:\n\n"
+                    + "\n".join(parts)
+                    + "\n\nOpen Configuration to set them."
+                )
+                cfg_btn = box.addButton(
+                    "Open Configuration", QMessageBox.ButtonRole.AcceptRole
+                )
+                box.addButton("Close", QMessageBox.ButtonRole.RejectRole)
+                box.exec()
+                if box.clickedButton() is cfg_btn:
+                    open_ffmpeg() if missing_ffmpeg else open_cdm()
+            except Exception as e2:
+                log.warning(f"Missing deps fallback QMessageBox failed: {e2}")
+            _done()

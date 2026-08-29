@@ -149,7 +149,16 @@ def merged_settings():
     merged.max_post_count = args.max_count or config_data.get_max_post_count()
     merged.mediatypes = args.mediatypes or config_data.get_filter()
     merged.verify_all_integrity = config_data.get_verify_all_integrity()
+    merged.drm_duration_match_threshold = (
+        config_data.get_drm_duration_match_threshold()
+        if hasattr(config_data, "get_drm_duration_match_threshold")
+        else 0.98
+    )
     merged.ffmpeg = config_data.get_ffmpeg()
+    # GUI: name text (.txt) files from post caption instead of File Format / post id
+    merged.text_filename_from_post = bool(
+        getattr(args, "text_filename_from_post", False)
+    )
 
     dl_limit = args.download_limit or (
         config_data.get_download_limit()

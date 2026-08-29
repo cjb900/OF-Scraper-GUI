@@ -13,61 +13,11 @@ Plugins are loaded from the `plugins` folder next to your OF-Scraper `config.jso
 
 The folder is created automatically on first launch if it does not exist.
 
-Plugins are loaded in both **GUI mode** (`ofscraper --gui`) and **headless/CLI mode** (`ofscraper`). The only hook that is GUI-only is `on_ui_setup`.
+Plugins are loaded in both **GUI mode** (`ofscraper --gui`) and **headless/CLI mode** (`ofscraper`). GUI-only hooks are `on_ui_setup` and `on_ui_teardown`.
 
 ---
 
 ## Plugin Structure
-
-## Logging
-
-Each plugin automatically gets its own dedicated logger via `self.log` from `BasePlugin`.
-
-- Logger name format: `ofscraper_plugin.<Plugin Name>`
-- Log files are written separately from the normal OF-Scraper logs
-- Plugin log location follows OF-Scraper's normal log naming convention, for example:
-  - rotated logs: `.../logging/<profile>_<YYYY-MM-DD>/plugins/plugin-<plugin-name>_<YYYY-MM-DD_HH.mm.ss>.log`
-  - daily logs: `.../logging/plugins/plugin-<plugin-name>_<YYYY-MM-DD>.log`
-
-Example usage inside your plugin:
-
-```python
-class Plugin(BasePlugin):
-    def on_load(self):
-        self.log.info("Plugin loaded")
-
-    def on_item_downloaded(self, item_data, file_path):
-        self.log.debug(f"Downloaded {file_path}")
-```
-
-Use `self.log.info(...)`, `self.log.warning(...)`, `self.log.error(...)`, and `self.log.debug(...)` freely — the plugin manager configures a per-plugin file handler automatically when the plugin is loaded.
-
-### What gets logged automatically
-
-The plugin manager now writes important plugin lifecycle events into the per-plugin log file automatically, including:
-
-- plugin load failures
-- missing dependency detection during plugin load
-- dependency installer start / finish / failure
-- full dependency installer output
-
-That means a plugin log file should contain both:
-- messages your plugin writes via `self.log`
-- manager-driven lifecycle/install events that happen before the plugin can fully load
-
-## Dependencies
-
-If your plugin requires third-party packages:
-
-1. list them in a `requirements.txt` file inside the plugin directory
-2. OF-Scraper can prompt to install missing dependencies automatically
-3. dependencies are installed into the plugin-local `deps/` folder
-4. the installer now prefers a plugin-local virtual environment at `.deps_venv/` to avoid polluting the main OF-Scraper environment
-
-This is especially important for pipx installs, where plugin dependencies should remain isolated from the main `ofscraper` application environment.
-
-Dependency installer output is also written to the plugin's dedicated log file, so plugin authors and users can troubleshoot failed installs more easily.
-
 
 Each plugin lives in its own subdirectory. The folder name is used as the plugin's internal ID.
 
@@ -103,7 +53,62 @@ At load time, the manager injects an additional `"id"` key equal to the plugin f
 
 ---
 
+## Logging
+
+Each plugin automatically gets its own dedicated logger via `self.log` from `BasePlugin`.
+
+- Logger name format: `ofscraper_plugin.<Plugin Name>`
+- Log files are written separately from the normal OF-Scraper logs
+- Plugin log location follows OF-Scraper's normal log naming convention, for example:
+  - rotated logs: `.../logging/<profile>_<YYYY-MM-DD>/plugins/plugin-<plugin-name>_<YYYY-MM-DD_HH.mm.ss>.log`
+  - daily logs: `.../logging/plugins/plugin-<plugin-name>_<YYYY-MM-DD>.log`
+
+Example usage inside your plugin:
+
+```python
+class Plugin(BasePlugin):
+    def on_load(self):
+        self.log.info("Plugin loaded")
+
+    def on_item_downloaded(self, item_data, file_path):
+        self.log.debug(f"Downloaded {file_path}")
+```
+
+Use `self.log.info(...)`, `self.log.warning(...)`, `self.log.error(...)`, and `self.log.debug(...)` freely — the plugin manager configures a per-plugin file handler automatically when the plugin is loaded.
+
+### What gets logged automatically
+
+The plugin manager writes important plugin lifecycle events into the per-plugin log file automatically, including:
+
+- plugin load failures
+- missing dependency detection during plugin load
+- dependency installer start / finish / failure
+- full dependency installer output
+
+That means a plugin log file should contain both:
+- messages your plugin writes via `self.log`
+- manager-driven lifecycle/install events that happen before the plugin can fully load
+
+---
+
+## Dependencies
+
+If your plugin requires third-party packages:
+
+1. list them in a `requirements.txt` file inside the plugin directory
+2. OF-Scraper can prompt to install missing dependencies automatically
+3. dependencies are installed into the plugin-local `deps/` folder
+4. the installer prefers a plugin-local virtual environment at `.deps_venv/` to avoid polluting the main OF-Scraper environment
+
+This is especially important for pipx installs, where plugin dependencies should remain isolated from the main `ofscraper` application environment.
+
+Dependency installer output is also written to the plugin's dedicated log file, so plugin authors and users can troubleshoot failed installs more easily.
+
+---
+
 ## Enabling and Disabling Plugins
+
+### `plugin_enabled` in `main.py`
 
 Add this line near the top of `main.py` to control whether the plugin loads:
 
@@ -116,11 +121,25 @@ Set it to `0` to make the Plugin Manager skip loading entirely without deleting 
 
 > **Important:** The check is a regex scan on the raw file text (`^plugin_enabled\s*=\s*([01])`) performed *before* the file is imported. The line must appear at the **start of a line with no indentation** and the value must be exactly `0` or `1`. Any other value is ignored and the plugin defaults to enabled.
 
+### Plugins page (GUI, 3.14.7+)
+
+With the GUI patch, the left-nav **Plugins** page can manage plugins without editing files by hand:
+
+| Action | Effect |
+| :--- | :--- |
+| **Enable** / **Disable** | Writes `plugin_enabled = 1` or `0` in that plugin's `main.py` |
+| **Load now** | Imports an enabled-but-unloaded plugin into the current session and runs `on_load` + `on_ui_setup` |
+| **Unload now** | Runs `on_ui_teardown`, then `on_unload`, and removes the plugin's sidebar page / nav without restarting |
+| **Refresh** | Re-scans the plugins folder after you copy a new plugin in |
+| **Open plugins folder** | Opens the user `plugins/` directory |
+
+Typical flow for a newly copied plugin: **Refresh** → **Enable** (if needed) → **Load now**. You can still restart `ofscraper --gui` instead of using Load now.
+
 ---
 
 ## How Plugins Are Loaded
 
-The Plugin Manager (`ofscraper.plugins.manager`) is a singleton. It runs `discover_and_load()` once at startup — from `main_window.py` in GUI mode, or from `main/open/load.py` in CLI mode.
+The Plugin Manager (`ofscraper.plugins.manager`) is a singleton. It runs `discover_and_load()` once at startup — from `main_window.py` in GUI mode, or from `main/open/load.py` in CLI mode. **Load now** on the Plugins page can also import a single plugin later in the same GUI session.
 
 For each subdirectory in the plugins folder it:
 
@@ -183,12 +202,13 @@ Override any of these methods in your `Plugin` class. All hooks are called via `
 | Method | Status | When it is called |
 | :--- | :--- | :--- |
 | `on_load()` | **Active** | Right after the plugin is instantiated. Use for initialisation. |
-| `on_ui_setup(main_window)` | **Active (GUI only)** | After the PyQt6 main window is fully built. |
+| `on_ui_setup(main_window)` | **Active (GUI only)** | After the PyQt6 main window is fully built, and again on **Load now**. |
+| `on_ui_teardown(main_window)` | **Active (GUI only)** | Before unload / **Unload now** — remove pages/nav added in `on_ui_setup`. |
 | `on_item_downloaded(item_data, file_path)` | **Active** | Each time a media file is successfully saved to disk. Fires in both GUI and CLI mode. |
 | `on_scrape_start(config, models)` | **Active** | Before the scrape begins. Must return the `models` list (may be modified). |
 | `on_posts_collected(posts, model_username)` | **Active** | After each batch of messages is collected for a model during scraping. |
 | `on_scrape_complete(stats)` | **Active** | When a scraping session finishes completely. |
-| `on_unload()` | **Reserved** | Defined but not yet dispatched. |
+| `on_unload()` | **Active** | App exit or **Unload now** (after UI teardown). |
 
 ### `on_item_downloaded(item_data, file_path)`
 
@@ -266,7 +286,23 @@ def on_scrape_complete(self, stats):
 
 ### `on_ui_setup(main_window)`
 
-Called after the PyQt6 main window is built. `main_window` is the `QMainWindow` instance. See the **Adding a Sidebar Page** section below for the full pattern.
+Called after the PyQt6 main window is built (and when the user clicks **Load now**). `main_window` is the `QMainWindow` instance. See the **Adding a Sidebar Page** section below for the full pattern.
+
+### `on_ui_teardown(main_window)`
+
+Called before **Unload now** (and during unload on exit) so you can reverse what `on_ui_setup` added. Implement this whenever you register pages, nav buttons, or injected widgets — otherwise Unload now may leave orphaned UI behind.
+
+The manager also attempts best-effort removal of pages/nav registered through the usual `_add_page` / `_nav_buttons` pattern, but custom injections should be cleaned up explicitly in this hook.
+
+```python
+def on_ui_teardown(self, main_window):
+    # Remove injected widgets, disconnect signals, clear timers, etc.
+    pass
+```
+
+### `on_unload()`
+
+Called on app exit or after UI teardown during **Unload now**. Release model weights, DB connections, background threads, and other process resources here.
 
 ---
 
@@ -326,11 +362,18 @@ def on_ui_setup(self, main_window):
         layout.insertWidget(0, bar)
 ```
 
+### GUI polish tips (optional)
+
+If your plugin builds its own widgets:
+
+- Prefer `ofscraper.gui.utils.ui_scale.apply_font` / `scale_px` for hardcoded font sizes so the global About / Help **Text size** control scales your UI too.
+- If you show usernames or paths, consider Privacy mode helpers under `ofscraper.gui.utils.privacy_mode` (mask display values; keep the real path in a separate field).
+
 ---
 
 ## Multi-File Plugin Layout
 
-For anything beyond a trivial plugin, split your code across multiple files the same way the built-in plugins do. Since the folder is registered as a package, all relative imports resolve correctly:
+For anything beyond a trivial plugin, split your code across multiple files the same way the included example plugins do. Since the folder is registered as a package, all relative imports resolve correctly:
 
 ```text
 plugins/
@@ -415,9 +458,9 @@ def save_settings(self):
 
 ---
 
-## Included Plugins
+## Included / example plugins
 
-Three plugins ship with OF-Scraper GUI as references:
+Reference plugins (install into your user `plugins/` folder; some ship with the GUI patch tree, others under `example_plugins/`):
 
 ### Intelligent AI Tagger (`ai_tagger`)
 Automatically tags every downloaded image using a local computer-vision model. Supports WD14 (Danbooru tags), OpenCLIP ViT-B-32 (zero-shot label matching), Florence-2 (generative captions), and custom fine-tuned `.safetensors` checkpoints. Adds a **Smart Gallery** sidebar page with tag search, semantic similarity search, and smart folder organisation.
@@ -435,7 +478,7 @@ Sends downloaded images to a [JoyCaption](https://github.com/fpgaminer/joycaptio
 ### LLM Assistant (`llm_assistant`)
 Adds a natural-language chat panel (**🤖 AI Assistant**) to the sidebar. Type plain English commands; a locally-running GGUF model (via `llama-cpp-python`) translates them into GUI actions such as setting usernames, toggling filters, and starting downloads. Also injects a compact command bar into the action and area pages.
 - Uses `on_ui_setup` to add the full chat tab, inject compact bars into existing pages, and handle first-run model selection and download flow.
-- Uses `on_unload` to release the loaded GGUF model on exit.
+- Uses `on_ui_teardown` / `on_unload` to remove UI and release the loaded GGUF model.
 - No Ollama, no cloud API, no internet required at runtime.
 - Dependencies: `llama-cpp-python` (auto-prompted on first launch).
 
@@ -447,6 +490,12 @@ Scans direct messages collected during scraping for OnlyFans trial/free-trial li
 - Uses `on_ui_setup` to add a **Trial Links** settings and log-viewer page to the sidebar.
 - Images are downloaded locally first (OnlyFans CDN URLs are IP-restricted) then uploaded directly to Discord as file attachments.
 - No external dependencies beyond `requests` (already a dependency of ofscraper).
+
+### Live Stream Monitor (`live_stream_monitor`)
+Optional example plugin: polls subscriptions, detects live creators, and captures with Playwright Chromium into `{username}/Live_Streams/`. Separate from the Areas checkbox **Streams** (API VODs in normal scrape folders).
+- Uses `on_ui_setup` / `on_ui_teardown` for the **Live Monitor** sidebar page and clean Unload now.
+- Implements Privacy mode masking for usernames/paths in its UI.
+- Copy from `example_plugins/` into your user `plugins/` folder, then Enable + **Load now**.
 
 ---
 
@@ -465,8 +514,9 @@ from ofscraper.plugins.base import BasePlugin
 class Plugin(BasePlugin):
     """
     Replace this docstring with your plugin's description.
-    The Plugin Manager instantiates this class once on startup,
-    then calls on_load(). All other hooks are called as events occur.
+    The Plugin Manager instantiates this class once on startup
+    (or on Plugins → Load now), then calls on_load().
+    All other hooks are called as events occur.
     """
 
     # ------------------------------------------------------------------
@@ -495,9 +545,8 @@ class Plugin(BasePlugin):
 
     def on_unload(self):
         """
-        Reserved — not yet dispatched by the Plugin Manager.
-        Implement now for future compatibility; use for releasing
-        model weights, DB connections, threads, etc.
+        Called on app exit or Plugins → Unload now (after on_ui_teardown).
+        Release model weights, DB connections, threads, etc.
         """
         pass
 
@@ -507,9 +556,16 @@ class Plugin(BasePlugin):
 
     def on_ui_setup(self, main_window):
         """
-        Called after the PyQt6 main window is built.
+        Called after the PyQt6 main window is built, and on Load now.
         Add sidebar pages, inject widgets, connect signals, etc.
         Not called in headless/CLI mode.
+        """
+        pass
+
+    def on_ui_teardown(self, main_window):
+        """
+        Called before Unload now / unload on exit.
+        Remove pages, nav buttons, and injected widgets from on_ui_setup.
         """
         pass
 

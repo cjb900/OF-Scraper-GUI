@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 
@@ -103,7 +104,7 @@ class ActionPage(QWidget):
 
         # Header
         header = QLabel("Select Action")
-        header.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
+        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
         header.setProperty("heading", True)
         layout.addWidget(header)
 
@@ -122,7 +123,7 @@ class ActionPage(QWidget):
 
         for i, (label, actions) in enumerate(ACTION_CHOICES):
             radio = QRadioButton(label)
-            radio.setFont(QFont("Segoe UI", 13))
+            apply_font(radio, "Segoe UI", 13)
             radio.setStyleSheet("QRadioButton { padding: 8px 4px; }")
             radio.setProperty("actions", actions)
             radio.setToolTip(_ACTION_TIPS.get(label, ""))
@@ -139,7 +140,7 @@ class ActionPage(QWidget):
         layout.addWidget(sep)
 
         check_label = QLabel("Check Modes  (browse & selectively download)")
-        check_label.setFont(QFont("Segoe UI", 11))
+        apply_font(check_label, "Segoe UI", 11)
         check_label.setProperty("subheading", True)
         layout.addWidget(check_label)
 
@@ -148,7 +149,7 @@ class ActionPage(QWidget):
 
         for i, (label, actions) in enumerate(CHECK_CHOICES):
             radio = QRadioButton(label)
-            radio.setFont(QFont("Segoe UI", 13))
+            apply_font(radio, "Segoe UI", 13)
             radio.setStyleSheet("QRadioButton { padding: 8px 4px; }")
             radio.setProperty("actions", actions)
             radio.setToolTip(_CHECK_TIPS.get(label, ""))
@@ -179,7 +180,7 @@ class ActionPage(QWidget):
         self.next_btn = StyledButton("Next  >>", primary=True)
         self.next_btn.setFixedWidth(160)
         self.next_btn.setFixedHeight(38)
-        self.next_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        apply_font(self.next_btn, "Segoe UI", 12, QFont.Weight.Bold)
         self.next_btn.setStyleSheet(
             f"QPushButton {{ background-color: {c('blue')}; color: {c('base')};"
             f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
@@ -204,14 +205,14 @@ class ActionPage(QWidget):
             "Filter which models are loaded from the OnlyFans API by your custom list(s).\n"
             "Leave blank to load all subscribed models (default)."
         )
-        hint.setFont(QFont("Segoe UI", 10))
+        apply_font(hint, "Segoe UI", 10)
         hint.setProperty("muted", True)
         hint.setWordWrap(True)
         inner.addWidget(hint)
 
         row = QHBoxLayout()
         lbl = QLabel("User Lists:")
-        lbl.setFont(QFont("Segoe UI", 11))
+        apply_font(lbl, "Segoe UI", 11)
         row.addWidget(lbl)
 
         self._userlist_input = QLineEdit()
@@ -282,7 +283,7 @@ class ActionPage(QWidget):
         inner.setSpacing(2)
 
         label = QLabel("Show messages:")
-        label.setFont(QFont("Segoe UI", 10))
+        apply_font(label, "Segoe UI", 10)
         label.setProperty("muted", True)
         inner.addWidget(label)
 
@@ -301,7 +302,7 @@ class ActionPage(QWidget):
         self._msg_filter_radios = {}
         for idx, (value, text, tip) in enumerate(_options):
             rb = QRadioButton(text)
-            rb.setFont(QFont("Segoe UI", 11))
+            apply_font(rb, "Segoe UI", 11)
             rb.setToolTip(tip)
             rb.setProperty("msg_filter_value", value)
             self._msg_filter_group.addButton(rb, idx)

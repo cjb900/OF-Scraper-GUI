@@ -153,7 +153,21 @@ def _process_user_batch(
 ):
     """
     Processes all media items for a single user's batch.
+
+    Returns a stats dict accumulated across per-item process_dicts calls
+    (each call resets common_globals, so callers must not read globals after).
     """
+    import ofscraper.commands.scraper.actions.utils.globals as common_globals
+
+    stats = {
+        "videos": 0,
+        "audios": 0,
+        "photos": 0,
+        "forced": 0,
+        "failed": 0,
+        "bytes": 0,
+    }
+
     if _process_user_batch.counter == 0:
         log.info("Performing first-run CDM check...")
         if not network.check_cdm():
@@ -197,6 +211,17 @@ def _process_user_batch(
                 if values is None or values[-1] == 1:
                     raise Exception("Download failed based on process_dicts result")
 
+                # Accumulate before the next process_dicts reset
+                v_count, a_count, p_count, forced_count, _skipped = values
+                stats["videos"] += int(v_count or 0)
+                stats["audios"] += int(a_count or 0)
+                stats["photos"] += int(p_count or 0)
+                stats["forced"] += int(forced_count or 0)
+                try:
+                    stats["bytes"] += int(getattr(common_globals, "total_bytes_downloaded", 0) or 0)
+                except Exception:
+                    pass
+
                 media_list[i] = target_media[0]
                 post_list[i] = target_media[0].post
 
@@ -229,7 +254,10 @@ def _process_user_batch(
                         pass
                 else:
                     log.info(f"Download failed for {media.filename}.")
+                    stats["failed"] += 1
                     app.app.update_cell_state(key, "[failed]", "bold red")
+
+    return stats
 
 
 # Initialize counter on the function object
@@ -712,6 +740,7 @@ async def process_post_media(username, model_id, posts_array):
     )
     collection = check_user_dict[m_id]["collection"]
     collection.add_posts(posts_array, overwrite=True)
+    # DB insert stays unique-by-post; table building may use raw_all_media later.
     media = collection.all_media
     await insert_media(username, model_id, media)
     return media
@@ -754,6 +783,9 @@ def thread_starters(ROWS_):
 
 
 def start_table(ROWS_):
+    # GUI mode must not launch the Textual TUI — gui_checker emits data_replace instead.
+    if getattr(settings.get_args(), "gui", False):
+        return
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     ROWS = ROWS_
@@ -808,10 +840,20 @@ async def row_gather(username, model_id):
     if not collection:
         raise Exception("No postcollection object found")
 
-    media = collection.all_media
+    allow_dupes = bool(
+        getattr(settings.get_settings(), "allow_dupe_downloads", False)
+    )
+    media = collection.raw_all_media if allow_dupes else collection.all_media
+    if allow_dupes:
+        from ofscraper.filters.media.filters import apply_allow_dupe_media_policy
+
+        media = apply_allow_dupe_media_policy(media)
     out = []
 
-    log.info(f"Generating UI Table with {len(media)} items... This may take a moment.")
+    log.info(
+        f"Generating UI Table with {len(media)} items"
+        f"{' (duplicates preserved)' if allow_dupes else ''}... This may take a moment."
+    )
 
     try:
         sorted_media = sorted(media, key=lambda x: x.date, reverse=True)
@@ -904,9 +946,16 @@ def gui_checker(check_mode, msg_filter="paid_only"):
 
     # Patch the TUI app so update_cell_state emits GUI signals
     class _GUICheckCellAdapter:
+        def __call__(self, *args, **kwargs):
+            # Belt-and-suspenders if something still invokes app.app(...)
+            return None
+
         def update_cell_state(self, key, state, color=None):
             try:
                 app_signals.cell_update.emit(str(key), "download_cart", str(state))
+                # Mirror Textual InputApp: downloaded/skipped also flip Downloaded=True
+                if str(state) in ("[downloaded]", "[skipped]"):
+                    app_signals.cell_update.emit(str(key), "downloaded", "True")
             except Exception:
                 pass
 

@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.styles import c
 from ofscraper.gui.utils.thread_worker import AsyncWorker
 from ofscraper.gui.widgets.styled_button import StyledButton
@@ -37,7 +38,7 @@ class MergePage(QWidget):
 
         # Header
         header = QLabel("Merge Databases")
-        header.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
+        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
         header.setProperty("heading", True)
         layout.addWidget(header)
 
@@ -153,10 +154,10 @@ class MergePage(QWidget):
         # Run merge in background thread
         from PyQt6.QtCore import QThreadPool
 
-        worker = AsyncWorker(self._run_merge, source, dest)
-        worker.signals.finished.connect(self._on_merge_finished)
-        worker.signals.error.connect(self._on_merge_error)
-        QThreadPool.globalInstance().start(worker)
+        self._merge_worker = AsyncWorker(self._run_merge, source, dest)
+        self._merge_worker.signals.finished.connect(self._on_merge_finished)
+        self._merge_worker.signals.error.connect(self._on_merge_error)
+        QThreadPool.globalInstance().start(self._merge_worker)
 
     async def _run_merge(self, source, dest):
         from ofscraper.db.merge import MergeDatabase
@@ -164,6 +165,7 @@ class MergePage(QWidget):
         return await merger(source, dest)
 
     def _on_merge_finished(self, result):
+        self._merge_worker = None
         self.merge_btn.setEnabled(True)
         if result:
             failures, successes, _ = result
@@ -180,6 +182,7 @@ class MergePage(QWidget):
         app_signals.status_message.emit("Merge complete")
 
     def _on_merge_error(self, error_msg):
+        self._merge_worker = None
         self.merge_btn.setEnabled(True)
         self.output_text.appendPlainText(f"\nERROR: {error_msg}")
         app_signals.status_message.emit("Merge failed")

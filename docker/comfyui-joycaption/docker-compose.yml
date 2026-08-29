@@ -1,0 +1,45 @@
+services:
+  comfyui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: comfyui-joycaption
+    ports:
+      - "8188:8188"
+    volumes:
+      # CasaOS convention: persistent data under /DATA/AppData/<app>/
+      # Models are large (~15 GB) — make sure /DATA has enough space.
+      - /DATA/AppData/comfyui-joycaption/models:/app/ComfyUI/models
+      - /DATA/AppData/comfyui-joycaption/input:/app/ComfyUI/input
+      - /DATA/AppData/comfyui-joycaption/output:/app/ComfyUI/output
+      - /DATA/AppData/comfyui-joycaption/workflows:/app/ComfyUI/user/default/workflows
+      # ComfyUI Manager node database — persisted across container rebuilds
+      - comfyui_manager_data:/app/ComfyUI/custom_nodes/ComfyUI-Manager/node_db
+    restart: unless-stopped
+    # JoyCaption 8B model needs headroom — increase if you have RAM to spare
+    shm_size: "4gb"
+
+volumes:
+  comfyui_manager_data:
+    driver: local
+
+# CasaOS metadata — used by the CasaOS web UI for display / management
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: comfyui
+  description:
+    en_us: >
+      ComfyUI with JoyCaption Alpha Two for detailed AI image captioning.
+      Runs in CPU-only mode. Expects the JoyCaption model weights to be
+      pre-downloaded to /DATA/AppData/comfyui-joycaption/models/LLM/.
+  tagline:
+    en_us: JoyCaption AI image captioner
+  developer: fancyfeast / comfyanonymous
+  author: Antigravity
+  icon: ""
+  title:
+    en_us: ComfyUI JoyCaption
+  category: AI
+  port_map: "8188"

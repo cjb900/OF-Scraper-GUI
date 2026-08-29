@@ -21,6 +21,35 @@ https://github.com/datawhores/OF-Scraper/issues/542
 Docker and binary releases also available
 ```
 
+## GUI (Pika patch)
+
+This tree includes a PyQt6 GUI overlay. Typical flow:
+
+1. Install `ofscraper==3.14.7`
+2. Apply `patch_ofscraper_3.14.7_gui.py`
+3. Run with `--gui`
+
+In-app guide: **Help / README** in the sidebar, or [`ofscraper/gui/help/GUI_HELP.md`](ofscraper/gui/help/GUI_HELP.md).
+
+Notable patch capabilities (see Help → **GUI patch highlights** for details):
+
+- Safer cancel, scrape/cart confirms, disk-space checks, privacy mode
+- Auth cookie allowlist, config validation, Auth/Config/Key health chips
+- History, filter presets, sticky columns, CSV export, check-mode cart
+- DRM duration integrity, download stall/`.part` resilience, host + save-root confinement
+- Plugin load/unload without restart
+
+See `AGENTS.md` and `UI_IMPROVEMENTS.md` for patch rebuild / full improvement history.
+
+## Tests
+
+```bash
+python -m pip install -e ".[test]"
+python -m pytest test/unit -q
+```
+
+`test/unit` is the supported CI gate. Older suites under `test/` may still use broken imports.
+
 ## Stable
 
 <div style="display: inline-block">

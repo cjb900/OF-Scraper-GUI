@@ -95,8 +95,17 @@ def load_network_config():
     )
 
     # CHUNK_TIMEOUT_SEC: Timeout for individual chunk downloads (seconds).
+    # Also used as the per-chunk inactivity watchdog.
     # Default: 30
     config["CHUNK_TIMEOUT_SEC"] = int(os.getenv("OFSC_CHUNK_TIMEOUT_SEC", "30"))
+
+    # PART_SIZE_TOLERANCE: Allowed byte slack when finalizing .part files vs expected size.
+    # Default: 64 (was effectively 500 in older builds)
+    config["PART_SIZE_TOLERANCE"] = int(os.getenv("OFSC_PART_SIZE_TOLERANCE", "64"))
+
+    # MEDIA_HOST_SUFFIXES: Extra allowed download/CDN host suffixes (comma-separated).
+    # Defaults always include onlyfans.com and cloudfront.net.
+    config["MEDIA_HOST_SUFFIXES"] = os.getenv("OFSC_MEDIA_HOST_SUFFIXES", "")
 
     # --- Semaphore and Concurrency Configuration ---
     # REQ_SEMAPHORE_MULTI: Semaphore limit for multiple requests.

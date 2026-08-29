@@ -59,6 +59,10 @@ test = [
   "random-emoji~=1.0.15",
   "pytest-mock~=3.12.0",
 ]
+gui = [
+  "PyQt6>=6.5",
+  "PyQt6-WebEngine>=6.5",
+]
 docs = ["sphinx-argparse~=0.5.2"]
 ffmpeg = ["pyffmpeg>=2.5.2.3.1"]
 
@@ -88,4 +92,10 @@ versionscript = "plugins.py"
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-ra -q"
-testpaths = ["tests"]
+# Live suite lives in ``test/`` (not ``tests/``). Prefer ``test/unit`` for CI —
+# many older integration modules still use stale imports.
+testpaths = ["test"]
+pythonpath = ["."]
+markers = [
+    "unit: fast isolated unit tests (preferred CI gate)",
+]

@@ -2,12 +2,14 @@ import os
 import json
 import logging
 import importlib.util
+import re
 from pathlib import Path
 import traceback
 import shutil
 import sys
 import platform
 import subprocess
+import threading
 import time
 
 from ofscraper.utils.paths.common import get_config_path
@@ -63,6 +65,12 @@ class PluginManager:
         else:
             self.plugins_dir = None
 
+        # Threading event for daemon-mode post-scrape plugin coordination.
+        # Set = no async work pending; cleared = a plugin is doing async work.
+        self._scrape_complete_event = threading.Event()
+        self._scrape_complete_event.set()
+        self._has_pending_post_scrape = False
+
         self._initialized = True
 
     def _configure_plugin_logger(self, plugin_instance, metadata: dict):
@@ -104,6 +112,38 @@ class PluginManager:
             self.log.info(f"Plugin log file ready: {log_path}")
         except Exception as e:
             self.log.warning(f"Failed to configure plugin logger for {plugin_name}: {e}")
+
+    # ------------------------------------------------------------------ post-scrape coordination
+
+    def pre_scrape_complete(self):
+        """Call from the scraper thread BEFORE emitting scraping_finished.
+        Clears the completion event so _daemon_wait() will pause until
+        post_scrape_complete_dispatch() or signal_post_scrape_done() sets it."""
+        self._has_pending_post_scrape = False
+        self._scrape_complete_event.clear()
+
+    def signal_post_scrape_working(self):
+        """Call from on_scrape_complete when a plugin starts async work."""
+        self._has_pending_post_scrape = True
+
+    def signal_post_scrape_done(self):
+        """Call when async post-scrape work finishes (sets the event)."""
+        self._has_pending_post_scrape = False
+        self._scrape_complete_event.set()
+
+    def post_scrape_complete_dispatch(self):
+        """Call from the GUI thread AFTER dispatch_event('on_scrape_complete').
+        If no plugin registered async work, immediately sets the event so the
+        daemon countdown is not blocked."""
+        if not self._has_pending_post_scrape:
+            self._scrape_complete_event.set()
+
+    def wait_post_scrape_done(self, timeout: float = 300.0) -> bool:
+        """Block until post-scrape async work completes or timeout expires.
+        Returns True if the event was set within the timeout."""
+        return self._scrape_complete_event.wait(timeout=timeout)
+
+    # ------------------------------------------------------------------ discovery
 
     def discover_and_load(self):
         """Finds all valid plugins in the plugins directory and loads them."""
@@ -766,5 +806,275 @@ class PluginManager:
                 self.log.error(f"Plugin '{name}' crashed in {method_name}: {e}")
                 self.log.debug(traceback.format_exc())
         return None
+
+    # ------------------------------------------------------------------ GUI plugin inventory
+
+    @staticmethod
+    def read_enabled_flag(main_file: Path) -> bool:
+        """Return True unless main.py has ``plugin_enabled = 0`` at line start."""
+        try:
+            content = main_file.read_text(encoding="utf-8")
+            match = re.search(r"^plugin_enabled\s*=\s*([01])", content, re.MULTILINE)
+            if match and match.group(1) == "0":
+                return False
+        except Exception:
+            pass
+        return True
+
+    def set_enabled_flag(self, plugin_id: str, enabled: bool) -> bool:
+        """Write ``plugin_enabled = 0|1`` into the plugin's main.py. Restart required."""
+        if not self.plugins_dir:
+            return False
+        plugin_dir = self.plugins_dir / str(plugin_id)
+        main_file = plugin_dir / "main.py"
+        if not main_file.is_file():
+            return False
+        try:
+            content = main_file.read_text(encoding="utf-8")
+            new_val = "1" if enabled else "0"
+            if re.search(r"^plugin_enabled\s*=\s*[01]", content, re.MULTILINE):
+                content = re.sub(
+                    r"^plugin_enabled\s*=\s*[01]",
+                    f"plugin_enabled = {new_val}",
+                    content,
+                    count=1,
+                    flags=re.MULTILINE,
+                )
+            else:
+                content = f"plugin_enabled = {new_val}\n" + content
+            main_file.write_text(content, encoding="utf-8")
+            self.log.info(
+                f"Plugin '{plugin_id}' marked "
+                f"{'enabled' if enabled else 'disabled'} on disk"
+            )
+            return True
+        except Exception as e:
+            self.log.error(f"Failed to update plugin_enabled for {plugin_id}: {e}")
+            return False
+
+    def get_loaded_plugin(self, plugin_id: str):
+        """Return the loaded plugin instance for *plugin_id*, or None."""
+        for plugin in self.plugins:
+            meta_id = (plugin.metadata or {}).get("id")
+            dir_id = Path(str(plugin.plugin_dir)).name
+            if meta_id == plugin_id or dir_id == plugin_id:
+                return plugin
+        return None
+
+    def load_plugin_now(self, plugin_id: str, main_window=None) -> tuple[bool, str]:
+        """Import and activate one enabled plugin without restarting the app.
+
+        Runs ``on_load`` (via ``_load_plugin``) and ``on_ui_setup`` when
+        *main_window* is provided. Does not unload plugins.
+        """
+        plugin_id = str(plugin_id or "").strip()
+        if not plugin_id:
+            return False, "No plugin selected."
+        if not self.plugins_dir:
+            return False, "Plugins folder is unavailable."
+
+        plugin_dir = self.plugins_dir / plugin_id
+        main_file = plugin_dir / "main.py"
+        if not main_file.is_file():
+            return False, f"Plugin folder missing main.py: {plugin_id}"
+
+        if plugin_id in self._loaded_plugin_ids:
+            return False, f"Plugin '{plugin_id}' is already loaded."
+
+        if not self.read_enabled_flag(main_file):
+            return (
+                False,
+                f"Plugin '{plugin_id}' is disabled. Enable it first, then Load now.",
+            )
+
+        before = set(self._loaded_plugin_ids)
+        try:
+            self._load_plugin(plugin_dir)
+        except Exception as e:
+            self.log.error(f"load_plugin_now failed for {plugin_id}: {e}")
+            self.log.debug(traceback.format_exc())
+            return False, f"Load failed: {e}"
+
+        if plugin_id not in self._loaded_plugin_ids:
+            return (
+                False,
+                f"Plugin '{plugin_id}' did not load "
+                "(check logs — often missing dependencies or no Plugin class).",
+            )
+
+        plugin = self.get_loaded_plugin(plugin_id)
+        if plugin is None:
+            return False, f"Plugin '{plugin_id}' loaded but instance not found."
+
+        # Only call UI setup for this newly loaded plugin (avoid re-running others).
+        if main_window is not None and plugin_id not in before:
+            try:
+                self._safe_call(plugin, "on_ui_setup", main_window)
+            except Exception as e:
+                return (
+                    True,
+                    f"Loaded '{plugin_id}', but on_ui_setup failed: {e}",
+                )
+
+        name = (plugin.metadata or {}).get("name") or plugin_id
+        return True, f"Loaded plugin: {name}"
+
+    def _purge_plugin_modules(self, plugin_id: str) -> None:
+        """Drop dynamically imported plugin modules so Load now can re-import."""
+        package_name = f"ofscraper_plugin_{plugin_id}"
+        doomed = [
+            key
+            for key in list(sys.modules)
+            if key == package_name or key.startswith(package_name + ".")
+        ]
+        for key in doomed:
+            try:
+                del sys.modules[key]
+            except Exception:
+                pass
+
+    def _teardown_plugin_ui(self, plugin, plugin_id: str, main_window) -> None:
+        """Best-effort removal of GUI pieces added by on_ui_setup."""
+        if main_window is None:
+            return
+        # Preferred hook for plugins that know their page ids.
+        if hasattr(plugin, "on_ui_teardown"):
+            self._safe_call(plugin, "on_ui_teardown", main_window)
+
+        remove = getattr(main_window, "_remove_page", None)
+        if not callable(remove):
+            return
+
+        page_ids = set()
+        meta = plugin.metadata or {}
+        for candidate in (
+            plugin_id,
+            meta.get("id"),
+            meta.get("page_id"),
+            getattr(plugin, "_page_id", None),
+            getattr(plugin, "page_id", None),
+        ):
+            if candidate:
+                page_ids.add(str(candidate))
+        # Common attrs used by bundled / example plugins.
+        for attr in ("btn", "gui", "_page"):
+            obj = getattr(plugin, attr, None)
+            if obj is None:
+                continue
+            # If the widget is still in the stack map, find its id.
+            pages = getattr(main_window, "_pages", None) or {}
+            for pid, widget in list(pages.items()):
+                if widget is obj:
+                    page_ids.add(str(pid))
+
+        for pid in page_ids:
+            try:
+                remove(pid)
+            except Exception as e:
+                self.log.debug(f"UI teardown remove_page({pid}) failed: {e}")
+
+        # Drop dangling refs plugins often keep.
+        for attr in ("btn", "gui", "_page"):
+            if hasattr(plugin, attr):
+                try:
+                    setattr(plugin, attr, None)
+                except Exception:
+                    pass
+
+    def unload_plugin_now(self, plugin_id: str, main_window=None) -> tuple[bool, str]:
+        """Deactivate one loaded plugin without restarting the app.
+
+        Calls ``on_ui_teardown`` / best-effort UI removal, then ``on_unload``,
+        removes the instance from the manager, and purges import cache so
+        ``load_plugin_now`` can load a fresh copy later.
+        """
+        plugin_id = str(plugin_id or "").strip()
+        if not plugin_id:
+            return False, "No plugin selected."
+
+        plugin = self.get_loaded_plugin(plugin_id)
+        if plugin is None:
+            return False, f"Plugin '{plugin_id}' is not loaded."
+
+        name = (plugin.metadata or {}).get("name") or plugin_id
+        try:
+            self._teardown_plugin_ui(plugin, plugin_id, main_window)
+        except Exception as e:
+            self.log.warning(f"UI teardown for '{plugin_id}' raised: {e}")
+            self.log.debug(traceback.format_exc())
+
+        try:
+            self._safe_call(plugin, "on_unload")
+        except Exception as e:
+            self.log.warning(f"on_unload for '{plugin_id}' raised: {e}")
+            self.log.debug(traceback.format_exc())
+
+        self.plugins = [
+            p
+            for p in self.plugins
+            if not (
+                ((p.metadata or {}).get("id") == plugin_id)
+                or Path(str(p.plugin_dir)).name == plugin_id
+            )
+        ]
+        self._loaded_plugin_ids.discard(plugin_id)
+        self._purge_plugin_modules(plugin_id)
+
+        self.log.info(f"Unloaded plugin: {name}")
+        return True, f"Unloaded plugin: {name}"
+
+    def list_installed_plugins(self) -> list[dict]:
+        """Scan plugins_dir for installable plugins (GUI inventory)."""
+        results: list[dict] = []
+        if not self.plugins_dir:
+            return results
+        try:
+            self.plugins_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        if not self.plugins_dir.is_dir():
+            return results
+
+        loaded_ids = set(self._loaded_plugin_ids)
+        loaded_meta = {
+            (p.metadata.get("id") or Path(str(p.plugin_dir)).name): p.metadata
+            for p in self.plugins
+        }
+
+        for entry in sorted(self.plugins_dir.iterdir(), key=lambda p: p.name.lower()):
+            if not entry.is_dir():
+                continue
+            main_file = entry / "main.py"
+            if not main_file.is_file():
+                continue
+            plugin_id = entry.name
+            enabled = self.read_enabled_flag(main_file)
+            metadata: dict = {}
+            meta_file = entry / "metadata.json"
+            if meta_file.is_file():
+                try:
+                    with open(meta_file, "r", encoding="utf-8") as f:
+                        metadata = json.load(f) or {}
+                except Exception:
+                    metadata = {}
+            # Prefer live metadata when loaded.
+            if plugin_id in loaded_meta:
+                metadata = {**metadata, **(loaded_meta[plugin_id] or {})}
+            metadata["id"] = plugin_id
+            results.append(
+                {
+                    "id": plugin_id,
+                    "name": metadata.get("name") or plugin_id,
+                    "version": str(metadata.get("version") or ""),
+                    "author": str(metadata.get("author") or ""),
+                    "description": str(metadata.get("description") or ""),
+                    "enabled": enabled,
+                    "loaded": plugin_id in loaded_ids,
+                    "path": str(entry),
+                    "has_requirements": (entry / "requirements.txt").is_file(),
+                }
+            )
+        return results
+
 
 plugin_manager = PluginManager()

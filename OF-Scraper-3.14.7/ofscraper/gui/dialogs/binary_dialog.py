@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.signals import app_signals
 from ofscraper.gui.widgets.styled_button import StyledButton
 
@@ -31,7 +32,7 @@ class BinaryDialog(QWidget):
         layout.setSpacing(12)
 
         header = QLabel("FFmpeg Configuration")
-        header.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+        apply_font(header, "Segoe UI", 16, QFont.Weight.Bold)
         layout.addWidget(header)
 
         info = QLabel(

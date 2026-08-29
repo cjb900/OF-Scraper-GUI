@@ -1,6 +1,7 @@
 import logging
 import pathlib
 import re
+
 from ofscraper.utils.system.subprocess import run
 import ofscraper.utils.of_env.of_env as env
 
@@ -8,6 +9,13 @@ import ofscraper.utils.of_env.of_env as env
 from ofscraper.utils.system.ffmpeg import get_ffmpeg, get_ffprobe
 
 log = logging.getLogger("shared")
+
+# Default: actual duration must be at least 98% of API/MPD expected (SubScraper-style).
+_DEFAULT_MATCH_THRESHOLD = 0.98
+# Reject muxes smaller than this (empty/corrupt remux).
+_MIN_BYTES = 1024
+# Near-zero playback duration counts as empty.
+_MIN_DURATION_SECONDS = 0.05
 
 
 def _get_duration_ffprobe(file_path, ffprobe_path):
@@ -82,39 +90,107 @@ def get_media_duration(file_path):
         return None
 
 
-def verify_media_integrity(file_path, expected_duration_seconds=None):
-    """
-    Returns True if the media is healthy and within 3 seconds of expected length.
-    This protects against API rounding errors and FFmpeg muxing padding.
-    """
-    actual_duration = get_media_duration(file_path)
+def _resolve_match_threshold(match_threshold):
+    """Clamp threshold to (0, 1]; None → default 0.98."""
+    if match_threshold is None:
+        try:
+            from ofscraper.utils import settings as settings_mod
 
-    # 1. Container Check: Ensure headers are readable
-    if actual_duration is None:
-        log.warning(f"File is corrupted or not a valid media file: {file_path}")
+            match_threshold = getattr(
+                settings_mod.get_settings(),
+                "drm_duration_match_threshold",
+                None,
+            )
+        except Exception:
+            match_threshold = None
+    try:
+        value = float(match_threshold)
+    except (TypeError, ValueError):
+        return _DEFAULT_MATCH_THRESHOLD
+    if value <= 0:
+        return _DEFAULT_MATCH_THRESHOLD
+    if value > 1.0:
+        # Allow GUI/env mistakes like "98" meaning 98%.
+        if value <= 100:
+            value = value / 100.0
+        else:
+            return _DEFAULT_MATCH_THRESHOLD
+    return min(value, 1.0)
+
+
+def verify_media_integrity(
+    file_path,
+    expected_duration_seconds=None,
+    *,
+    match_threshold=None,
+    min_bytes=_MIN_BYTES,
+):
+    """Return True if the media looks healthy.
+
+    Checks:
+    1. File exists and is larger than ``min_bytes`` (rejects empty muxes).
+    2. ffprobe/ffmpeg can read a positive duration.
+    3. When ``expected_duration_seconds`` is set, require
+       ``actual / expected >= match_threshold`` (default 0.98), **or**
+       ``expected - actual <= 1.0s`` (API whole-second rounding / remux skew).
+    """
+    from ofscraper.utils.hardening import check_media_integrity, resolve_match_threshold
+
+    path = pathlib.Path(file_path)
+    try:
+        size = path.stat().st_size
+    except OSError as e:
+        log.warning(f"Integrity check: cannot stat {file_path}: {e}")
         return False
 
-    # 2. Precision Duration Check
-    diff = None
-    if expected_duration_seconds:
-        # Use abs() to handle cases where the file is slightly longer OR shorter
-        diff = abs(expected_duration_seconds - actual_duration)
+    if size < int(min_bytes):
+        log.warning(
+            f"Integrity check failed (empty/tiny mux): {path.name} "
+            f"({size} bytes < {min_bytes})"
+        )
+        return False
 
-        # 3.0s allows for worst-case API rounding plus FFmpeg audio padding,
-        # while still catching actually dropped DASH segments (usually 3-4s each).
-        if diff > 3.0:
-            log.debug(
-                f"Integrity Check Failed: {pathlib.Path(file_path).name}\n"
-                f"Expected: {expected_duration_seconds}s | Actual: {actual_duration:.2f}s "
-                f"| Diff: {diff:.2f}s (Limit: 3.0s)"
-            )
-            return False
+    if match_threshold is None:
+        match_threshold = _resolve_match_threshold(None)
+    else:
+        match_threshold = resolve_match_threshold(match_threshold)
 
-    diff_str = f"{diff:.2f}s" if diff is not None else "N/A"
-    log.debug(
-        f"Integrity Check Succeed: {pathlib.Path(file_path).name}\n"
-        f"Expected: {expected_duration_seconds}s | Actual: {actual_duration:.2f}s "
-        f"| Diff: {diff_str} (Limit: 3.0s)"
+    actual_duration = get_media_duration(file_path)
+    ok = check_media_integrity(
+        path,
+        actual_duration,
+        expected_duration_seconds,
+        match_threshold=match_threshold,
+        min_bytes=min_bytes,
     )
+    if not ok:
+        if actual_duration is None:
+            log.warning(f"File is corrupted or not a valid media file: {file_path}")
+        elif actual_duration <= _MIN_DURATION_SECONDS:
+            log.warning(
+                f"Integrity check failed (near-zero duration): {path.name} "
+                f"({actual_duration:.3f}s)"
+            )
+        else:
+            try:
+                exp = float(expected_duration_seconds)
+                ratio = actual_duration / exp if exp > 0 else 0.0
+                log.warning(
+                    f"Integrity Check Failed: {path.name} "
+                    f"(expected={expected_duration_seconds}, actual={actual_duration:.3f}, "
+                    f"ratio={ratio:.1%}, need ≥ {float(match_threshold):.0%} "
+                    f"or within 1.0s)"
+                )
+            except Exception:
+                log.warning(
+                    f"Integrity Check Failed: {path.name} "
+                    f"(expected={expected_duration_seconds}, actual={actual_duration})"
+                )
+        return False
 
+    log.debug(
+        f"Integrity Check Succeed: {path.name}\n"
+        f"Expected: {expected_duration_seconds}s | Actual: {actual_duration:.2f}s "
+        f"| need ≥ {float(match_threshold):.0%} (or ≤1.0s short)"
+    )
     return True

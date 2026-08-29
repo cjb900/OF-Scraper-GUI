@@ -52,7 +52,7 @@ async def naming_script(dir, file, ele): # Made async
                     "post_id": ele.post_id,
                     "media_id": ele.id,
                     "media_type": ele.mediatype.capitalize(),
-                    "date": arrow.get(ele.postdate).format(config_data.get_date()),
+                    "date": arrow.get(ele.postdate).to("local").format(config_data.get_date()),
                     "download_type": ele.downloadtype,
                 }
             )
@@ -64,7 +64,7 @@ async def naming_script(dir, file, ele): # Made async
                     "post_id": ele.id,
                     "media_id": None,
                     "media_type": None,
-                    "date": arrow.get(ele.date).format(config_data.get_date()),
+                    "date": arrow.get(ele.date).to("local").format(config_data.get_date()),
                     "download_type": None,
                 }
             )

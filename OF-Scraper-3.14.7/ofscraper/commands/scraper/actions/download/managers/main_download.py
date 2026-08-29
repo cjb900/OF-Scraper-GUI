@@ -159,19 +159,25 @@ class MainDownloadManager(DownloadManager):
         try:
             resume_size = self._get_resume_size(tempholderObj)
             headers = self._get_resume_header(resume_size, total)
-            total = None
             common_globals.log.debug(
                 f"{common_logs.get_medialog(ele)} [attempt {common_globals.attempt.get()}/{get_download_retries()}] Downloading media with url {ele.url}"
             )
 
+            from ofscraper.utils.host_allowlist import ensure_allowed_download_url
+
+            media_url = ensure_allowed_download_url(ele.url, kind="media")
+
             async with c.requests_async(
-                url=ele.url,
+                url=media_url,
                 stream=True,
                 headers=headers,
                 total_timeout=None,
                 read_timeout=get_chunk_timeout(),
             ) as r:
-                total = int(r.headers["content-length"])
+                expected_full, body_len, resume_size = self._resolve_download_totals(
+                    r, resume_size, tempholderObj.tempfilepath
+                )
+                total = expected_full
                 data = {
                     "content-total": total,
                     "content-type": r.headers.get("content-type"),
@@ -195,11 +201,10 @@ class MainDownloadManager(DownloadManager):
                     total = 0
                     return (total, tempholderObj.tempfilepath, placeholderObj)
                 elif total != resume_size:
-                    self._resume_cleaner(resume_size, total, tempholderObj.tempfilepath)
                     await self._download_fileobject_writer(
                         r, ele, tempholderObj, placeholderObj, total
                     )
-                    await self._total_change_helper(total)
+                    await self._total_change_helper(body_len or total)
             await self._size_checker(tempholderObj.tempfilepath, ele, total)
             return (total, tempholderObj.tempfilepath, placeholderObj)
         except Exception as E:
@@ -248,6 +253,7 @@ class MainDownloadManager(DownloadManager):
             ele, total=total, tempholderObj=tempholderObj, placeholderObj=placeholderObj
         )
         fileobject = None
+        bytes_written = 0
         try:
             fileobject = await aiofiles.open(
                 tempholderObj.tempfilepath, "ab"
@@ -256,18 +262,34 @@ class MainDownloadManager(DownloadManager):
 
             while True:
                 try:
-                    chunk = await chunk_iter.__anext__()
+                    try:
+                        from ofscraper.gui.utils.workflow import is_gui_cancelled
+
+                        if is_gui_cancelled():
+                            raise KeyboardInterrupt()
+                    except KeyboardInterrupt:
+                        raise
+                    except Exception:
+                        pass
+                    chunk = await self._next_chunk(chunk_iter, ele)
                     await fileobject.write(chunk)
+                    bytes_written += len(chunk)
                     send_chunk_msg(ele, total, tempholderObj)
                 except StopAsyncIteration:
                     break
 
-        # Catch native aiohttp socket read timeouts
+            if total and bytes_written == 0:
+                raise Exception(
+                    f"{common_logs.get_medialog(ele)} incomplete download: "
+                    f"wrote 0 bytes (expected file size {total})"
+                )
+
+        # Catch native aiohttp socket read timeouts / inactivity watchdog
         except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as E:
             common_globals.log.info(
                 f"{common_logs.get_medialog(ele)}⚠️ CDN went silent (sock_read timeout). Connection stalled, forcing retry!"
             )
-            raise Exception("Chunk download timed out")
+            raise Exception("Chunk download timed out") from E
         except Exception as E:
             common_globals.log.info(f"An error occurred during download for {ele}: {E}")
             raise E
@@ -308,7 +330,12 @@ class MainDownloadManager(DownloadManager):
             and settings.get_settings().verify_all_integrity
         ):
             expected_duration = ele.duration
-            if not verify_media_integrity(temp, expected_duration):
+            threshold = getattr(
+                settings.get_settings(), "drm_duration_match_threshold", 0.98
+            )
+            if not verify_media_integrity(
+                temp, expected_duration, match_threshold=threshold
+            ):
                 common_globals.log.warning(
                     f"Removing corrupted/truncated standard video: {temp}"
                 )

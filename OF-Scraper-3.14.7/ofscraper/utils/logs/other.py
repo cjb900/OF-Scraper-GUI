@@ -54,3 +54,16 @@ def add_other_handler(log, clear=True):
             log_queue_listener.start()
 
     return log
+
+
+def reset_other_handler():
+    global log_queue_listener
+    if log_queue_listener:
+        try:
+            log_queue_listener.stop()
+            for h in log_queue_listener.handlers:
+                h.close()
+        except Exception:
+            pass
+        log_queue_listener = None
+

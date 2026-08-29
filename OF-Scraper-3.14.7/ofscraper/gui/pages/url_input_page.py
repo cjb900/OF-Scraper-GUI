@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
+from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 
@@ -52,7 +53,7 @@ class UrlInputPage(QWidget):
         layout.setSpacing(16)
 
         title = QLabel("Scrape by Post URL / ID")
-        title.setFont(QFont("Segoe UI", 16, QFont.Weight.Bold))
+        apply_font(title, "Segoe UI", 16, QFont.Weight.Bold)
         layout.addWidget(title)
 
         desc = QLabel(
@@ -91,7 +92,7 @@ class UrlInputPage(QWidget):
         btn_row.addStretch()
 
         self.start_btn = StyledButton("\u25b6  Start Scraping", primary=True)
-        self.start_btn.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
+        apply_font(self.start_btn, "Segoe UI", 12, QFont.Weight.Bold)
         self.start_btn.setFixedHeight(36)
         self.start_btn.clicked.connect(self._on_start)
         btn_row.addWidget(self.start_btn)
