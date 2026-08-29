@@ -773,6 +773,8 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 
 ## Plugin system *(all versions)*
 
+> **⚠️ Experimental:** Plugins are experimental and a work in progress. They are **not guaranteed to work 100%** in every environment. Use them at your own risk and report issues you encounter. The Plugins page and host hooks are part of the GUI patch; optional plugin packages (e.g. Live Stream Monitor) are separate installs.
+
 OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your ofscraper config directory and are loaded automatically on startup.
 
 **Plugin directory:**
@@ -814,11 +816,7 @@ Plugins that declare a `requirements.txt` will trigger a one-click dependency in
 
 For full documentation on writing plugins see [`ofscraper/plugins/PLUGIN_DEVELOPMENT.md`](OF-Scraper-3.14.7/ofscraper/plugins/PLUGIN_DEVELOPMENT.md).
 
-> **⚠️ Note:** The plugin system itself is stable, but the included plugins are experimental and a work in progress — they may not function perfectly in all environments.
-
 ### Available plugins
-
-> **⚠️ Work in progress:** The included plugins are experimental and a work in progress. They may not work 100% reliably. Use them at your own risk and report any issues you encounter.
 
 Example plugins are included (see below). They are typically **disabled by default** — enable via `plugin_enabled = 1` in each plugin’s `main.py`, or use the **Plugins** page *(3.14.7)*.
 
