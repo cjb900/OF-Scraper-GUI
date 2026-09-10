@@ -1,0 +1,701 @@
+{
+  "username": "ronnieblaze",
+  "started_at": "2026-08-28T20:44:50",
+  "live_url": "https://onlyfans.com/ronnieblaze/live",
+  "had_return_to_login": false,
+  "joined_live": true,
+  "final_url": "https://onlyfans.com/ronnieblaze/live",
+  "page_diag": {
+    "videos": [
+      {
+        "index": 0,
+        "paused": false,
+        "muted": false,
+        "volume": 1,
+        "readyState": 4,
+        "src": null,
+        "srcObjectType": "MediaStream",
+        "videoTracks": 1,
+        "audioTracks": 0
+      }
+    ],
+    "audios": [],
+    "sdkGlobals": []
+  },
+  "interesting_traffic": [
+    {
+      "phase": "request",
+      "method": "GET",
+      "url": "https://onlyfans.com/api2/v2/users/me",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://onlyfans.com/api2/v2/users/me",
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "phase": "request",
+      "method": "GET",
+      "url": "https://onlyfans.com/api2/v2/users/ronnieblaze/streams/active?view=full_with_check",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://onlyfans.com/api2/v2/users/ronnieblaze/streams/active?view=full_with_check",
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "phase": "request",
+      "method": "GET",
+      "url": "https://onlyfans.com/api2/v2/users/settings/notifications/webpush?group=1",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://onlyfans.com/api2/v2/users/settings/notifications/webpush?group=1",
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "phase": "request",
+      "method": "GET",
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/active",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "response",
+      "status": 403,
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/active",
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "phase": "request",
+      "method": "GET",
+      "url": "https://onlyfans.com/api2/v2/users/10701741/streams/active/url?extension=%7B%22streamtype%22%3A%22agora_direct%22%2C%22sbp%22%3Atrue%2C%22preferred_servers%22%3A%5B%5D%7D",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "request",
+      "method": "POST",
+      "url": "https://statscollector-1.agora.io/events/messages",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://onlyfans.com/api2/v2/users/10701741/streams/active/url?extension=%7B%22streamtype%22%3A%22agora_direct%22%2C%22sbp%22%3Atrue%2C%22preferred_servers%22%3A%5B%5D%7D",
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "phase": "request",
+      "method": "POST",
+      "url": "https://webrtc2-ap-web-1.agora.io/api/v2/transpond/webrtc?v=2",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "request",
+      "method": "POST",
+      "url": "https://webrtc2-2.ap.sd-rtn.com/api/v2/transpond/webrtc?v=2",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "request",
+      "method": "POST",
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/look",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/look",
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://webrtc2-ap-web-1.agora.io/api/v2/transpond/webrtc?v=2",
+      "content_type": "application/json"
+    },
+    {
+      "phase": "request",
+      "method": "POST",
+      "url": "https://cds-ap-web-1.agora.io/api/v1?action=config",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "request",
+      "method": "POST",
+      "url": "https://cds-ap-web-3.agora.io/api/v1?action=config",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://webrtc2-2.ap.sd-rtn.com/api/v2/transpond/webrtc?v=2",
+      "content_type": "application/json"
+    },
+    {
+      "phase": "request",
+      "method": "GET",
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/comments?id=0&limit=50&order=desc",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "request",
+      "method": "GET",
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/comments?limit=1&pinned=1",
+      "resource_type": "xhr"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://cds-ap-web-1.agora.io/api/v1?action=config",
+      "content_type": "application/json"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/comments?limit=1&pinned=1",
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/comments?id=0&limit=50&order=desc",
+      "content_type": "application/json; charset=utf-8"
+    },
+    {
+      "phase": "response",
+      "status": 200,
+      "url": "https://cds-ap-web-3.agora.io/api/v1?action=config",
+      "content_type": "application/json"
+    },
+    {
+      "phase": "request",
+      "method": "POST",
+      "url": "https://logservice.agora.io/upload/v1",
+      "resource_type": "xhr"
+    }
+  ],
+  "api_json_samples": [
+    {
+      "url": "https://onlyfans.com/api2/v2/users/me",
+      "status": 200,
+      "json": {
+        "view": "f",
+        "isAuth": "[REDACTED]",
+        "csrf": "93aRVE7W929a4be994de3e27788758f46bc172a8",
+        "upload": {
+          "geoUploadArgs": {
+            "preset": "of_beta",
+            "protected_preset": "of_drm",
+            "preset_public": "of_public",
+            "preset_png": "of_png",
+            "isDelay": true,
+            "needThumbs": true,
+            "additional": {
+              "user": "154515800"
+            }
+          }
+        },
+        "isMediaAvatarPending": false,
+        "isMediaHeaderPending": false,
+        "avatar": "https://public.onlyfans.com/files/c/cj/cjx/cjxeru7qzaognqccwuxuwghutqq023br1743398070/154515800/avatar.jpg",
+        "avatarThumbs": {
+          "c50": "https://thumbs.onlyfans.com/public/files/thumbs/c50/c/cj/cjx/cjxeru7qzaognqccwuxuwghutqq023br1743398070/154515800/avatar.jpg",
+          "c144": "https://thumbs.onlyfans.com/public/files/thumbs/c144/c/cj/cjx/cjxeru7qzaognqccwuxuwghutqq023br1743398070/154515800/avatar.jpg"
+        },
+        "header": "https://public.onlyfans.com/files/t/tw/tw4/tw4l9tbjsqplskhugzsckiwzowytedzk1743398071/154515800/header_image.jpg",
+        "headerSize": {
+          "width": 4096,
+          "height": 3295
+        },
+        "headerThumbs": {
+          "w480": "https://thumbs.onlyfans.com/public/files/thumbs/w480/t/tw/tw4/tw4l9tbjsqplskhugzsckiwzowytedzk1743398071/154515800/header_image.jpg",
+          "w760": "https://thumbs.onlyfans.com/public/files/thumbs/w760/t/tw/tw4/tw4l9tbjsqplskhugzsckiwzowytedzk1743398071/154515800/header_image.jpg"
+        },
+        "id": 154515800,
+        "name": "cjb900",
+        "username": "cjb987",
+        "canLookStory": true,
+        "canCommentStory": true,
+        "hasNotViewedStory": false,
+        "isVerified": false,
+        "canPayInternal": true,
+        "displayName": "",
+        "canSendChatToAll": false,
+        "creditsMin": 10,
+        "creditsMax": 400,
+        "isPaywallPassed": true,
+        "creditsMinAlternatives": 5,
+        "payPalStatus": [],
+        "canCreateLists": true,
+        "joinDate": "2021-06-26T00:00:00+00:00",
+        "isReferrerAllowed": false,
+        "about": "<p>Just figuring myself out. </p>",
+        "isMarkdownDisabledForAbout": true,
+        "website": null,
+        "wishlist": null,
+        "location": null,
+        "postsCount": 0,
+        "archivedPostsCount": 0,
+        "privateArchivedPostsCount": 0,
+        "photosCount": 0,
+        "videosCount": 0,
+        "audiosCount": 0,
+        "mediasCount": 0,
+        "lastSeen": "2026-08-29T00:43:36+00:00",
+        "favoritesCount": 44,
+        "favoritedCount": 0,
+        "showPostsInFeed": true,
+        "canReceiveChatMessage": false,
+        "isPerformer": false,
+        "isRealPerformer": false,
+        "isSpotifyConnected": false,
+        "canInitiateCall": false,
+        "allowIncomingCalls": false,
+        "subscribersCount": 8,
+        "hasPinnedPosts": false,
+        "hasLabels": false,
+        "canChat": true,
+        "avatarHeaderConverterUpload": true,
+        "newTagsCount": 0,
+        "hasTags": false,
+        "needConsent": false,
+        "needConsentState": null,
+        "consentStatus": null,
+        "hasNewTicketReplies": {
+          "open": false,
+          "solved": false,
+          "closed": false,
+          "appeal_form": false
+        },
+        "hasInternalPayments": false,
+        "isCreditsEnabled": true,
+        "creditBalance": 0,
+        "isMakePayment": true,
+        "isAgeVerified": false,
+        "ageVerificationRequired": false,
+        "isOtpEnabled": false,
+        "email": "wolvesatknight@yahoo.com",
+        "isEmailChecked": true,
+        "isLegalApprovedAllowed": true,
+        "isTwitterConnected": false,
+        "twitterUsername": null,
+        "isAllowTweets": false,
+        "isPaymentCardConnected": true,
+        "isVisibleOnline": true,
+        "subscribesCount": 6,
+        "canPinPost": true,
+        "hasNewAlerts": false,
+        "hasNewHints": true,
+        "hasNewChangedPriceSubscriptions": false,
+        "notificationsCount": 132,
+        "hasSystemNotifications": false,
+        "chatMessagesCount": 7,
+        "countPinnedChat": 0,
+        "isWantComments": true,
+        "watermarkText": "OnlyFans.com/cjb987",
+        "hasWatermarkPhoto": true,
+        "hasWatermarkVideo": true,
+        "watermarkPosition": "bottom_right",
+        "advBlock": [
+          "subscribe_offers"
+        ],
+        "hasPurchasedPosts": false,
+        "isEmailRequired": false,
+        "payoutLegalApproveState": "none",
+        "enabledImageEditorForChat": true,
+        "paidFeed": false,
+        "isRealCardConnected": true,
+        "countPriorityChat": 3,
+        "countCallRequestChat": 0,
+        "hasScenario": false,
+        "wsUrl": "wss://ws2.onlyfans.com/ws3/24",
+        "wsAuthToken": "[REDACTED]",
+        "canAddCard": true,
+        "canUploadMedia": true,
+        "canUploadAvatarHeader": true,
+        "isWalletAutorecharge": false,
+        "walletAutorechargeAmount": 0,
+        "walletAutorechargeMin": 0,
+        "walletFirstRebills": false,
+        "canAlternativeWalletTopUp": true,
+        "needIVApprove": false,
+        "ivStatus": "approved",
+        "ivDocExpired": false,
+        "ivFailReason": null,
+        "ivCountry": "US",
+        "ivFlow": "default",
+        "faceIdRegular": [],
+        "connectedOfAccounts": [],
+        "canConnectOfAccount": true,
+        "pinnedPostsCount": 0,
+        "maxPinnedPostsCount": 5,
+        "isDeleteInitiated": false
+      }
+    },
+    {
+      "url": "https://onlyfans.com/api2/v2/users/ronnieblaze/streams/active?view=full_with_check",
+      "status": 200,
+      "json": {
+        "id": 9331958,
+        "description": "",
+        "rawDescription": "",
+        "isActive": true,
+        "isFinished": false,
+        "isShowTips": false,
+        "startedAt": "2026-08-29T00:41:52+00:00",
+        "finishedAt": null,
+        "room": "obs_room_10701741",
+        "streamingPlatform": "obs",
+        "likesCount": 0,
+        "viewsCount": 1,
+        "commentsCount": 0,
+        "thumbUrl": "https://d65yhkkydzb4v.cloudfront.net/eyJidWNrZXQiOiJvZi1hZ29yYS0zMTUxMzUwMTM4NTQtdXMtZWFzdC0xIiwia2V5IjoibWVkaWFcLzkzMzE5NThcL3ByZXZpZXcuanBnIiwiZWRpdHMiOnsicmVzaXplIjp7IndpZHRoIjoxMjgsImhlaWdodCI6MTI4LCJmaXQiOiJjb3ZlciJ9fX0=?expires=20260829T124603Z&signature=c6f25c086e33125d50f170bdf82e7a346083ce4f66482a3eb9fc16f28fbe095b",
+        "previewUrl": "https://d65yhkkydzb4v.cloudfront.net/eyJidWNrZXQiOiJvZi1hZ29yYS0zMTUxMzUwMTM4NTQtdXMtZWFzdC0xIiwia2V5IjoibWVkaWFcLzkzMzE5NThcL3ByZXZpZXcuanBnIn0=?expires=20260829T124603Z&signature=9d06cd1d420d693b45accdce5ce77c8f7689d46c3ca04d02bc8e0aff3d6a4a9f",
+        "selectedCover": null,
+        "isOpened": true,
+        "price": 0,
+        "canJoin": false,
+        "canCoStreaming": false,
+        "showCoStreamingRequest": false,
+        "primaryPartnerId": 9331958,
+        "primaryPartnerUserId": 10701741,
+        "partners": [],
+        "isScheduled": false,
+        "scheduledAt": null,
+        "isReminder": null,
+        "remindersCount": null,
+        "duration": 0,
+        "canReport": true,
+        "canEdit": false,
+        "isMarkdownDisabled": true,
+        "canSendPrivateWithTip": false,
+        "hasVoting": false,
+        "hasPinnedComments": false,
+        "tweetCreated": false,
+        "isRestricted": false,
+        "user": {
+          "view": "f",
+          "avatar": "https://public.onlyfans.com/files/7/78/78d/78d3ytfqjbfwvqzerqdmepk26wfvtiyb1585600044/avatar.jpg",
+          "avatarThumbs": {
+            "c50": "https://thumbs.onlyfans.com/public/files/thumbs/c50/7/78/78d/78d3ytfqjbfwvqzerqdmepk26wfvtiyb1585600044/avatar.jpg",
+            "c144": "https://thumbs.onlyfans.com/public/files/thumbs/c144/7/78/78d/78d3ytfqjbfwvqzerqdmepk26wfvtiyb1585600044/avatar.jpg"
+          },
+          "header": "https://public.onlyfans.com/files/c/cp/cpl/cpl2obi8mm4pahbafixrfedplevzzpox1598845786/header.jpg",
+          "headerSize": {
+            "width": 2048,
+            "height": 1536
+          },
+          "headerThumbs": {
+            "w480": "https://thumbs.onlyfans.com/public/files/thumbs/w480/c/cp/cpl/cpl2obi8mm4pahbafixrfedplevzzpox1598845786/header.jpg",
+            "w760": "https://thumbs.onlyfans.com/public/files/thumbs/w760/c/cp/cpl/cpl2obi8mm4pahbafixrfedplevzzpox1598845786/header.jpg"
+          },
+          "id": 10701741,
+          "name": "Ronnie Blaze",
+          "username": "ronnieblaze",
+          "canLookStory": true,
+          "canCommentStory": true,
+          "hasNotViewedStory": false,
+          "isVerified": true,
+          "canPayInternal": true,
+          "hasScheduledStream": false,
+          "hasStream": true,
+          "hasStories": false,
+          "tipsEnabled": true,
+          "tipsTextEnabled": true,
+          "tipsMin": 5,
+          "tipsMinInternal": 1,
+          "tipsMax": 200,
+          "canEarn": true,
+          "canAddSubscriber": false,
+          "subscribePrice": 0,
+          "displayName": "",
+          "isPaywallRequired": true,
+          "isActive": true,
+          "isRestricted": false,
+          "canRestrict": true,
+          "subscribedBy": true,
+          "subscribedByExpire": false,
+          "subscribedByExpireDate": "2036-06-08T00:04:30+00:00",
+          "subscribedByAutoprolong": true,
+          "subscribedIsExpiredNow": false,
+          "currentSubscribePrice": 0,
+          "subscribedOn": false,
+          "subscribedOnExpire": null,
+          "subscribedOnExpiredNow": null,
+          "subscribedOnDuration": null,
+          "listsStates": [
+            {
+              "id": "following",
+              "type": "following",
+              "name": "Following",
+              "hasUser": true,
+              "canAddUser": false,
+              "cannotAddUserReason": "ALREADY_EXISTS"
+            },
+            {
+              "id": "fans",
+              "type": "fans",
+              "name": "Fans",
+              "hasUser": false,
+              "canAddUser": false,
+              "cannotAddUserReason": null
+            }
+          ],
+          "joinDate": "2019-07-26T00:00:00+00:00",
+          "isReferrerAllowed": true,
+          "about": "Just a car guy who loves beer, bacon and tiddies.",
+          "isMarkdownDisabledForAbout": false,
+          "website": null,
+          "wishlist": null,
+          "location": null,
+          "postsCount": 11,
+          "archivedPostsCount": 0,
+          "privateArchivedPostsCount": 0,
+          "photosCount": 17,
+          "videosCount": 3,
+          "audiosCount": 0,
+          "mediasCount": 20,
+          "lastSeen": "2026-08-29T00:41:53+00:00",
+          "favoritesCount": 83464,
+          "favoritedCount": 59,
+          "showPostsInFeed": true,
+          "canReceiveChatMessage": true,
+          "isPerformer": true,
+          "isRealPerformer": true,
+          "isSpotifyConnected": false,
+          "canInitiateCall": false,
+          "allowIncomingCalls": false,
+          "subscribersCount": null,
+          "hasPinnedPosts": false,
+          "hasLabels": false,
+          "canChat": true,
+          "avatarHeaderConverterUpload": true,
+          "isPrivateRestriction": false,
+          "showSubscribersCount": false,
+          "showMediaCount": true,
+          "subscribedByData": {
+            "price": 0,
+            "newPrice": 0,
+            "regularPrice": 0,
+            "subscribePrice": 0,
+            "discountPercent": 0,
+            "discountPeriod": 1,
+            "subscribeAt": "2026-06-08T00:04:30+00:00",
+            "expiredAt": "2036-06-08T00:04:30+00:00",
+            "renewedAt": "2036-06-08T00:00:00+00:00",
+            "discountFinishedAt": null,
+            "discountStartedAt": null,
+            "status": null,
+            "isMuted": false,
+            "unsubscribeReason": "No reason given",
+            "duration": "2 months",
+            "showPostsInFeed": true,
+            "subscribes": [
+              {
+                "id": 15009019743,
+                "userId": 10701741,
+                "subscriberId": 154515800,
+                "date": "2026-06-08T00:04:30+00:00",
+                "duration": 3653,
+                "startDate": "2026-06-08T00:04:30+00:00",
+                "expireDate": "2036-06-08T00:04:30+00:00",
+                "cancelDate": null,
+                "price": 0,
+                "regularPrice": 0,
+                "discount": 0,
+                "earningId": 0,
+                "action": "subscribe",
+                "type": "regular",
+                "offerStart": null,
+                "offerEnd": null,
+                "isCurrent": true
+              }
+            ],
+            "hasActivePaidSubscriptions": false
+          },
+          "subscribedOnData": null,
+          "canCreatePromotion": false,
+          "canCreateTrial": false,
+          "isAdultContent": false,
+          "canTrialSend": false,
+          "hasLinks": false,
+          "finishedStreamsCount": 10,
+          "shouldShowFinishedStreams": true,
+          "hasSavedStreams": false,
+          "firstPublishedPostDate": "2020-10-15T00:00:00+00:00",
+          "isSpringConnected": false,
+          "isFriend": false,
+          "isBlocked": false,
+          "canReport": true,
+          "canUnsubscribe": true,
+          "isPendingAutoprolong": false
+        },
+        "canComment": true,
+        "canLike": true,
+        "viewerAvailableStreamTypes": [
+          "agora_direct"
+        ],
+        "streamType": "agora_direct"
+      }
+    },
+    {
+      "url": "https://onlyfans.com/api2/v2/users/settings/notifications/webpush?group=1",
+      "status": 200,
+      "json": [
+        {
+          "code": "you_and_your_posts",
+          "title": "Related to you and your posts",
+          "items": [
+            {
+              "code": "new_comment",
+              "title": "New comment",
+              "isEnabled": true,
+              "value": 1
+            },
+            {
+              "code": "new_favorite",
+              "title": "New Likes",
+              "isEnabled": true,
+              "value": 1
+            },
+            {
+              "code": "new_subscriber",
+              "title": "New Subscriber",
+              "isEnabled": true,
+              "value": 1
+            },
+            {
+              "code": "new_subscriber_trial",
+              "title": "New subscription from trial",
+              "isEnabled": true,
+              "value": 1
+            }
+          ]
+        },
+        {
+          "code": "subscriptions",
+          "title": "Subscriptions and following",
+          "items": [
+            {
+              "code": "new_stream",
+              "title": "New Stream",
+              "isEnabled": true,
+              "value": 1
+            }
+          ]
+        },
+        {
+          "code": "messages",
+          "title": "New messages",
+          "items": [
+            {
+              "code": "new_chat_message",
+              "title": "Important Direct Messages",
+              "isEnabled": true,
+              "value": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/active",
+      "status": 403,
+      "json": {
+        "error": {
+          "code": 0,
+          "message": "Access denied."
+        }
+      }
+    },
+    {
+      "url": "https://onlyfans.com/api2/v2/users/10701741/streams/active/url?extension=%7B%22streamtype%22%3A%22agora_direct%22%2C%22sbp%22%3Atrue%2C%22preferred_servers%22%3A%5B%5D%7D",
+      "status": 200,
+      "json": {
+        "Message": {
+          "MsgType": "tctl.server.alloc.answer",
+          "Success": true,
+          "agora_cred": {
+            "app_id": "7c556f3d00d5433489af45bf561dd070",
+            "channel": "obs_room_10701741",
+            "streamname": "obs_room_10701741",
+            "token": "[REDACTED]",
+            "user_id": 2850318346
+          },
+          "sbp": {
+            "sbp_session": "[REDACTED]",
+            "token": "[REDACTED]",
+            "endpoint": "wss://ws2-sbp.onlyfans.com/ws-sbp/"
+          }
+        },
+        "Token": "[REDACTED]"
+      }
+    },
+    {
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/look",
+      "status": 200,
+      "json": {
+        "success": true
+      }
+    },
+    {
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/comments?limit=1&pinned=1",
+      "status": 200,
+      "json": {
+        "list": [],
+        "hasMore": false
+      }
+    },
+    {
+      "url": "https://onlyfans.com/api2/v2/streams/9331958/comments?id=0&limit=50&order=desc",
+      "status": 200,
+      "json": {
+        "list": [],
+        "hasMore": false
+      }
+    }
+  ],
+  "classification": {
+    "has_hls": false,
+    "has_dash": false,
+    "has_agora_url": true,
+    "has_agora_sdk": false,
+    "has_hls_js_sdk": false,
+    "webrtc_mediastream_on_video": true,
+    "plain_video_src": false,
+    "sdk_globals": [],
+    "suggested_path": "webrtc_agora_browser",
+    "summary": "WebRTC/Agora-style delivery — browser MediaRecorder (or a native Agora client with API tokens) remains the realistic capture path."
+  },
+  "summary_urls": {
+    "media_or_playlist_urls": [],
+    "api2_urls": [
+      "https://onlyfans.com/api2/v2/users/me",
+      "https://onlyfans.com/api2/v2/users/ronnieblaze/streams/active?view=full_with_check",
+      "https://onlyfans.com/api2/v2/users/settings/notifications/webpush?group=1",
+      "https://onlyfans.com/api2/v2/streams/9331958/active",
+      "https://onlyfans.com/api2/v2/users/10701741/streams/active/url?extension=%7B%22streamtype%22%3A%22agora_direct%22%2C%22sbp%22%3Atrue%2C%22preferred_servers%22%3A%5B%5D%7D",
+      "https://onlyfans.com/api2/v2/streams/9331958/look",
+      "https://onlyfans.com/api2/v2/streams/9331958/comments?id=0&limit=50&order=desc",
+      "https://onlyfans.com/api2/v2/streams/9331958/comments?limit=1&pinned=1"
+    ],
+    "other_interesting_urls": [
+      "https://statscollector-1.agora.io/events/messages",
+      "https://webrtc2-ap-web-1.agora.io/api/v2/transpond/webrtc?v=2",
+      "https://webrtc2-2.ap.sd-rtn.com/api/v2/transpond/webrtc?v=2",
+      "https://cds-ap-web-1.agora.io/api/v1?action=config",
+      "https://cds-ap-web-3.agora.io/api/v1?action=config",
+      "https://logservice.agora.io/upload/v1"
+    ],
+    "request_count": 26
+  },
+  "notes": [],
+  "report_path": null,
+  "finished_at": "2026-08-28T20:45:45"
+}
