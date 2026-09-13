@@ -59,6 +59,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Trial Link Scanner](#trial-link-scanner-trial_link_scanner-all-versions)
 - [Docker](#docker)
   - [What you get](#what-you-get)
+  - [Required file layout](#required-file-layout)
   - [Prerequisites](#prerequisites)
   - [Quick start](#quick-start)
   - [Step-by-step setup](#step-by-step-setup)
@@ -1129,12 +1130,77 @@ A Docker setup is included for running the **patched GUI** in a headless environ
 - Raw **VNC** on port **5900** (optional)
 - FFmpeg **inside the image** (needed for DRM remux — do not bind-mount host `ffmpeg`)
 
+### Required file layout
+
+Docker builds from the **repository root** (the folder that contains `docker-compose.yml`). You do **not** need the full `OF-Scraper-3.x.x/` source trees for a GUI image build — only the files below.
+
+**Minimum layout for the GUI container**
+
+```text
+OF-Scraper-GUI/                          ← run all docker compose commands here
+├── docker-compose.yml                   ← required (service, ports, volumes, GUI_ARGS)
+├── docker/
+│   ├── Dockerfile                       ← required (image build)
+│   └── entrypoint.sh                    ← required (Xvfb + VNC + ofscraper --gui)
+├── patch_ofscraper_3.12.9_gui.py        ← required by Dockerfile COPY (all four)
+├── patch_ofscraper_3.14.3_gui.py
+├── patch_ofscraper_3.14.5_gui.py
+└── patch_ofscraper_3.14.7_gui.py        ← used when GUI_PATCH_VERSION=3.14.7 (default)
+```
+
+| Path | Required? | Why |
+|---|---|---|
+| `docker-compose.yml` | **Yes** | Defines `ofscraper-gui` service, ports `6699`/`5900`, env, volumes |
+| `docker/Dockerfile` | **Yes** | Installs ofscraper, applies the selected GUI patch, sets up noVNC |
+| `docker/entrypoint.sh` | **Yes** | Starts Xvfb → VNC → noVNC → `ofscraper --gui $GUI_ARGS` |
+| `patch_ofscraper_*_gui.py` at **repo root** | **Yes** | `Dockerfile` `COPY`s these from the root (not from `OF-Scraper-*/`) |
+| `OF-Scraper-3.14.7/` (or other version folders) | **No** for Docker GUI | Useful for desktop patching / development; **not** read by the current GUI Dockerfile |
+| `docker/comfyui-joycaption/` | **No** | Separate optional stack for the JoyCaption plugin only |
+
+**About your tree with `OF-Scraper-3.14.7/patch_ofscraper_3.14.7_gui.py`**
+
+That layout is fine for **desktop** patching and keeping sources tidy, but the **Docker GUI build looks for the patch scripts next to `docker-compose.yml`**, for example:
+
+```text
+OF-Scraper-GUI/patch_ofscraper_3.14.7_gui.py
+```
+
+not only:
+
+```text
+OF-Scraper-GUI/OF-Scraper-3.14.7/patch_ofscraper_3.14.7_gui.py
+```
+
+If you only keep the patch under `OF-Scraper-3.14.7/`, either also copy/symlink it to the repo root, or the image build will fail on `COPY patch_ofscraper_…_gui.py`.
+
+You can keep both copies (root + version folder); Docker only needs the root ones.
+
+**Optional: JoyCaption / ComfyUI (separate compose)**
+
+Only needed if you run the JoyCaption Tagger plugin against a local ComfyUI container. It is **not** part of `ofscraper-gui`:
+
+```text
+docker/
+└── comfyui-joycaption/
+    ├── docker-compose.yml
+    ├── Dockerfile
+    ├── download_models.py
+    ├── server_setup.sh
+    ├── custom_workflows/
+    │   └── joycaption_alpha2.json
+    ├── models/LLM/          ← download weights here before first run
+    ├── input/
+    └── output/
+```
+
+Build/run that stack from `docker/comfyui-joycaption/` (see [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger-all-versions)), not from the repo-root `docker compose` used for the GUI.
+
 ### Prerequisites
 
 1. **Docker Engine** or **Docker Desktop** installed and running  
    - Windows / macOS: [Docker Desktop](https://www.docker.com/products/docker-desktop/)  
    - Linux: Docker Engine + Compose plugin (`docker compose version` should work)
-2. This repository checked out locally (build context needs the `OF-Scraper-*/patch_*.py` files and `docker/`)
+2. This repository checked out locally (build context needs `docker/`, root `docker-compose.yml`, and the root-level `patch_ofscraper_*_gui.py` files — see [Required file layout](#required-file-layout))
 3. Enough disk for the image build (first build pulls Ubuntu + Python packages — often several GB)
 
 > **Windows tip:** Prefer cloning to a short path (e.g. `C:\src\OF-Scraper-GUI`) and ensure Docker Desktop file sharing allows that drive.
