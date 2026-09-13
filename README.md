@@ -58,10 +58,19 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Live Stream Monitor](#live-stream-monitor-live_stream_monitor-all-versions)
   - [Trial Link Scanner](#trial-link-scanner-trial_link_scanner-all-versions)
 - [Docker](#docker)
-  - [Running the GUI in Docker](#running-the-gui-in-docker)
+  - [What you get](#what-you-get)
+  - [Required file layout](#required-file-layout)
+  - [Prerequisites](#prerequisites)
+  - [Quick start](#quick-start)
+  - [Step-by-step setup](#step-by-step-setup)
+  - [Accessing the GUI (noVNC / VNC)](#accessing-the-gui-novnc--vnc)
+  - [Volumes (config, downloads, CDM keys, crash logs)](#volumes-config-downloads-cdm-keys-crash-logs)
+  - [First login / auth inside Docker](#first-login--auth-inside-docker)
   - [Auto-starting a scrape on container startup](#auto-starting-a-scrape-on-container-startup)
   - [Selecting the patch version at build time](#selecting-the-patch-version-at-build-time)
-  - [Volumes, CDM keys, and crash logs](#volumes-cdm-keys-and-crash-logs)
+  - [Useful Compose commands](#useful-compose-commands)
+  - [Docker limitations](#docker-limitations)
+  - [Troubleshooting Docker](#troubleshooting-docker)
 - [Supported versions](#supported-versions)
 - [How it detects your installation](#how-it-detects-your-installation)
   - [Broken installation detection](#broken-installation-detection)
@@ -104,6 +113,12 @@ python patch_ofscraper_3.14.7_gui.py
 
 # Skip confirmation prompt
 python patch_ofscraper_3.14.7_gui.py -y
+
+# Force-reinstall ofscraper 3.14.7 and all GUI dependencies, then patch
+python patch_ofscraper_3.14.7_gui.py --force
+
+# Force-reinstall ofscraper only (skip GUI dependency reinstall)
+python patch_ofscraper_3.14.7_gui.py --force --skip-deps
 
 # Dry run — see what would happen without making changes
 python patch_ofscraper_3.14.7_gui.py --dry-run
@@ -1099,76 +1114,338 @@ Each Discord message includes:
 
 ## Docker
 
-A Docker setup is included for running the GUI in a headless environment, accessible from any browser or VNC client — no display required on the host machine.
+A Docker setup is included for running the **patched GUI** in a headless environment. You open the UI from any browser (noVNC) or a VNC client — no desktop/display is required on the host.
 
-> **Notes**
-> - DRM key generation is **not supported in Docker** — generate keys on a desktop host and mount them (see below).
-> - Embedded browser login is limited in Docker; prefer Import Cookies / System Browser on a desktop, or paste credentials.
-> - FFmpeg is installed **inside the image**. Do **not** bind-mount a host `/usr/bin/ffmpeg` — host binaries often fail against container libraries and leave DRM downloads stuck as `.part` files.
+| File | Role |
+|---|---|
+| `docker/Dockerfile` | Builds Ubuntu 24.04 + ofscraper + GUI patch + Xvfb / noVNC |
+| `docker/entrypoint.sh` | Starts virtual display, VNC, noVNC, then `ofscraper --gui` |
+| `docker-compose.yml` | Convenient build/run, ports, env, and volume mounts |
 
-### Running the GUI in Docker
+### What you get
+
+- OF-Scraper installed and patched with the GUI (default **3.14.7**)
+- Virtual framebuffer (`Xvfb`) + lightweight window manager
+- **noVNC** on port **6699** (browser)
+- Raw **VNC** on port **5900** (optional)
+- FFmpeg **inside the image** (needed for DRM remux — do not bind-mount host `ffmpeg`)
+
+### Required file layout
+
+Docker builds from the **repository root** (the folder that contains `docker-compose.yml`). You do **not** need the full `OF-Scraper-3.x.x/` source trees for a GUI image build — only the files below.
+
+**Minimum layout for the GUI container**
+
+```text
+OF-Scraper-GUI/                          ← run all docker compose commands here
+├── docker-compose.yml                   ← required (service, ports, volumes, GUI_ARGS)
+├── docker/
+│   ├── Dockerfile                       ← required (image build)
+│   └── entrypoint.sh                    ← required (Xvfb + VNC + ofscraper --gui)
+├── patch_ofscraper_3.12.9_gui.py        ← required by Dockerfile COPY (all four)
+├── patch_ofscraper_3.14.3_gui.py
+├── patch_ofscraper_3.14.5_gui.py
+└── patch_ofscraper_3.14.7_gui.py        ← used when GUI_PATCH_VERSION=3.14.7 (default)
+```
+
+| Path | Required? | Why |
+|---|---|---|
+| `docker-compose.yml` | **Yes** | Defines `ofscraper-gui` service, ports `6699`/`5900`, env, volumes |
+| `docker/Dockerfile` | **Yes** | Installs ofscraper, applies the selected GUI patch, sets up noVNC |
+| `docker/entrypoint.sh` | **Yes** | Starts Xvfb → VNC → noVNC → `ofscraper --gui $GUI_ARGS` |
+| `patch_ofscraper_*_gui.py` at **repo root** | **Yes** | `Dockerfile` `COPY`s these from the root (not from `OF-Scraper-*/`) |
+| `OF-Scraper-3.14.7/` (or other version folders) | **No** for Docker GUI | Useful for desktop patching / development; **not** read by the current GUI Dockerfile |
+| `docker/comfyui-joycaption/` | **No** | Separate optional stack for the JoyCaption plugin only |
+
+**About your tree with `OF-Scraper-3.14.7/patch_ofscraper_3.14.7_gui.py`**
+
+That layout is fine for **desktop** patching and keeping sources tidy, but the **Docker GUI build looks for the patch scripts next to `docker-compose.yml`**, for example:
+
+```text
+OF-Scraper-GUI/patch_ofscraper_3.14.7_gui.py
+```
+
+not only:
+
+```text
+OF-Scraper-GUI/OF-Scraper-3.14.7/patch_ofscraper_3.14.7_gui.py
+```
+
+If you only keep the patch under `OF-Scraper-3.14.7/`, either also copy/symlink it to the repo root, or the image build will fail on `COPY patch_ofscraper_…_gui.py`.
+
+You can keep both copies (root + version folder); Docker only needs the root ones.
+
+**Optional: JoyCaption / ComfyUI (separate compose)**
+
+Only needed if you run the JoyCaption Tagger plugin against a local ComfyUI container. It is **not** part of `ofscraper-gui`:
+
+```text
+docker/
+└── comfyui-joycaption/
+    ├── docker-compose.yml
+    ├── Dockerfile
+    ├── download_models.py
+    ├── server_setup.sh
+    ├── custom_workflows/
+    │   └── joycaption_alpha2.json
+    ├── models/LLM/          ← download weights here before first run
+    ├── input/
+    └── output/
+```
+
+Build/run that stack from `docker/comfyui-joycaption/` (see [JoyCaption Tagger](#joycaption-tagger-joycaption_tagger-all-versions)), not from the repo-root `docker compose` used for the GUI.
+
+### Prerequisites
+
+1. **Docker Engine** or **Docker Desktop** installed and running  
+   - Windows / macOS: [Docker Desktop](https://www.docker.com/products/docker-desktop/)  
+   - Linux: Docker Engine + Compose plugin (`docker compose version` should work)
+2. This repository checked out locally (build context needs `docker/`, root `docker-compose.yml`, and the root-level `patch_ofscraper_*_gui.py` files — see [Required file layout](#required-file-layout))
+3. Enough disk for the image build (first build pulls Ubuntu + Python packages — often several GB)
+
+> **Windows tip:** Prefer cloning to a short path (e.g. `C:\src\OF-Scraper-GUI`) and ensure Docker Desktop file sharing allows that drive.
+
+### Quick start
+
+From the **repository root** (the folder that contains `docker-compose.yml`):
 
 ```bash
-# Build the image
+# Build the image (first time, or after changing GUI_PATCH_VERSION)
 docker compose build ofscraper-gui
 
-# Start the container
+# Start the container (foreground — Ctrl+C stops it)
 docker compose up ofscraper-gui
 ```
 
-Once running, open **[http://localhost:6699/](http://localhost:6699/)** (or `http://<host>:6699/`) in your browser for noVNC. You can also connect with any VNC client on port `5900`.
+Then open **[http://localhost:6699/](http://localhost:6699/)** in your browser.
 
-<!-- Screenshot placeholder: noVNC browser view showing the OF-Scraper GUI -->
+To run in the background:
 
-The `GUI_PATCH_VERSION` build argument and `GUI_ARGS` environment variable in `docker-compose.yml` control which version is used and whether a scrape starts automatically:
+```bash
+docker compose up -d ofscraper-gui
+docker compose logs -f ofscraper-gui
+```
+
+### Step-by-step setup
+
+#### 1. Open a terminal in the repo root
+
+```bash
+cd /path/to/OF-Scraper-GUI
+```
+
+On Windows PowerShell:
+
+```powershell
+cd "C:\Users\<you>\Documents\...\OF-Scraper-GUI"
+```
+
+Confirm Compose sees the service:
+
+```bash
+docker compose config --services
+# expect: ofscraper-gui
+```
+
+#### 2. (Recommended) Point volumes at real host folders
+
+The default `docker-compose.yml` uses named Docker volumes so a first run works with zero edits. For real use, edit `docker-compose.yml` and bind-mount your host config + download folders instead of the named volumes:
+
+**Linux / macOS**
 
 ```yaml
-# docker-compose.yml (key sections)
-build:
-  args:
-    GUI_PATCH_VERSION: "3.14.7"   # which patch to apply at build time
-environment:
-  - GUI_ARGS=                     # leave blank to just open the GUI
-  - NOVNC_PORT=6699               # noVNC (websockify) listen port
+volumes:
+  - ${HOME}/.config/ofscraper:/root/.config/ofscraper
+  - ${HOME}/OnlyFans:/data/OnlyFans
 ```
+
+**Windows (Docker Desktop)**
+
+```yaml
+volumes:
+  - ${USERPROFILE}/.config/ofscraper:/root/.config/ofscraper
+  - ${USERPROFILE}/OnlyFans:/data/OnlyFans
+```
+
+Create the folders on the host first if they do not exist. Inside the GUI, set **Configuration → File Options → Save Location** to `/data/OnlyFans` (or whatever path you mounted on the **right** side of the volume mapping).
+
+#### 3. Build
+
+```bash
+docker compose build ofscraper-gui
+```
+
+Optional: pick another supported patch at build time (see [Selecting the patch version at build time](#selecting-the-patch-version-at-build-time)).
+
+#### 4. Start and open the UI
+
+```bash
+docker compose up ofscraper-gui
+```
+
+Browse to `http://localhost:6699/` — noVNC should auto-connect and show the OF-Scraper GUI.
+
+#### 5. Configure once, then scrape
+
+In the GUI (through noVNC):
+
+1. **Authentication** — import / paste credentials (see [First login / auth inside Docker](#first-login--auth-inside-docker))
+2. **Configuration** — set Save Location to your mounted data path (e.g. `/data/OnlyFans`), Discord webhook, CDM paths if needed
+3. Place CDM key files on the **config volume** (see below) if you download DRM media
+4. Run a normal scrape from **Select Action**
+
+Config and auth persist on the mounted config volume across container rebuilds/restarts.
+
+### Accessing the GUI (noVNC / VNC)
+
+| Method | Address | Notes |
+|---|---|---|
+| **Browser (noVNC)** | `http://localhost:6699/` | Easiest. Works remotely as `http://<host-ip>:6699/` if the port is reachable |
+| **VNC client** | `localhost:5900` | Any VNC viewer; no password (`-nopw` in the image) |
+
+If you change the left-hand port mapping in Compose (e.g. `"8669:6699"`), use that host port in the browser URL. The process **inside** the container still listens on `6699`.
+
+### Volumes (config, downloads, CDM keys, crash logs)
+
+Map host paths so settings, auth, databases, crash logs, and downloads survive container recreation:
+
+```yaml
+volumes:
+  # Config, auth.json, SQLite DBs, gui_crash_logs/, device/ (CDM keys)
+  - /home/you/.config/ofscraper:/root/.config/ofscraper
+  # Downloads (match Save Location inside the GUI)
+  - /home/you/Photos/OnlyFans:/data/OnlyFans
+```
+
+| Path under config mount | Purpose |
+|---|---|
+| `auth.json` / profile auth | Session credentials |
+| `config.json` | OF-Scraper settings (save location, webhook, CDM mode, …) |
+| `gui_settings.json` | GUI-only preferences |
+| `gui_crash_logs/` | Breadcrumbs + faulthandler dumps *(3.14.7)* |
+| `device/` | Typical place for Widevine CDM files after desktop keygen (`client_id.bin`, `private_key.pem`, etc.) |
+
+**CDM keys:** generate them on a normal desktop GUI (DRM Key Creation is **not** supported in Docker), then copy the key files into the mounted config tree (often `device/`) and point **Configuration → CDM** at those paths **as seen inside the container** (e.g. `/root/.config/ofscraper/device/client_id.bin`).
+
+**FFmpeg:** use the image binary. Do **not** bind-mount a host `/usr/bin/ffmpeg` — host builds often miss libraries inside the container and DRM merges can leave stuck `.part` files.
+
+### First login / auth inside Docker
+
+Auth options that need your everyday desktop browser profile are limited in Docker:
+
+| Method | In Docker? | Notes |
+|---|---|---|
+| Paste credentials manually | ✅ | DevTools → copy `sess` / `auth_id` / UA / `x-bc` on a desktop browser, paste into Authentication |
+| Import Cookies from host browser | ❌ / limited | Container cannot see Windows/macOS browser profiles on the host |
+| Login in System Browser | ❌ / limited | No host Chrome/Firefox UI inside the container |
+| Login in App Browser | ⚠️ limited | Embedded WebEngine may work poorly under Xvfb; prefer paste/import from desktop |
+
+**Practical flow:** log in on a desktop → export/copy auth into the GUI over noVNC, **or** copy a working `auth.json` from a desktop install into the mounted `~/.config/ofscraper` folder before starting the container.
 
 ### Auto-starting a scrape on container startup
 
-Set `GUI_ARGS` to pass any `ofscraper --gui` arguments. The container will open the GUI and immediately begin scraping with those options — no manual interaction required:
+Set `GUI_ARGS` to any arguments you would pass after `ofscraper --gui`. The entrypoint runs:
+
+```text
+ofscraper --gui $GUI_ARGS
+```
+
+**Example — daemon scrape every 2 hours for all active subs:**
 
 ```yaml
 environment:
   - GUI_ARGS=--daemon 120 --username ALL --sub-status active --posts all --discord low
 ```
 
-This is equivalent to running `ofscraper --gui --daemon 120 --username ALL ...` on the command line. The GUI wizard pages are skipped and the scrape starts automatically. *(3.14.7)* Unattended auto-start also skips scrape-confirm / disk / remote-key dialogs.
+In `docker-compose.yml` you can set this under `environment`, then:
 
-### Volumes, CDM keys, and crash logs
-
-Map host config and media so settings, auth, databases, crash logs, and downloads persist:
-
-```yaml
-volumes:
-  # Config, auth.json, SQLite DBs, gui_crash_logs/, device/ (CDM keys)
-  - /home/you/.config/ofscraper:/root/.config/ofscraper
-  - /home/you/Photos/OnlyFans:/home/you/Photos/OnlyFans
-  # Prefer the image FFmpeg — do not bind-mount host ffmpeg
+```bash
+docker compose up -d ofscraper-gui
 ```
 
-| Path under config | Purpose |
-|---|---|
-| `gui_crash_logs/` | Breadcrumbs + faulthandler dumps (same as desktop) |
-| `device/` | Typical location for `client_id.bin` / `private_key.pem` after desktop keygen |
+Behavior notes:
+
+- Enough CLI flags → the GUI **skips the wizard** and starts scraping (same idea as desktop CLI auto-start)
+- *(3.14.7)* Unattended `GUI_ARGS` also skips interactive scrape-confirm / disk / remote-key dialogs so the container can start with **no clicks**
+- Leave `GUI_ARGS` empty to only open the GUI and operate it through noVNC
+
+Equivalent one-off without editing the file:
+
+```bash
+docker compose run --rm -e GUI_ARGS="--username ALL --posts all" -p 6699:6699 ofscraper-gui
+```
 
 ### Selecting the patch version at build time
 
-Change `GUI_PATCH_VERSION` in `docker-compose.yml` (or pass it as a build arg) to build a container for a different supported version:
+Change `GUI_PATCH_VERSION` in `docker-compose.yml` under `build.args`, **or** pass it on the command line:
 
 ```bash
 docker compose build --build-arg GUI_PATCH_VERSION=3.14.3 ofscraper-gui
 ```
 
-Available versions match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.7`.
+Supported values match the patch scripts: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.7`.
+
+After changing the version, rebuild and recreate:
+
+```bash
+docker compose build ofscraper-gui
+docker compose up -d --force-recreate ofscraper-gui
+```
+
+You may also want to retag/rename `image: ofscraper-gui:3.14.7` in Compose so it matches the version you built.
+
+### Useful Compose commands
+
+```bash
+# Build
+docker compose build ofscraper-gui
+
+# Start (foreground)
+docker compose up ofscraper-gui
+
+# Start (background) + follow logs
+docker compose up -d ofscraper-gui
+docker compose logs -f ofscraper-gui
+
+# Stop
+docker compose stop ofscraper-gui
+
+# Stop and remove container (volumes kept)
+docker compose down
+
+# Rebuild after Dockerfile / patch changes
+docker compose build --no-cache ofscraper-gui
+docker compose up -d --force-recreate ofscraper-gui
+
+# Shell inside a running container (debug)
+docker compose exec ofscraper-gui bash
+```
+
+### Docker limitations
+
+- **DRM key generation is not supported in Docker** — generate keys on Windows/Linux desktop, then mount them
+- **Host browser cookie import / system-browser login** are not reliable — prefer manual auth paste or copying `auth.json`
+- **Do not bind-mount host FFmpeg** into the container
+- GUI plugins that need GPU/extra services (e.g. JoyCaption + ComfyUI) need their **own** compose stack; see `docker/comfyui-joycaption/`
+
+### Troubleshooting Docker
+
+| Symptom | What to try |
+|---|---|
+| `docker compose`: no configuration file | Run commands from the repo root (where `docker-compose.yml` lives) |
+| Build fails copying patch scripts | Ensure `OF-Scraper-3.x.x/patch_ofscraper_*_gui.py` exist; `GUI_PATCH_VERSION` must match a shipped patch |
+| Browser can’t open noVNC | Confirm `docker compose ps` shows port `6699`; try `http://127.0.0.1:6699/`; check firewall |
+| Black / empty noVNC | Wait a few seconds for Xvfb + GUI; check `docker compose logs -f ofscraper-gui` |
+| Auth works on desktop, not in Docker | Copy desktop `auth.json` into the mounted config dir; dynamic rules / SSL settings must match |
+| Videos stuck as `.part` | Use image FFmpeg (remove any host ffmpeg bind-mount); confirm CDM key paths are valid **inside** the container |
+| Downloads missing on host | Save Location inside GUI must be the **container** path you mounted (e.g. `/data/OnlyFans`), not a Windows `C:\...` path |
+| Permission errors on Linux binds | Host folder ownership vs container `root` user — either chown the host dir or run with matching user setup |
+| Container exits immediately | Check logs; if the GUI process crashes, entrypoint may still keep Xvfb alive depending on version — recreate with `docker compose up --force-recreate` |
+
+Crash diagnostics *(3.14.7)* on the config volume:
+
+- `gui_crash_logs/model_fetch_breadcrumbs.log`
+- `gui_crash_logs/faulthandler.log`
 
 ---
 
