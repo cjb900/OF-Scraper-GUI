@@ -127,10 +127,7 @@ class MetaDataManager:
         if not settings.get_settings().hash:
             return prevData.get("hash")
         elif pathlib.Path(placeholderObj.trunicated_filepath).is_file():
-            return hash.get_hash(
-                pathlib.Path(placeholderObj.trunicated_filepath),
-                mediatype=ele.mediatype,
-            )
+            return hash.get_hash(pathlib.Path(placeholderObj.trunicated_filepath))
         elif pathlib.Path(
             prevData.get("directory") or "", prevData.get("filename") or ""
         ).is_file():
