@@ -40,6 +40,7 @@ from ofscraper.db.operations_.media import (
     get_unlocked_media_ids,
     batch_set_media_downloaded,
 )
+from ofscraper.filters.models.other import is_excluded_username
 from ofscraper.db.operations_.profile import (
     check_profile_table_exists,
     get_profile_info,
@@ -346,6 +347,11 @@ async def process_all_paid():
                     )
                 else:
                     username = f"{placeholder}_{model_id}"
+            if is_excluded_username(username):
+                log.warning(
+                    f"Skipping {username}_{model_id}: excluded by --excluded-username"
+                )
+                continue
             progress_updater.activity.update_overall(
                 total=None,
                 description=all_paid_str.format(username=username),

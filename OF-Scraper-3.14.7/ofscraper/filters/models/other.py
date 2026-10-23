@@ -22,3 +22,14 @@ def otherFilters(filterusername):
         trace_log_user(filterusername, "Excluded usernames")
 
     return filterusername
+
+
+def is_excluded_username(username):
+    """
+    True if --excluded-username names this model.
+
+    The option's callback already lowercases its values, so lowercasing the
+    model's name here makes the match case-insensitive.
+    """
+    excluded = settings.get_settings().excluded_username or []
+    return bool(username) and username.lower() in excluded
