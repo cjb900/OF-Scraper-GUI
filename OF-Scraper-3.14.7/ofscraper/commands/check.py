@@ -1,4 +1,5 @@
 import asyncio
+import ofscraper.utils.system.system as system
 import inspect
 import logging
 import re
@@ -786,7 +787,7 @@ def start_table(ROWS_):
     # GUI mode must not launch the Textual TUI — gui_checker emits data_replace instead.
     if getattr(settings.get_args(), "gui", False):
         return
-    loop = asyncio.new_event_loop()
+    loop = system.new_event_loop()
     asyncio.set_event_loop(loop)
     ROWS = ROWS_
     app.app(table_data=ROWS)
