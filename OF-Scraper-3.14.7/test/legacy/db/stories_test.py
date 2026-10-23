@@ -1,12 +1,12 @@
 import tempfile
 
-from ofscraper.const.test_constants import *
+from ofscraper.classes.of.posts import Post
+from ofscraper.utils.of_env.values.test.test_constants import *
 from ofscraper.db.operations import *
-from ofscraper.utils.paths.paths import cleanDB
+import pathlib
 
 
-def test_profile_create(mocker):
-    cleanDB()
+def test_stories_create(mocker):
     with tempfile.NamedTemporaryFile() as p:
         try:
             a = mocker
@@ -22,23 +22,19 @@ def test_profile_create(mocker):
             mocker.patch("ofscraper.db.operations.log", new_callabe=a)
             mocker.patch("ofscraper.db.operations.FileLock.acquire", return_value=True)
             mocker.patch("ofscraper.db.operations.FileLock.release", return_value=True)
-            create_profile_table(model_id="11111", username="test")
-        except Exception:
+            create_stories_table("11111", "test")
+        except:
             raise Exception
 
 
-# def test_profile_failure(mocker):
+# def test_stories_failure(mocker):
 #     with tempfile.NamedTemporaryFile() as p:
 #         with pytest.raises(Exception):
-#             a=mocker
-#             a.trace=None
-#             mocker.patch("ofscraper.classes.placeholder.Placeholders.databasePathHelper",return_value=pathlib.Path(p.name))
-#             mocker.patch("ofscraper.classes.placeholder.Placeholders.databasePathCopyHelper",return_value=pathlib.Path(p.name))
-#             mocker.patch("ofscraper.db.operations.log",new_callabe=a)
-#             create_profile_table("11111")
+#             mocker.patch("ofscraper.classes.placeholder.Placeholders.databasePathHelper",return_value=p.name)
+#             create_stories_table("11111")
 
 
-def test_profile_insert(mocker):
+def test_stories_insert(mocker):
     with tempfile.NamedTemporaryFile() as p:
         try:
             a = mocker
@@ -54,20 +50,16 @@ def test_profile_insert(mocker):
             mocker.patch("ofscraper.db.operations.log", new_callabe=a)
             mocker.patch("ofscraper.db.operations.FileLock.acquire", return_value=True)
             mocker.patch("ofscraper.db.operations.FileLock.release", return_value=True)
-            create_profile_table(model_id="11111", username="test")
-            write_profile_table(model_id="11111", username="test")
+            create_stories_table("11111", "test")
+            write_stories_table(Post(STORIES_EXAMPLE, "11111", "test"), "11111", "test")
         except Exception as E:
             print(E)
             raise Exception
 
 
-# def test_profile_insert_failure(mocker):
+# def test_stories_insert_failure(mocker):
 #     with tempfile.NamedTemporaryFile() as p:
 #         with pytest.raises(Exception):
-#             a=mocker
-#             a.trace=None
-#             mocker.patch("ofscraper.classes.placeholder.Placeholders.databasePathHelper",return_value=pathlib.Path(p.name))
-#             mocker.patch("ofscraper.classes.placeholder.Placeholders.databasePathCopyHelper",return_value=pathlib.Path(p.name))
-#             mocker.patch("ofscraper.db.operations.log",new_callabe=a)
-#             create_profile_table()
-#             write_profile_table("11112","test")
+#             mocker.patch("ofscraper.classes.placeholder.Placeholders.databasePathHelper",return_value=p.name)
+#             create_stories_table("11111","test")
+#             write_stories_table(Post(STORIES_EXAMPLE,"111","test2"))
