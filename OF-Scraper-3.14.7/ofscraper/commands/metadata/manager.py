@@ -60,6 +60,31 @@ class MetaDataManager:
                 )
                 or {}
             )
+            recorded = self._metadata_recorded_file(prevData)
+            if recorded:
+                # this media's file can be under another name than the
+                # template's when that name held a different file
+                await mark_media_as_downloaded(
+                    ele,
+                    filepath=recorded,
+                    model_id=model_id,
+                    username=username,
+                    downloaded=1,
+                    hashdata=(
+                        hash.get_hash(recorded)
+                        if settings.get_settings().hash
+                        else prevData.get("hash")
+                    ),
+                    size=recorded.stat().st_size,
+                )
+                return (
+                    ele.mediatype
+                    if prevData
+                    != await prev_download_media_data(
+                        ele, model_id=model_id, username=username
+                    )
+                    else "Forced_skipped"
+                )
             await mark_media_as_downloaded(
                 ele,
                 filename=self._metadata_file_helper(placeholderObj, prevData),
@@ -74,6 +99,13 @@ class MetaDataManager:
                 ele, model_id=model_id, username=username
             )
         return ele.mediatype if effected else "Forced_skipped"
+
+    def _metadata_recorded_file(self, prevData):
+        """In update mode, this media's previously recorded file, if it's still there."""
+        if settings.get_settings().metadata != "update" or not prevData.get("filename"):
+            return None
+        recorded = pathlib.Path(prevData.get("directory") or "", prevData["filename"])
+        return recorded if recorded.is_file() else None
 
     def _metadata_downloaded_helper(self, placeholderObj, prevData):
         if settings.get_settings().metadata == "check":
