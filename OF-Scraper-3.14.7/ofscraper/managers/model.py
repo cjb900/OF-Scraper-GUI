@@ -261,7 +261,7 @@ class ModelManager:
 
         Note: This is NOT used by 'add_models' (Check modes), which injects targets directly.
         """
-        usernames = settings.get_settings().usernames
+        usernames = settings.get_settings().usernames or []
         is_daemon = settings.get_settings().daemon
 
         # Guard Clause 1: Daemon mode with a specific list of users.
