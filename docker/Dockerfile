@@ -1,7 +1,7 @@
 FROM ubuntu:24.04
 
 # Build arg: which version of ofscraper + GUI patch to use.
-# Must match one of the OF-Scraper-X.X.X/patch_ofscraper_X.X.X_gui.py files.
+# Must match one of the patch_ofscraper_X.X.X_gui.py files in the repo root.
 ARG GUI_PATCH_VERSION=3.14.7
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -57,10 +57,9 @@ RUN pip install --no-cache-dir ofscraper==${GUI_PATCH_VERSION}
 
 # ── Copy all available GUI patches and apply the selected one ─────────────────
 WORKDIR /opt/ofscraper-gui
-COPY OF-Scraper-3.12.9/patch_ofscraper_3.12.9_gui.py ./
-COPY OF-Scraper-3.14.3/patch_ofscraper_3.14.3_gui.py ./
-COPY OF-Scraper-3.14.5/patch_ofscraper_3.14.5_gui.py ./
-COPY OF-Scraper-3.14.7/patch_ofscraper_3.14.7_gui.py ./
+# The patches live at the repo root; only 3.14.7 also has a copy in its
+# OF-Scraper-X.X.X folder.
+COPY patch_ofscraper_*_gui.py ./
 
 RUN python patch_ofscraper_${GUI_PATCH_VERSION}_gui.py -y --skip-pyqt6 \
     && python -c "from ofscraper.gui.patch_version import PATCH_ID; print(f'Applied GUI patch: {PATCH_ID}')"
