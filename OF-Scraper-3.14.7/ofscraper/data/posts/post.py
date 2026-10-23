@@ -294,6 +294,11 @@ async def process_profile(username) -> list:
         user_profile = profile.scrape_profile(username)
         if not user_profile:
             return [], profile.API
+        # a 404 returns only this placeholder: the account is gone, so there's
+        # no avatar or header to download
+        if user_profile.get("username") == of_env.getattr("DELETED_MODEL_PLACEHOLDER"):
+            log.info(f"Skipping profile for {username}: the account no longer exists")
+            return [], profile.API
 
         # standardized_dicts now contains the correctly nested 'media' keys,
         standardized_dicts, info = profile.parse_profile(user_profile)
