@@ -496,8 +496,13 @@ class Media(base.base):
         responsetype = self.post.responsetype.lower()
         if responsetype in ["timeline", "archived", "pinned", "posts", "streams"]:
             responsetype = "post"
-        else:
+        elif responsetype in ["messages", "message"]:
             responsetype = "message"
+        else:
+            # purchased items can be timeline posts or PPV messages; the raw
+            # responseType says which DRM endpoint OnlyFans expects
+            raw = str(self.post.post.get("responseType") or "").lower()
+            responsetype = "post" if raw == "post" else "message"
         return of_env.getattr("LICENCE_URL").format(self.id, responsetype, self.post_id)
 
     @property
