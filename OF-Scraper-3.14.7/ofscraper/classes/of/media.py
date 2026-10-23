@@ -8,10 +8,10 @@ from typing import Union
 from pathlib import Path
 
 import arrow
-from async_property import async_cached_property
 from bs4 import MarkupResemblesLocatorWarning
 from mpegdash.parser import MPEGDASHParser
 
+from ofscraper.utils.async_cached_property import async_cached_property
 import ofscraper.classes.of.base as base
 import ofscraper.managers.manager as manager
 import ofscraper.utils.args.accessors.quality as quality

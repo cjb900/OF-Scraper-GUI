@@ -61,7 +61,12 @@ def create_custom_ssl_context(
 
     # --- Apply Common Security Options ---
     if apply_common_opts:
-        options = (ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3 | ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1)
+        # Old protocol versions are excluded by minimum_version; the OP_NO_SSL*/
+        # OP_NO_TLS* flags are deprecated and changed nothing on the wire.
+        # Keep assigning (not |=): it clears Python's default options such as
+        # OP_ENABLE_MIDDLEBOX_COMPAT, so the ClientHello session ID stays empty.
+        # Changing that changes the TLS fingerprint.
+        options = ssl.Options(0)
         if hasattr(ssl, "OP_NO_COMPRESSION"):
             options |= ssl.OP_NO_COMPRESSION
         context.options = options

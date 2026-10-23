@@ -685,9 +685,13 @@ class sessionManager:
     def sleep(self, val):
         self._rate_limit_sleeper.sleep = val
 
-    def _httpx_funct(self, method, **kwargs):
+    def _httpx_funct(self, method, follow_redirects=httpx.USE_CLIENT_DEFAULT, **kwargs):
         self._session.cookies.clear()
-        t = self._session.request(method.upper(), **kwargs)
+        # Same as Client.request(), minus its deprecation warning for
+        # per-request cookies: build_request merges them with the client's
+        # cookies for this request only, without touching the client's jar
+        request = self._session.build_request(method.upper(), **kwargs)
+        t = self._session.send(request, follow_redirects=follow_redirects)
         t.ok = not t.is_error
         t.json_ = t.json
         t.text_ = lambda: t.text

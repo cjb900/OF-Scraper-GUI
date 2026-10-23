@@ -15,7 +15,7 @@ import ofscraper.utils.settings as settings
 def add_stdout_handler(log, clear=True, rich_array=None):
     if clear:
         log.handlers.clear()
-    format = " \[%(module)s.%(funcName)s:%(lineno)d]  %(message)s"
+    format = " \\[%(module)s.%(funcName)s:%(lineno)d]  %(message)s"
     log.setLevel(1)
     log_helpers.addtraceback()
     log_helpers.addtrace()
