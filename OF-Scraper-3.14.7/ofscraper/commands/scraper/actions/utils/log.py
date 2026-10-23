@@ -42,7 +42,8 @@ def get_url_log(ele):
     url = ele.url or ele.mpd
     url = re.sub(r"/\w{5}\w+", "/{hidden}", url)
     if ele.url:
-        url = re.sub(ele.filename, "{hidden}", url)
+        # plain replace: a filename such as "design (7)" isn't a valid pattern
+        url = url.replace(ele.filename, "{hidden}")
     return url
 
 
