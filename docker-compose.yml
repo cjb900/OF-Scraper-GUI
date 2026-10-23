@@ -71,6 +71,9 @@ services:
     # ports:  # Not used with network_mode: host — remove the above line to restore
     #   - "6699:6699"
     restart: unless-stopped
+    # docker stop asks OF-Scraper to cancel the current scrape and exit; give
+    # it time to finish in-flight work before Docker falls back to SIGKILL.
+    stop_grace_period: 30s
     ulimits:
       nofile:
         soft: 65536
