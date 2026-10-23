@@ -346,13 +346,14 @@ class MainDownloadManager(DownloadManager):
             f"{common_logs.get_medialog(ele)} renaming {pathlib.Path(temp).absolute()} -> {path_to_file}"
         )
 
-        # 3. Move the verified file to final path
-        await asyncio.get_event_loop().run_in_executor(
+        # 3. Move the verified file to final path; it can end up under another
+        # name if a different file already has this one
+        path_to_file = await asyncio.get_event_loop().run_in_executor(
             common_globals.thread,
             partial(common_paths.moveHelper, temp, path_to_file, ele),
         )
 
-        (common_paths.addGlobalDir(placeholderObj.filedir))
+        (common_paths.addGlobalDir(path_to_file.parent))
 
         # 4. Set File Dates
         if ele.postdate:
@@ -371,11 +372,11 @@ class MainDownloadManager(DownloadManager):
                 username=username,
                 downloaded=True,
                 hashdata=await common.get_hash(path_to_file),
-                size=placeholderObj.size,
+                size=path_to_file.stat().st_size,
             )
 
         await set_profile_cache(ele, common_globals.thread)
-        ele.add_filepath(placeholderObj.trunicated_filepath)
+        ele.add_filepath(path_to_file)
 
         # 6. Run Post-Download Scripts
         await self._after_download_script(path_to_file)

@@ -436,8 +436,9 @@ class AltDownloadManager(DownloadManager):
             f"Moving intermediate path {temp_path} to {alt_path_to_file}"
         )
 
-        # Thread executor for disk I/O move operation
-        await asyncio.get_event_loop().run_in_executor(
+        # Thread executor for disk I/O move operation; the file can end up
+        # under another name if a different file already has this one
+        final_path = await asyncio.get_event_loop().run_in_executor(
             common_globals.thread,
             partial(
                 common_paths.moveHelper,
@@ -447,7 +448,7 @@ class AltDownloadManager(DownloadManager):
             ),
         )
 
-        (common_paths.addGlobalDir(sharedPlaceholderObj.filedir))
+        (common_paths.addGlobalDir(final_path.parent))
 
         if ele.postdate:
             newDate = dates.convert_local_time(ele.postdate)
@@ -458,7 +459,7 @@ class AltDownloadManager(DownloadManager):
                 common_globals.thread,
                 partial(
                     common_paths.set_time,
-                    alt_path_to_file,
+                    final_path,
                     newDate,
                 ),
             )
@@ -466,21 +467,21 @@ class AltDownloadManager(DownloadManager):
         if ele.id:
             await mark_media_as_downloaded(
                 ele,
-                filepath=alt_path_to_file,
+                filepath=final_path,
                 model_id=model_id,
                 username=username,
                 downloaded=True,
-                hashdata=await common.get_hash(sharedPlaceholderObj),
-                size=sharedPlaceholderObj.size,
+                hashdata=await common.get_hash(final_path),
+                size=final_path.stat().st_size,
             )
-        ele.add_filepath(alt_path_to_file)
+        ele.add_filepath(final_path)
 
-        await self._after_download_script(alt_path_to_file)
+        await self._after_download_script(final_path)
 
         try:
             from ofscraper.plugins.manager import plugin_manager
 
-            _final = sharedPlaceholderObj.trunicated_filepath
+            _final = final_path
             _final_s = str(pathlib.Path(_final)) if _final is not None else _final
             _n = len(plugin_manager.plugins)
             _name = pathlib.Path(_final_s).name if _final_s else "?"
