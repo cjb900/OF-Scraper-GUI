@@ -260,8 +260,9 @@ def daemon_process():
         )
         worker_thread.start()
         while True:
+            # outside the try: a signal while idle here has no job to mark done
+            job_func = jobqueue.get()
             try:
-                job_func = jobqueue.get()
                 job_func()
             except Exception as E:
                 log.traceback_(E)
