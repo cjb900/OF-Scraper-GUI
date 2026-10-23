@@ -117,8 +117,8 @@ PRESS ENTER TO RETURN
 
 def model_funct(prompt):
     while True:
-        with stdout.nostdout():
-            choices = _get_choices()
+        # _get_choices shows the filter menu, so keep stdout visible
+        choices = _get_choices()
         if len(choices) == 0:
             console.print("Current filters returned zero models")
             continue
@@ -142,30 +142,30 @@ def model_funct(prompt):
 
 
 def model_select_funct(prompt):
-    with stdout.nostdout():
-        try:
-            toggle = promptConvert.getChecklistSelection(
-                choices=[
-                    Choice(True, "Range Select"),
-                    Choice(False, "Range Deselect"),
-                ]
-            )
+    toggle = promptConvert.getChecklistSelection(
+        choices=[
+            Choice(True, "Range Select"),
+            Choice(False, "Range Deselect"),
+        ]
+    )
 
-            # select new
-            choices = _select_helper(prompt, toggle)
-            prompt.content_control._raw_choices = choices
-            prompt.content_control.choices = prompt.content_control._get_choices(
-                prompt.content_control._raw_choices, prompt.content_control._default
-            )
-            prompt.content_control._format_choices()
-            return prompt
-        except Exception as E:
-            raise E
+    # select new
+    choices = _select_helper(prompt, toggle)
+    prompt.content_control._raw_choices = choices
+    prompt.content_control.choices = prompt.content_control._get_choices(
+        prompt.content_control._raw_choices, prompt.content_control._default
+    )
+    prompt.content_control._format_choices()
+    return prompt
 
 
 def _select_helper(prompt, toggle=True):
     try:
-        choices = _get_choices()
+        # number against the list that is on screen; _get_choices() would
+        # send the user through the filter/sort menu again first
+        choices = list(prompt.content_control._raw_choices)
+        for model in choices:
+            model.enabled = False
         selectedSet = set(
             map(
                 lambda x: re.search("^[0-9]+: ([^ ]+)", x["name"]).group(1),
