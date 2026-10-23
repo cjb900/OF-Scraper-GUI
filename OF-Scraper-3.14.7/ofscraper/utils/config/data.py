@@ -816,6 +816,16 @@ def get_TempDir(config=None):
 
 
 @wrapper.config_reader
+def get_filename_collision(config=None):
+    if config is False:
+        return of_env.getattr("FILENAME_COLLISION_DEFAULT")
+    val = config.get("filename_collision") or config.get("file_options", {}).get(
+        "filename_collision"
+    )
+    return val if val is not None else of_env.getattr("FILENAME_COLLISION_DEFAULT")
+
+
+@wrapper.config_reader
 def get_truncation(config=None):
     if config is False:
         return of_env.getattr("TRUNCATION_DEFAULT")
