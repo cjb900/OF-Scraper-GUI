@@ -7,6 +7,7 @@ import ssl
 import certifi
 import contextlib
 import traceback
+import weakref
 from typing import Optional, Dict, Union, AsyncGenerator, Any, Generator
 
 import arrow
@@ -73,7 +74,10 @@ class SessionSleep:
         self._last_request_time = arrow.get(
             0
         )  # <-- NEW: Tracks when the API was last hit
-        self._alock = asyncio.Lock()
+        # One asyncio.Lock per event loop: ofscraper runs async code in several
+        # loops, and a single asyncio.Lock binds to the first loop that waits on it
+        self._alocks = weakref.WeakKeyDictionary()
+        self._alocks_guard = threading.Lock()
         self._lock = threading.Lock()
         self._init_sleep = (
             sleep if sleep is not None else of_env.getattr("SESSION_SLEEP_INIT")
@@ -117,6 +121,16 @@ class SessionSleep:
             logging.getLogger("shared").debug(
                 f"[{self.error_name}] Sleep decay => Reducing sleep to [{self._sleep:.2f} seconds]"
             )
+
+    @property
+    def _alock(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        # Not self._lock: do_sleep holds that through time.sleep
+        with self._alocks_guard:
+            lock = self._alocks.get(loop)
+            if lock is None:
+                lock = self._alocks[loop] = asyncio.Lock()
+        return lock
 
     async def async_do_sleep(self):
         async with self._alock:
