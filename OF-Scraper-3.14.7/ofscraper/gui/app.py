@@ -448,6 +448,14 @@ def launch_gui(manager=None):
     window = MainWindow(manager=manager)
     window.show()
 
+    # docker stop / SIGTERM: cancel the scrape and quit instead of dying mid-write.
+    try:
+        from ofscraper.gui.utils.shutdown import install_sigterm_handler
+
+        install_sigterm_handler(app, window.workflow)
+    except Exception as e:
+        log.warning(f"Could not install SIGTERM handler: {e}")
+
     # Set up a persistent system tray icon for notifications.
     # Must be created on the main thread and kept alive for the app lifetime.
     try:
