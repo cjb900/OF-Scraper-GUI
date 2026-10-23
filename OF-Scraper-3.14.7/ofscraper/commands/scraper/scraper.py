@@ -240,6 +240,7 @@ def main():
 
 
 def daemon_process():
+    exit.sigterm_as_keyboard_interrupt()
     checkers.check_auth()
     worker_thread = None
     scrapingManager = scraperManager()
@@ -251,8 +252,11 @@ def daemon_process():
     manager.Manager.current_model_manager.sync_models()
     actions.select_areas()
     try:
+        # The scheduler only queues jobs; the main thread runs them. As a
+        # non-daemon thread it sat in jobqueue.join() forever and kept the
+        # process alive after Ctrl+C/SIGTERM.
         worker_thread = threading.Thread(
-            target=set_schedule, args=[scrapingManager.runner], daemon=False
+            target=set_schedule, args=[scrapingManager.runner], daemon=True
         )
         worker_thread.start()
         while True:

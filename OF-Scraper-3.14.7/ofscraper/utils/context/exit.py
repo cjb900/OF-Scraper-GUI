@@ -5,6 +5,7 @@
 
 import os
 import signal
+import threading
 
 __all__ = [
     "SIGNAL_TRANSLATION_MAP",
@@ -77,6 +78,22 @@ class DelayedKeyboardInterrupt:
         print(
             f"!!! DelayedKeyboardInterrupt._handler: {SIGNAL_TRANSLATION_MAP[sig]} received; delaying KeyboardInterrupt"
         )
+
+
+def _raise_keyboard_interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
+def sigterm_as_keyboard_interrupt():
+    """
+    Make SIGTERM take the same shutdown path as Ctrl+C.
+
+    Python installs no SIGTERM handler, and the kernel ignores default-handled
+    signals sent to PID 1, so in a container (where ofscraper is PID 1 via the
+    entrypoint's exec) `docker stop` was ignored until SIGKILL.
+    """
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
 
 
 def exit_wrapper(func):
