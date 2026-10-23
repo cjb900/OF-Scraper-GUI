@@ -391,7 +391,10 @@ class ModelManager:
 
     def _apply_filters(self) -> List["Model"]:
         """Runs the loaded models through the gauntlet of configured filters."""
-        models = self.all_subs
+        # --scrape-paid adds placeholders for deleted accounts; only the paid
+        # pass can use them, so keep them out of the normal scrape
+        placeholder = of_env.getattr("DELETED_MODEL_PLACEHOLDER")
+        models = [m for m in self.all_subs if not str(m.name).startswith(placeholder)]
         models = subtype.subType(models)
         models = price.pricePaidFreeFilterHelper(models)
         models = flags.promoFilterHelper(models)
