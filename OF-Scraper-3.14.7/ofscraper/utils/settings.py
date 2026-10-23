@@ -154,7 +154,7 @@ def merged_settings():
         if hasattr(config_data, "get_drm_duration_match_threshold")
         else 0.98
     )
-    merged.ffmpeg = config_data.get_ffmpeg()
+    merged.ffmpeg = config_data.get_ffmpeg() or of_env.getattr("FFMPEG_DEFAULT")
     # GUI: name text (.txt) files from post caption instead of File Format / post id
     merged.text_filename_from_post = bool(
         getattr(args, "text_filename_from_post", False)
