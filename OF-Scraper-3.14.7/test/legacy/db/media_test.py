@@ -1,9 +1,10 @@
 import tempfile
 import traceback
 
-from ofscraper.classes.posts import Post
-from ofscraper.const.test_constants import *
+from ofscraper.classes.of.posts import Post
+from ofscraper.utils.of_env.values.test.test_constants import *
 from ofscraper.db.operations import *
+import pathlib
 
 
 def test_media_create(mocker):
