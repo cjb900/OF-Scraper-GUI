@@ -3,10 +3,12 @@ import tempfile
 from pytest_check import check
 
 import ofscraper.utils.paths.paths as paths_
-from ofscraper.config.config import *
-from ofscraper.config.data import *
-from ofscraper.const.test_constants import *
-from ofscraper.utils.profiles2.profiles import *
+from ofscraper.utils.config.config import *
+from ofscraper.utils.config.data import *
+from ofscraper.utils.of_env.values.test.test_constants import *
+from ofscraper.utils.profiles.data import *
+import pathlib
+import ofscraper.utils.args.accessors.read as args_
 
 
 def test_configarg_path_single_file(mocker):

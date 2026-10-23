@@ -58,6 +58,7 @@ test = [
   "random-unicode-emoji~=2.8",
   "random-emoji~=1.0.15",
   "pytest-mock~=3.12.0",
+  "pytest-check~=2.3",
 ]
 gui = [
   "PyQt6>=6.5",
@@ -91,9 +92,10 @@ versionscript = "plugins.py"
 
 [tool.pytest.ini_options]
 minversion = "6.0"
-addopts = "-ra -q"
-# Live suite lives in ``test/`` (not ``tests/``). Prefer ``test/unit`` for CI —
-# many older integration modules still use stale imports.
+# test/legacy holds old upstream tests for code that has since been removed
+# or rewritten; see test/legacy/README.md.
+addopts = "-ra -q --ignore=test/legacy"
+# Live suite lives in ``test/`` (not ``tests/``).
 testpaths = ["test"]
 pythonpath = ["."]
 markers = [

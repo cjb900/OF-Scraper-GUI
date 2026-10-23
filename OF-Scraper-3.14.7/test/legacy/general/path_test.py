@@ -15,9 +15,10 @@ import ofscraper.classes.placeholder as placeholder
 import ofscraper.download.downloadbatch as downloadbatch
 import ofscraper.utils.logs.logger as logger
 import ofscraper.utils.paths.paths as paths
-from ofscraper.classes.posts import Post
-from ofscraper.const.test_constants import *
+from ofscraper.classes.of.posts import Post
+from ofscraper.utils.of_env.values.test.test_constants import *
 from ofscraper.utils.dates import convert_local_time
+import ofscraper.utils.of_env.of_env as of_env
 
 
 # Word split
@@ -285,15 +286,15 @@ def test_mac_truncate_255(mocker):
 
 def test_user_data_dc_db_str(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
-        "file_format": FILE_FORMAT_DEFAULT,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
+        "file_format": of_env.getattr("FILE_FORMAT_DEFAULT"),
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
         "metadata": METADATA_DC,
-        "filter": FILTER_DEFAULT,
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
     logger.init_stdout_logger()
 
@@ -304,7 +305,7 @@ def test_user_data_dc_db_str(mocker):
 
     assert (
         str(placeholder.databasePlaceholder().databasePathHelper("1111", "test"))
-    ) == str(pathlib.Path(SAVE_PATH_DEFAULT, "test", "metadata", "user_data.db"))
+    ) == str(pathlib.Path(of_env.getattr("SAVE_PATH_DEFAULT"), "test", "metadata", "user_data.db"))
 
 
 def test_context_provider(mocker):
@@ -322,15 +323,15 @@ def test_context_provider2(mocker):
 
 def test_createfilename(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
-        "file_format": FILE_FORMAT_DEFAULT,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
-        "metadata": METADATA_DEFAULT,
-        "filter": FILTER_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
+        "file_format": of_env.getattr("FILE_FORMAT_DEFAULT"),
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
+        "metadata": of_env.getattr("METADATA_DEFAULT"),
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
     mocker.patch(
         "ofscraper.utils.download.config_.read_config", return_value=migrationConfig
@@ -349,15 +350,15 @@ def test_createfilename(mocker):
 
 def test_createfilename_allkeys(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
         "file_format": FILEFORMAT_VALID_ALL,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
-        "metadata": METADATA_DEFAULT,
-        "filter": FILTER_DEFAULT,
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
+        "metadata": of_env.getattr("METADATA_DEFAULT"),
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
 
     mocker.patch(
@@ -379,15 +380,15 @@ def test_createfilename_allkeys(mocker):
 
 def test_createfilename_invalid(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
         "file_format": FILEFORMAT_ALLVALIDWTHINVALID,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
-        "metadata": METADATA_DEFAULT,
-        "filter": FILTER_DEFAULT,
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
+        "metadata": of_env.getattr("METADATA_DEFAULT"),
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
 
     mocker.patch(
@@ -406,15 +407,15 @@ def test_createfilename_invalid(mocker):
 
 def test_create_txt(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
         "file_format": FILEFORMAT_TEXT,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
-        "metadata": METADATA_DEFAULT,
-        "filter": FILTER_DEFAULT,
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
+        "metadata": of_env.getattr("METADATA_DEFAULT"),
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
     mocker.patch(
         "ofscraper.utils.download.config_.read_config", return_value=migrationConfig
@@ -434,15 +435,15 @@ def test_create_txt(mocker):
 # Test postid counter
 def test_create_postid_counter(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
         "file_format": FILEFORMAT_POSTID,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
-        "metadata": METADATA_DEFAULT,
-        "filter": FILTER_DEFAULT,
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
+        "metadata": of_env.getattr("METADATA_DEFAULT"),
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
     mocker.patch(
         "ofscraper.utils.download.config_.read_config", return_value=migrationConfig
@@ -458,15 +459,15 @@ def test_create_postid_counter(mocker):
 
 def test_create_postid_name(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
         "file_format": FILEFORMAT_POSTID,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
-        "metadata": METADATA_DEFAULT,
-        "filter": FILTER_DEFAULT,
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
+        "metadata": of_env.getattr("METADATA_DEFAULT"),
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
     mocker.patch(
         "ofscraper.utils.download.config_.read_config", return_value=migrationConfig
@@ -485,15 +486,15 @@ def test_create_postid_name(mocker):
 
 def test_create_postid_name2(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
         "file_format": FILEFORMAT_POSTID,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
-        "metadata": METADATA_DEFAULT,
-        "filter": FILTER_DEFAULT,
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
+        "metadata": of_env.getattr("METADATA_DEFAULT"),
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
     mocker.patch(
         "ofscraper.utils.download.config_.read_config", return_value=migrationConfig
@@ -504,7 +505,7 @@ def test_create_postid_name2(mocker):
     username = "test"
     model_id = TEST_ID
     t = Post(TIMELINE_EXAMPLE, model_id, username)
-    mocker.patch("ofscraper.classes.posts.Post.post_media", new=[t.post_media[0]])
+    mocker.patch("ofscraper.classes.of.posts.Post.post_media", new=[t.post_media[0]])
     assert (
         placeholder.Placeholders().createfilename(t.media[0], username, model_id, "mkv")
     ) == f"{t.media[0].id}.mkv"
@@ -513,15 +514,15 @@ def test_create_postid_name2(mocker):
 # Test text counter
 def test_create_text_counter(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
         "file_format": FILEFORMAT_TEXT,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
-        "metadata": METADATA_DEFAULT,
-        "filter": FILTER_DEFAULT,
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
+        "metadata": of_env.getattr("METADATA_DEFAULT"),
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
     mocker.patch(
         "ofscraper.utils.download.config_.read_config", return_value=migrationConfig
@@ -536,15 +537,15 @@ def test_create_text_counter(mocker):
 
 def test_create_text_name(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
         "file_format": FILEFORMAT_TEXT,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
-        "metadata": METADATA_DEFAULT,
-        "filter": FILTER_DEFAULT,
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
+        "metadata": of_env.getattr("METADATA_DEFAULT"),
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
     mocker.patch(
         "ofscraper.utils.download.config_.read_config", return_value=migrationConfig
@@ -563,15 +564,15 @@ def test_create_text_name(mocker):
 
 def test_create_text_name2(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
-        "save_location": SAVE_PATH_DEFAULT,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
+        "save_location": of_env.getattr("SAVE_PATH_DEFAULT"),
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
         "file_format": FILEFORMAT_TEXT,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
-        "metadata": METADATA_DEFAULT,
-        "filter": FILTER_DEFAULT,
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
+        "metadata": of_env.getattr("METADATA_DEFAULT"),
+        "filter": of_env.getattr("FILTER_DEFAULT"),
     }
     mocker.patch(
         "ofscraper.utils.download.config_.read_config", return_value=migrationConfig
@@ -582,7 +583,7 @@ def test_create_text_name2(mocker):
     username = "test"
     model_id = TEST_ID
     t = Post(TIMELINE_EXAMPLE, model_id, username)
-    mocker.patch("ofscraper.classes.posts.Post.post_media", new=[t.post_media[0]])
+    mocker.patch("ofscraper.classes.of.posts.Post.post_media", new=[t.post_media[0]])
     assert (
         placeholder.Placeholders().createfilename(t.media[0], username, model_id, "mkv")
     ) == f"{t.media[0].text}.mkv"
@@ -615,15 +616,15 @@ def test_test(mocker):
 
 def test_metadatesavelocation(mocker):
     migrationConfig = {
-        "main_profile": PROFILE_DEFAULT,
+        "main_profile": of_env.getattr("PROFILE_DEFAULT"),
         "save_location": SAVE_LOCATION_DC,
-        "file_size_limit": FILE_SIZE_LIMIT_DEFAULT,
-        "dir_format": DIR_FORMAT_DEFAULT,
+        "file_size_max": of_env.getattr("FILE_SIZE_MAX_DEFAULT"),
+        "dir_format": of_env.getattr("DIR_FORMAT_DEFAULT"),
         "file_format": FILEFORMAT_POSTID,
-        "textlength": TEXTLENGTH_DEFAULT,
-        "date": DATE_DEFAULT,
+        "textlength": of_env.getattr("TEXTLENGTH_DEFAULT"),
+        "date": of_env.getattr("DATE_DEFAULT"),
         "metadata": METADATA_DC,
-        "filter": FILTER_DEFAULT,
+        "filter": of_env.getattr("FILTER_DEFAULT"),
         "mp4decrypt": MP4DECRYPT_DEFAULT,
     }
     logger.init_stdout_logger()
