@@ -12,6 +12,22 @@ CRASH_DIR="${CONFIG_HOME}/gui_crash_logs"
 DEVICE_DIR="${CONFIG_HOME}/device"
 LOG_FILE="${LOG_DIR}/gui-docker.log"
 
+# ── Stop cleanly on docker stop ──────────────────────────────────────────────
+# This script is PID 1, and PID 1 ignores SIGTERM unless it installs a handler,
+# so without this trap `docker stop` waits out the grace period and SIGKILLs
+# the GUI mid-download. Pass the signal on to the GUI, wait for it to finish,
+# and don't restart it.
+STOPPING=0
+GUI_PID=""
+stop_container() {
+    STOPPING=1
+    echo "[entrypoint] $(date -Is) stop requested — asking OF-Scraper to exit" | tee -a "${LOG_FILE}"
+    if [ -n "${GUI_PID}" ]; then
+        kill -TERM "${GUI_PID}" 2>/dev/null || true
+    fi
+}
+trap stop_container TERM INT
+
 # ── Persist dirs on the mounted config volume ────────────────────────────────
 mkdir -p "${LOG_DIR}" "${CRASH_DIR}" "${DEVICE_DIR}"
 
@@ -68,14 +84,31 @@ while true; do
     DISPLAY=${DISPLAY} nice -n -10 python -m ofscraper ${CMD_ARGS} >>"${LOG_FILE}" 2>&1 &
     GUI_PID=$!
 
-    # Wait for the window to appear then maximize it to fill the virtual desktop
-    sleep 4
-    DISPLAY=${DISPLAY} xdotool search --sync --onlyvisible --name "OF-Scraper" \
-        windowactivate --sync %@ windowmaximize %@ || true
+    # Wait for the window to appear then maximize it to fill the virtual desktop.
+    # In the background: --sync would block forever if the GUI exits first.
+    (
+        sleep 4
+        DISPLAY=${DISPLAY} xdotool search --sync --onlyvisible --name "OF-Scraper" \
+            windowactivate --sync %@ windowmaximize %@ || true
+    ) &
 
-    wait "${GUI_PID}" || true
-    EXIT_CODE=$?
+    # A trapped signal interrupts `wait`; keep waiting while the GUI shuts down.
+    EXIT_CODE=0
+    wait "${GUI_PID}" || EXIT_CODE=$?
+    while kill -0 "${GUI_PID}" 2>/dev/null; do
+        EXIT_CODE=0
+        wait "${GUI_PID}" || EXIT_CODE=$?
+    done
+
+    if [ "${STOPPING}" = 1 ]; then
+        echo "[entrypoint] $(date -Is) ofscraper exited (code ${EXIT_CODE}) — stopping" | tee -a "${LOG_FILE}"
+        exit 0
+    fi
     echo "[entrypoint] $(date -Is) ofscraper exited (code ${EXIT_CODE}) — restarting in ${GUI_RESTART_DELAY}s..." \
         | tee -a "${LOG_FILE}"
-    sleep "${GUI_RESTART_DELAY}"
+    sleep "${GUI_RESTART_DELAY}" &
+    wait $! || true
+    if [ "${STOPPING}" = 1 ]; then
+        exit 0
+    fi
 done
