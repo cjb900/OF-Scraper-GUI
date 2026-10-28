@@ -18,6 +18,16 @@ WINDOWS_FS_PATH_FIELDS = (
 )
 
 
+def strip_path_quotes(val):
+    # Windows "Copy as path" wraps paths in double quotes, which then end up
+    # literally inside the json string
+    if isinstance(val, str):
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+            val = val[1:-1].strip()
+    return val
+
+
 def normalize_windows_path(value: Optional[Any]) -> Any:
     """On Windows, show/store drive & UNC paths with backslashes.
 

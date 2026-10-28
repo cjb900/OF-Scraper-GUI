@@ -18,6 +18,7 @@ import ofscraper.utils.of_env.of_env as of_env
 import ofscraper.utils.config.file as config_file
 import ofscraper.utils.config.utils.wrapper as wrapper
 import ofscraper.utils.const as const
+from ofscraper.utils.config.path_norm import strip_path_quotes  # noqa: F401
 
 
 @wrapper.config_reader
@@ -449,6 +450,9 @@ def get_ffmpeg(config=None):
     if config is False:
         return of_env.getattr("FFMPEG_DEFAULT")
     val = config.get("ffmpeg") or config.get("binary_options", {}).get("ffmpeg")
+    val = strip_path_quotes(val)
+    # "" is kept as-is so a config rewrite doesn't save OFSC_FFMPEG_DEFAULT
+    # into the file; settings applies that fallback at runtime
     return val if val is not None else of_env.getattr("FFMPEG_DEFAULT")
 
 
@@ -603,14 +607,18 @@ def get_spacereplacer(config=None):
 def get_private_key(config=None):
     if not config:
         return None
-    return config.get("private-key") or config.get("cdm_options", {}).get("private-key")
+    return strip_path_quotes(
+        config.get("private-key") or config.get("cdm_options", {}).get("private-key")
+    )
 
 
 @wrapper.config_reader
 def get_client_id(config=None):
     if not config:
         return None
-    return config.get("client-id") or config.get("cdm_options", {}).get("client-id")
+    return strip_path_quotes(
+        config.get("client-id") or config.get("cdm_options", {}).get("client-id")
+    )
 
 
 @wrapper.config_reader
@@ -812,7 +820,17 @@ def get_TempDir(config=None):
     if config is False:
         return of_env.getattr("TEMP_FOLDER_DEFAULT")
     val = config.get("temp_dir") or config.get("advanced_options", {}).get("temp_dir")
-    return val if val is not None else of_env.getattr("TEMP_FOLDER_DEFAULT")
+    return strip_path_quotes(val) if val is not None else of_env.getattr("TEMP_FOLDER_DEFAULT")
+
+
+@wrapper.config_reader
+def get_filename_collision(config=None):
+    if config is False:
+        return of_env.getattr("FILENAME_COLLISION_DEFAULT")
+    val = config.get("filename_collision") or config.get("file_options", {}).get(
+        "filename_collision"
+    )
+    return val if val is not None else of_env.getattr("FILENAME_COLLISION_DEFAULT")
 
 
 @wrapper.config_reader

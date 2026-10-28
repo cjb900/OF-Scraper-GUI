@@ -133,6 +133,12 @@ class TablePage(QWidget):
         except Exception:
             pass
 
+    def _on_stop_cancel_requested(self):
+        """A process stop (SIGTERM) is cancelling the scrape: same UI state as
+        the Cancel button, so the run is recorded as cancelled, not ok."""
+        if not self._cancelling:
+            self._enter_cancelling_ui()
+
     def _navigate_to_action_page(self):
         main_window = self.window()
         scraper_stack = getattr(main_window, "scraper_stack", None)
@@ -659,6 +665,7 @@ class TablePage(QWidget):
         )
         app_signals.scraping_finished.connect(self._on_scraping_finished)
         app_signals.scrape_started.connect(self._on_scrape_started)
+        app_signals.stop_cancel_requested.connect(self._on_stop_cancel_requested)
         app_signals.daemon_next_run.connect(self._on_daemon_countdown)
         app_signals.daemon_last_run.connect(self._on_daemon_last_run)
         app_signals.daemon_run_starting.connect(self._on_daemon_run_starting)
@@ -926,6 +933,27 @@ class TablePage(QWidget):
             [item[0] for item in cart_items]
         )
 
+    def start_paid_all_run(self):
+        """All purchased content: clear the table and start from the workflow
+        (its confirms run there). Area-page options are not read."""
+        workflow = getattr(self.window(), "workflow", None)
+        if workflow is None or self._scrape_active or self._cancelling:
+            return
+        self._live_rows_loaded = False
+        self._check_mode_active = False
+        self._update_cart_toolbar_visibility()
+        for clear in (
+            lambda: self.data_table.clear_all(),
+            lambda: self.console_widget.clear_log(),
+            lambda: self.progress_summary.clear_all(),
+        ):
+            try:
+                clear()
+            except Exception:
+                pass
+        self._update_row_count()
+        workflow.start_paid_all()
+
     def _on_start_scraping(self):
         """Read areas from the area page and start scraping."""
         if self._cancelling:
@@ -934,6 +962,12 @@ class TablePage(QWidget):
             )
             return
         if self._scrape_active:
+            return
+
+        # The all-purchased action doesn't use the Areas page settings.
+        _wf = getattr(self.window(), "workflow", None)
+        if _wf is not None and getattr(_wf, "_selected_actions", None) == {"paid_all"}:
+            self.start_paid_all_run()
             return
 
         # Warn before starting when remote DRM key helpers may send cookies.
@@ -1289,6 +1323,11 @@ class TablePage(QWidget):
                             _m_bytes = int(_mst.get("bytes", 0) or 0)
                             _m_dl = _m_videos + _m_photos + _m_audios
                             _msz = _fmt_bytes(_m_bytes) if _m_bytes else ""
+                        elif _per_model:
+                            # per-model stats exist but none for this one: nothing ran
+                            _m_videos = _m_photos = _m_audios = 0
+                            _m_forced = _m_failed = _m_dl = 0
+                            _msz = ""
                         else:
                             # Legacy fallback: same global counters for every model
                             _m_videos = _run_videos

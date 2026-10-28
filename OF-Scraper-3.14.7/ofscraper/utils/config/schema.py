@@ -33,6 +33,7 @@ def get_current_config_schema(config: dict = None) -> dict:
             "image_extension": data.get_image_extension(config=config),
             "video_extension": data.get_video_extension(config=config),
             "audio_extension": data.get_audio_extension(config=config),
+            "filename_collision": data.get_filename_collision(config=config),
         },
         "download_options": {
             "filter": data.get_filter(config=config),

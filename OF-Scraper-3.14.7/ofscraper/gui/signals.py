@@ -22,6 +22,8 @@ class AppSignals(QObject):
     advanced_scrape_configured = pyqtSignal(object)  # dict of advanced options
     discord_configured = pyqtSignal(str)   # discord level: "OFF", "LOW", or "NORMAL"
     msg_check_include_free_toggled = pyqtSignal(str)  # "paid_only" | "free_only" | "all"
+    metadata_options_changed = pyqtSignal(dict)  # {"mode", "mark_stray", "hash"} for the metadata action
+    paid_all_options_changed = pyqtSignal(dict)  # {"excluded", "mediatypes"} for the all-purchased action
 
     # Data loading
     data_loading_started = pyqtSignal()
@@ -53,6 +55,7 @@ class AppSignals(QObject):
     scraping_finished = pyqtSignal()  # emitted when scraper thread completes
     scrape_started = pyqtSignal()  # emitted when scraper background thread starts
     cancel_scrape_requested = pyqtSignal()  # UI requests current scrape cancel
+    stop_cancel_requested = pyqtSignal()  # SIGTERM/docker stop is cancelling the scrape before exit
     # Host-callback phase for unified status strip:
     # ready | running | cancelling | daemon | complete
     scrape_phase_changed = pyqtSignal(str)

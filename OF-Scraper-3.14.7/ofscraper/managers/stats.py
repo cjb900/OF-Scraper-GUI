@@ -94,7 +94,7 @@ class TextStats:
             if self.failed_count > 0
             else f"{self.failed_count} failed"
         )
-        return f"\[{text_str}, {skipped_str}, {failed_str}]"
+        return f"\\[{text_str}, {skipped_str}, {failed_str}]"
 
     @property
     def has_changes(self):
@@ -122,11 +122,8 @@ class DownloadStats:
         return self.total_count > 0 or self.skipped_count > 0 or self.failed_count > 0
 
     def __str__(self):
-        # Format size
-        if self.total_bytes > 1024 * 1024 * 1024:
-            size_str = f"{self.total_bytes / (1024**3):.2f} GB"
-        else:
-            size_str = f"{self.total_bytes / (1024**2):.2f} MB"
+        # same units as the global totals (print_global_summary)
+        size_str = format_size(self.total_bytes)
 
         # Apply formatting conditionally
         size_str = f"[bold]{size_str}[/bold]" if self.total_bytes > 0 else size_str
@@ -162,7 +159,7 @@ class DownloadStats:
         )
         return (
             f"({size_str}) ({downloads_str} "
-            f"\[{videos_str}, {audios_str}, {photos_str}], "
+            f"\\[{videos_str}, {audios_str}, {photos_str}], "
             f"{skipped_str}, {failed_str})"
         )
 

@@ -92,7 +92,7 @@ def snapshot_from_workflow(workflow) -> dict[str, Any]:
     check_modes = getattr(workflow, "_CHECK_MODES", set()) or set()
     advanced = getattr(workflow, "_advanced", None) or {}
     manual = list(getattr(workflow, "_manual_urls", None) or [])
-    return {
+    snap = {
         "id": uuid.uuid4().hex[:12],
         "ts_start": _now_iso(),
         "actions": actions,
@@ -108,6 +108,11 @@ def snapshot_from_workflow(workflow) -> dict[str, Any]:
         "keep_msg_purchased_dupes": bool(advanced.get("keep_message_purchased_dupes")),
         "rescrape_all": bool(advanced.get("rescrape_all")),
     }
+    if "metadata" in actions:
+        snap["metadata"] = dict(getattr(workflow, "_metadata_options", None) or {})
+    if "paid_all" in actions:
+        snap["paid_all"] = dict(getattr(workflow, "_paid_all_options", None) or {})
+    return snap
 
 
 def delete_entry(entry_id: str) -> bool:
@@ -374,6 +379,20 @@ def apply_entry_to_pages(entry: dict, *, main_window) -> tuple[bool, str]:
         workflow._selected_areas = []
         return True, f"Restored {len(urls)} manual URL(s)."
 
+    # All purchased content: no models or areas, just its own options
+    if actions == {"paid_all"}:
+        workflow._selected_actions = {"paid_all"}
+        workflow._manual_urls = []
+        try:
+            workflow._on_paid_all_options(entry.get("paid_all") or {})
+        except Exception as e:
+            log.debug(f"[GUI] History re-run all-purchased options: {e}")
+        excluded = (entry.get("paid_all") or {}).get("excluded") or []
+        return True, (
+            "Restored all purchased content"
+            + (f" (excluding {', '.join(excluded)})." if excluded else ".")
+        )
+
     models_wanted = list(entry.get("models") or [])
     if not models_wanted:
         return False, "This history entry has no models to re-run."
@@ -394,6 +413,12 @@ def apply_entry_to_pages(entry: dict, *, main_window) -> tuple[bool, str]:
 
     workflow._selected_actions = actions
     workflow._manual_urls = []
+    if "metadata" in actions and isinstance(entry.get("metadata"), dict):
+        try:
+            # Complete mode still asks for confirmation when the run starts.
+            workflow._on_metadata_options(entry["metadata"])
+        except Exception as e:
+            log.debug(f"[GUI] History re-run metadata options: {e}")
     try:
         area_page._current_actions = set(actions)
         if hasattr(area_page, "_update_available_areas"):

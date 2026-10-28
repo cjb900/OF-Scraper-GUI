@@ -71,7 +71,7 @@ def _windows_truncateHelper(path):
     path = pathlib.Path(path)
     dir = path.parent
     file = path.name
-    match = re.search("_[0-9]+\.[a-z4]*$", path.name, re.IGNORECASE) or re.search(
+    match = re.search(r"_[0-9]+\.[a-z4]*$", path.name, re.IGNORECASE) or re.search(
         r"\.[a-z4]*$", path.name, re.IGNORECASE
     )
     if match:
@@ -107,7 +107,7 @@ def _mac_truncateHelper(path):
         return path
     dir = path.parent
     match = re.search(r"_[0-9]+\.[a-z4]*$", path.name, re.IGNORECASE) or re.search(
-        "\.[a-z4]*$", path.name, re.IGNORECASE
+        r"\.[a-z4]*$", path.name, re.IGNORECASE
     )
     ext = match.group(0) if match else ""
     file = re.sub(ext, "", path.name)

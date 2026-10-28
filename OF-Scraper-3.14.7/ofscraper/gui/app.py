@@ -1,21 +1,41 @@
 import os
 import random
 
-# Pre-allocate debugging port and set environment variables before importing PyQt6.
+# Chromium flags for the embedded login browser, set before importing PyQt6.
 # This is critical because importing PyQt6 modules or submodules can trigger
 # early initialization of the WebEngine library, ignoring later environment changes.
-if "QTWEBENGINE_CHROMIUM_FLAGS" not in os.environ:
-    port = random.randint(9200, 9299)
-    os.environ["OFSCRAPER_WEBENGINE_DEBUG_PORT"] = str(port)
-    os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = str(port)
-    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = (
+#
+# Remote debugging (the login dialog's DevTools button) lets any program on this
+# computer control that browser, so it is off unless OFSCRAPER_GUI_WEBENGINE_DEBUG=1.
+WEBENGINE_DEBUG_ENV = "OFSCRAPER_GUI_WEBENGINE_DEBUG"
+_BASE_WEBENGINE_FLAGS = (
+    "--disable-blink-features=AutomationControlled "
+    "--disable-features=StorageAccessAPI"
+)
+
+
+def webengine_debug_enabled() -> bool:
+    return os.environ.get(WEBENGINE_DEBUG_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def webengine_flags() -> str:
+    """Chromium flags for this run; with debugging on, also picks the port."""
+    if not webengine_debug_enabled():
+        os.environ.pop("OFSCRAPER_WEBENGINE_DEBUG_PORT", None)
+        return _BASE_WEBENGINE_FLAGS
+    port = os.environ.get("OFSCRAPER_WEBENGINE_DEBUG_PORT") or str(random.randint(9200, 9299))
+    os.environ["OFSCRAPER_WEBENGINE_DEBUG_PORT"] = port
+    os.environ["QTWEBENGINE_REMOTE_DEBUGGING"] = port
+    return (
         f"--remote-debugging-port={port} "
-        "--remote-allow-origins=* "
-        "--disable-blink-features=AutomationControlled "
-        "--disable-web-security "
-        "--allow-running-insecure-content "
-        "--disable-features=StorageAccessAPI"
+        f"--remote-allow-origins=http://localhost:{port},http://127.0.0.1:{port} "
+        + _BASE_WEBENGINE_FLAGS
     )
+
+
+_WEBENGINE_FLAGS = webengine_flags()
+if "QTWEBENGINE_CHROMIUM_FLAGS" not in os.environ:
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = _WEBENGINE_FLAGS
 
 import logging
 import subprocess
@@ -286,6 +306,18 @@ def _is_docker() -> bool:
     return False
 
 
+def enable_rhi_widgets(platform: str = sys.platform, docker: bool = False) -> None:
+    """On Windows and Linux, draw every window with the GPU (RHI) from the start.
+
+    The login browser (QWebEngineView) needs RHI drawing. Without this, Qt
+    switches the windows over when the browser first opens, and the whole GUI
+    flashes. Docker has no GPU and no in-app login, so it is left alone.
+    Set QT_WIDGETS_RHI=0 to turn it off.
+    """
+    if not docker and (platform == "win32" or platform.startswith("linux")):
+        os.environ.setdefault("QT_WIDGETS_RHI", "1")
+
+
 def launch_gui(manager=None):
     """Launch the PyQt6 GUI application."""
     # Tell Windows to use our own AppUserModelID so the taskbar shows our
@@ -317,6 +349,9 @@ def launch_gui(manager=None):
             )
         log.info("[GUI] Docker environment detected — software rendering enabled")
 
+    # Must be set before QApplication exists.
+    enable_rhi_widgets(docker=_is_docker())
+
     # QtWebEngineWidgets requires AA_ShareOpenGLContexts to be set before
     # QApplication is created.  Set it unconditionally; it's a no-op when
     # WebEngine is absent.
@@ -330,18 +365,9 @@ def launch_gui(manager=None):
     # This acts as a robust backup to environment variables.
     # Note: Qt WebEngine expects all Chromium flags to be passed as a single
     # space-separated string argument following the '--webEngineArgs' parameter.
-    port_str = os.environ.get("OFSCRAPER_WEBENGINE_DEBUG_PORT", "9208")
-    flags_str = (
-        f"--remote-debugging-port={port_str} "
-        "--remote-allow-origins=* "
-        "--disable-blink-features=AutomationControlled "
-        "--disable-web-security "
-        "--allow-running-insecure-content "
-        "--disable-features=StorageAccessAPI"
-    )
     sys.argv.extend([
         "--webEngineArgs",
-        flags_str
+        _WEBENGINE_FLAGS
     ])
 
     app = QApplication(sys.argv)
@@ -447,6 +473,14 @@ def launch_gui(manager=None):
 
     window = MainWindow(manager=manager)
     window.show()
+
+    # docker stop / SIGTERM: cancel the scrape and quit instead of dying mid-write.
+    try:
+        from ofscraper.gui.utils.shutdown import install_sigterm_handler
+
+        install_sigterm_handler(app, window.workflow)
+    except Exception as e:
+        log.warning(f"Could not install SIGTERM handler: {e}")
 
     # Set up a persistent system tray icon for notifications.
     # Must be created on the main thread and kept alive for the app lifetime.

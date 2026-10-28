@@ -12,6 +12,8 @@ import string
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
+from ofscraper.utils.config.path_norm import strip_path_quotes
+
 log = logging.getLogger("shared")
 
 # Placeholders that make filenames unique across media in a post (see placeholder._needs_count).
@@ -201,9 +203,9 @@ def validate_config(config: Optional[Mapping[str, Any]] = None) -> ValidationRes
     file_opts = cfg.get("file_options") if isinstance(cfg.get("file_options"), Mapping) else {}
     file_opts = file_opts or {}
 
-    save_location = str(
-        _nested_get(cfg, "file_options", "save_location", "") or ""
-    ).strip()
+    save_location = strip_path_quotes(
+        str(_nested_get(cfg, "file_options", "save_location", "") or "")
+    )
     dir_format = str(_nested_get(cfg, "file_options", "dir_format", "") or "").strip()
     file_format = str(_nested_get(cfg, "file_options", "file_format", "") or "").strip()
     metadata = str(cfg.get("metadata") or "").strip()
@@ -316,7 +318,7 @@ def validate_config(config: Optional[Mapping[str, Any]] = None) -> ValidationRes
 
     # FFmpeg path if set
     binary = cfg.get("binary_options") if isinstance(cfg.get("binary_options"), Mapping) else {}
-    ffmpeg = str((binary or {}).get("ffmpeg") or "").strip()
+    ffmpeg = strip_path_quotes(str((binary or {}).get("ffmpeg") or ""))
     if ffmpeg:
         ff = pathlib.Path(ffmpeg).expanduser()
         if not ff.is_file():

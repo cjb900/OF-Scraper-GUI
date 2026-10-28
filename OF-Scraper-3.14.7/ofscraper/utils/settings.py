@@ -141,7 +141,11 @@ def merged_settings():
     # --- File & Download Settings ---
     merged.text_type = args.text_type or config_data.get_textType()
     merged.space_replacer = args.space_replacer or config_data.get_spacereplacer()
-    merged.text_length = args.text_length or config_data.get_textlength()
+    merged.text_length = (
+        args.textlength
+        if args.textlength is not None
+        else config_data.get_textlength()
+    )
     merged.size_max = args.size_max or config_data.get_filesize_max()
     merged.size_min = args.size_min or config_data.get_filesize_min()
     merged.download_sems = args.download_sem or config_data.get_download_semaphores()
@@ -154,7 +158,7 @@ def merged_settings():
         if hasattr(config_data, "get_drm_duration_match_threshold")
         else 0.98
     )
-    merged.ffmpeg = config_data.get_ffmpeg()
+    merged.ffmpeg = config_data.get_ffmpeg() or of_env.getattr("FFMPEG_DEFAULT")
     # GUI: name text (.txt) files from post caption instead of File Format / post id
     merged.text_filename_from_post = bool(
         getattr(args, "text_filename_from_post", False)

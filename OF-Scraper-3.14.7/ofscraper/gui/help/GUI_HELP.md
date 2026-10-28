@@ -19,6 +19,8 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 - [Scraper workflow](#scraper-workflow)
   - [Select Action](#action-select)
     - [User Lists](#action-user-lists)
+    - [Update metadata](#action-metadata)
+    - [Download all purchased content](#action-paid-all)
 - [Select Content Areas & Filters](#sca-root)
   - [Content Areas](#sca-content-areas)
   - [Media Types to Download](#sca-media-types)
@@ -89,6 +91,7 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 - [Troubleshooting notes](#troubleshooting)
   - [GUI crash / hang diagnostics](#troubleshooting-crash)
   - [Docker notes](#troubleshooting-docker)
+  - [Recovering files lost to old filename collisions](#troubleshooting-collisions)
 - [Authentication](#auth-root)
   - [Credentials (manual entry)](#auth-credentials)
   - [Import Cookies](#auth-import-cookies)
@@ -309,6 +312,8 @@ Controls are in **About** and on this Help toolbar: **A−**, size dropdown, **A
 - **Download content from a user**: Scrape content and build the table.
 - **Like / Unlike**: Perform like/unlike actions (limited to supported areas).
 - **Download + Like / Unlike**: Do both.
+- **Update metadata from files on disk (no downloads)**: Bring the database up to date — see [Update metadata](#action-metadata).
+- **Download all purchased content (all creators)**: Everything you've bought, from every creator, with an exclude list — see [Download all purchased content](#action-paid-all).
 
 <a id="action-user-lists"></a>
 #### User Lists (sub-option under Download)
@@ -322,6 +327,38 @@ When **Download content from a user** is selected, a **User Lists** field appear
 - Reserved internal names (`main`, `ofscraper.main`) are automatically ignored even if entered.
 
 After models load, a **Reload Models** button appears in the navigation bar — use it to re-fetch models without going all the way back to the Select Action page.
+
+<a id="action-metadata"></a>
+#### Update metadata (no downloads)
+
+Updates the database for the chosen models and areas **without downloading anything**. Use it after moving or restoring your download folder, or when files you already have show as not downloaded. Equivalent to the CLI `ofscraper metadata` command.
+
+Options shown under the action:
+
+- **Mode**
+  - **Update** (recommended, `-md update`): files already on disk are marked as downloaded (with their current filenames), then post info is refreshed from the API.
+  - **Check** (`-md check`): only refreshes post info from the API. Download status and filenames are not changed.
+  - **Complete** (`-md complete`): marks **everything** in the chosen areas as downloaded, even media that is not on disk, so later downloads skip it. You are asked to confirm before it runs.
+- **Mark unmatched media as locked** (`--mark-stray-locked`): media in the database that the API no longer returns for the chosen areas is marked as locked.
+- **Check file hashes this run**: reads every matching file and stores its hash. Starts with your **Remove Hash Match** setting (Configuration → Advanced) and only applies to this run; the config is not changed. Slower on large folders.
+
+Then pick **Metadata Areas** and models as usual. Post text, Discord, advanced and daemon options are hidden because they don't apply. **Scrape entire paid page** works here too (`metadata --scrape-paid`). Date range and media type filters apply.
+
+The run happens once (no daemon). When it finishes, the table reloads from the database so the Downloaded column shows the new status. **Cancel** stops before the next model.
+
+<a id="action-paid-all"></a>
+#### Download all purchased content (all creators)
+
+Downloads everything you have bought (PPV messages and paid posts) from **every** creator — including expired subscriptions and deleted accounts that can't be picked on the Models page. Equivalent to the CLI `--scrape-paid`.
+
+- **Exclude creators**: usernames to skip, comma-separated (case doesn't matter). Equivalent to `--excluded-username`. **Pick…** lists the creators OF-Scraper knows: your loaded subscriptions, plus every creator seen in earlier all-purchased runs. Deleted accounts appear under the name OF-Scraper gave them (their old username if it was recorded, otherwise `modeldeleted_<id>`).
+- **Media types**: Images / Videos / Audios.
+
+The Areas and Models pages are skipped and the run starts as soon as you click **Next** (after the usual confirmations). Settings from the Areas page — rescrape, delete DB / files, daemon, date range — are **not** used. The exclude list and media types are remembered for next time.
+
+Creators on your subscription list are named without extra API calls; others are looked up once per run, which can take a while if you've bought from many expired creators. The log lists who was skipped.
+
+The older **Scrape entire paid page** checkbox on the Areas page is different: it only covers the models you select.
 
 ---
 
@@ -374,10 +411,12 @@ Example:
 
 <a id="sca-scrape-paid"></a>
 #### Scrape entire paid page (slower but more comprehensive)
-Attempts to enumerate paid items more thoroughly. This can be slower.
+Attempts to enumerate paid items more thoroughly, **for the models you select**. This can be slower.
 
 When to use:
 - If you suspect paid/PPV items aren’t being discovered.
+
+To download purchases from **every** creator (including expired and deleted accounts), with an exclude list, use the **[Download all purchased content](#action-paid-all)** action instead.
 
 <a id="sca-scrape-labels"></a>
 #### Scrape labels
@@ -637,7 +676,8 @@ Controls where downloaded content is saved and how folders/files are named.
 - **File Format (`file_options.file_format`)**: Filename template.
   - Example: `{filename}.{ext}`
   - Must include a **uniqueness token**: `{filename}`, `{media_id}`, or `{original_filename}` (avoids collisions when a post has multiple media).
-- **Text Length (`file_options.textlength`)**: How much “Text” to keep in filenames / caption-based `.txt` names. Keep under ~250 when naming text files from post text (OS filename limit is typically 255).
+- **Text Length (`file_options.textlength`)**: How much “Text” to keep in filenames / caption-based `.txt` names. Keep under ~250 when naming text files from post text (OS filename limit is typically 255). `0` means no limit: the whole post text is kept.
+- **Filename collision (`file_options.filename_collision`, config.json only)**: What happens when a download's final path already holds a *different* file. `overwrite` (default) keeps the old behaviour: the larger file wins and the other is replaced. `media_id` keeps both: the new file is saved as `name_<media_id>.ext`. With `media_id`, re-downloading the *same* media with different bytes (e.g. `--force-all` after an FFmpeg change) also gets a `_<media_id>` copy. Templates with a unique token (`{filename}`, `{media_id}`, `{original_filename}`) rarely collide either way.
 - **Space Replacer (`file_options.space_replacer`)**: Replace spaces in filenames.
 - **Date Format (`file_options.date`)**: Date formatting string used in some templates.
   - This uses the **Arrow** date formatting syntax (`arrow.get(...).format(...)`), which is Moment-style tokens (case-sensitive).
@@ -742,7 +782,7 @@ Download resilience (automatic):
 
 #### FFmpeg (important)
 - **FFmpeg Path (`binary_options.ffmpeg`)**: Needed to merge some DRM-protected audio/video streams after decryption, and for ffprobe duration checks.
-  - Recommended: **FFmpeg 7.1.1 or lower** from `https://www.gyan.dev/ffmpeg/builds`
+  - Recommended: **FFmpeg 6 or newer** (7.1.1 is a known-good choice) from `https://www.gyan.dev/ffmpeg/builds`
 
 <a id="config-scripts"></a>
 ### Scripts
@@ -1305,6 +1345,7 @@ If the window disappears or freezes (especially during model load while changing
 1. Check **`~/.config/ofscraper/gui_crash_logs/`** (Windows: `%USERPROFILE%\.config\ofscraper\gui_crash_logs\`):
    - `model_fetch_breadcrumbs.log` — last stage markers before a hang/crash (look for `scrape=1` / `activity_scrape` during a scrape)
    - `faulthandler.log` — native / fatal dumps when available (access violations often involve Rich/console logging from worker threads)
+     - It only gets an entry when the GUI crashes. For a GUI that freezes without crashing, set the environment variable `OFSCRAPER_GUI_HANG_DUMP_SECONDS` (for example `300`) to also write every thread's stack at that interval. It's off by default because, on Windows, these dumps can crash the GUI themselves.
 2. Turn on **Verbose Log** (sidebar) for a fuller session transcript next time.
 3. When reporting a crash, include the last ~30 lines of the breadcrumb file and your GUI patch id (sidebar version → About).
 
@@ -1317,6 +1358,32 @@ In **Docker**, the same folder is on the mounted config volume. The entrypoint a
 - DRM **Key Creation** is not supported in the container — generate keys on a desktop host and mount them (`device/` under config, or your host `.config/ofscraper` path).
 - Prefer local **manual** CDM keys; do not bind-mount a host `ffmpeg` binary (use the image’s FFmpeg).
 - Unattended `GUI_ARGS` auto-start skips scrape-confirm / disk / remote-key dialogs so the container can start without clicks.
+- `docker compose stop` asks the GUI to cancel the current scrape and quit cleanly (`stop_grace_period: 30s`).
+- **CLI instead of GUI:** set `MODE=cli` and `CLI_ARGS` (e.g. `--daemon 120 --username ALL --posts all --action download`) to run plain `ofscraper` without the GUI or VNC. `docker kill --signal=USR1 <container>` starts the next daemon run immediately. See the README's Docker section.
+
+<a id="troubleshooting-collisions"></a>
+### Recovering files lost to old filename collisions
+
+Older versions (and a File Format with no unique token, e.g. `{date}-{time}_{count}`) could give two **different** media the same file name. Only one file was kept, but **both** were recorded as downloaded, so the lost one was never retried.
+
+`recover_collisions` finds those media in a model's database and marks them **not downloaded**, so the next normal scrape fetches them again. It never touches your files. It can only bring back media the site **still offers**: old profile pictures/headers, deleted posts and expired content cannot be re-downloaded and simply stay marked not downloaded.
+
+1. **Close OF-Scraper** (GUI and CLI).
+2. Find the model's database: `<config>/<profile>/.data/<model_id>/user_data.db`
+   (e.g. `~/.config/ofscraper/main_profile/.data/123456/user_data.db`; Windows: `%USERPROFILE%\.config\ofscraper\...`). There is one per model.
+3. **Preview** (read-only, changes nothing):
+   `python -m ofscraper.commands.recover_collisions "<path to user_data.db>"`
+   Use the same Python that OF-Scraper is installed with (uv tool on Linux: `~/.local/share/uv/tools/ofscraper/bin/python`). The output lists each group of media that share one file, and `media_to_mark`.
+4. **Apply** (marks those media for re-download; saves an undo file next to the database first):
+   `python -m ofscraper.commands.recover_collisions "<path to user_data.db>" --apply`
+5. Run a normal scrape of that model. Your File Format must now give these media **different** names (a unique token such as `{filename}`, or `filename_collision: media_id`), otherwise they collide again.
+
+**Undo**: `python -m ofscraper.commands.recover_collisions "<db>" --undo "<db>.collision-undo-<id>.json"` previews; add `--apply` to restore the flags.
+
+**Check the preview first**, because some groups are not real losses:
+- The same picture posted twice under new media ids shares a name with **identical content**. Nothing was lost; recovery just re-downloads it.
+- If you de-duplicated your library with **hard links**, different media really do share one file; leave those alone.
+- Relative recorded paths need `--path-root <the folder OF-Scraper ran from>`.
 
 ---
 
@@ -1454,6 +1521,8 @@ pip install PyQt6-WebEngine
 2. Select the OnlyFans page (not “Service Worker”)
 3. Network tab → any `/api2/` request → Request Headers → copy `x-bc`
 4. Paste into the manual **x-bc** field at the bottom of the login window
+
+**DevTools ↗ is off by default.** It needs Chromium remote debugging, and while that is on, any program on your computer can control the login window. To use it, set the environment variable `OFSCRAPER_GUI_WEBENGINE_DEBUG=1`, then restart the GUI (for example `OFSCRAPER_GUI_WEBENGINE_DEBUG=1 ofscraper --gui` on Linux/macOS, or `set OFSCRAPER_GUI_WEBENGINE_DEBUG=1` first in a Windows Command Prompt). Turn it off again when you're done. You can also copy `x-bc` from your normal browser's DevTools instead.
 
 **Linux note:** On KDE Plasma and some compositors the embedded view may look transparent while loading — cosmetic only.
 

@@ -1,5 +1,5 @@
-from ofscraper.actions.like import *
-from ofscraper.const.test_constants import *
+from ofscraper.commands.scraper.actions.like.like import *
+from ofscraper.utils.of_env.values.test.test_constants import *
 
 
 def test_unlike_filter():

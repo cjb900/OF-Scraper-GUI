@@ -150,6 +150,7 @@ def set_host(host: Optional[ScrapeHostCallbacks]) -> None:
 
 def ensure_gui_host() -> GuiHostCallbacks:
     """Install GuiHostCallbacks if nothing is set; return the GUI host."""
+    global _current_host
     with _lock:
         if isinstance(_current_host, GuiHostCallbacks):
             return _current_host

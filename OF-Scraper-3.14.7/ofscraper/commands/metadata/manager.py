@@ -18,6 +18,7 @@ from functools import partial
 
 import ofscraper.classes.placeholder as placeholder
 import ofscraper.utils.cache.cache as cache
+import ofscraper.utils.config.data as config_data
 import ofscraper.utils.hash as hash
 import ofscraper.utils.settings as settings
 from ofscraper.db.operations_.media import (
@@ -60,6 +61,31 @@ class MetaDataManager:
                 )
                 or {}
             )
+            recorded = self._metadata_recorded_file(prevData)
+            if recorded:
+                # this media's file can be under another name than the
+                # template's when that name held a different file
+                await mark_media_as_downloaded(
+                    ele,
+                    filepath=recorded,
+                    model_id=model_id,
+                    username=username,
+                    downloaded=1,
+                    hashdata=(
+                        hash.get_hash(recorded)
+                        if settings.get_settings().hash
+                        else prevData.get("hash")
+                    ),
+                    size=recorded.stat().st_size,
+                )
+                return (
+                    ele.mediatype
+                    if prevData
+                    != await prev_download_media_data(
+                        ele, model_id=model_id, username=username
+                    )
+                    else "Forced_skipped"
+                )
             await mark_media_as_downloaded(
                 ele,
                 filename=self._metadata_file_helper(placeholderObj, prevData),
@@ -74,6 +100,17 @@ class MetaDataManager:
                 ele, model_id=model_id, username=username
             )
         return ele.mediatype if effected else "Forced_skipped"
+
+    def _metadata_recorded_file(self, prevData):
+        """In update mode, this media's previously recorded file, if it's still there."""
+        if settings.get_settings().metadata != "update" or not prevData.get("filename"):
+            return None
+        # only "media_id" saves files under a name other than the template's;
+        # with "overwrite", update mode behaves as it always has
+        if str(config_data.get_filename_collision()).lower() != "media_id":
+            return None
+        recorded = pathlib.Path(prevData.get("directory") or "", prevData["filename"])
+        return recorded if recorded.is_file() else None
 
     def _metadata_downloaded_helper(self, placeholderObj, prevData):
         if settings.get_settings().metadata == "check":
@@ -127,10 +164,7 @@ class MetaDataManager:
         if not settings.get_settings().hash:
             return prevData.get("hash")
         elif pathlib.Path(placeholderObj.trunicated_filepath).is_file():
-            return hash.get_hash(
-                pathlib.Path(placeholderObj.trunicated_filepath),
-                mediatype=ele.mediatype,
-            )
+            return hash.get_hash(pathlib.Path(placeholderObj.trunicated_filepath))
         elif pathlib.Path(
             prevData.get("directory") or "", prevData.get("filename") or ""
         ).is_file():

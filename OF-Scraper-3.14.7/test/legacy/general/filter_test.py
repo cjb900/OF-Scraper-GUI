@@ -1,10 +1,10 @@
 import arrow
 from pytest_check import check
 
-import ofscraper.filters.media.main as filters
-import ofscraper.utils.args2.args as args_
-from ofscraper.classes.posts import Post
-from ofscraper.const.test_constants import *
+import ofscraper.filters.media.filters as filters
+import ofscraper.utils.args.accessors.read as args_
+from ofscraper.classes.of.posts import Post
+from ofscraper.utils.of_env.values.test.test_constants import *
 
 
 def test_after(mocker):

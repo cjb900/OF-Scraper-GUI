@@ -1,13 +1,16 @@
 import logging
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
+    QPushButton,
     QRadioButton,
     QScrollArea,
     QSizePolicy,
@@ -30,6 +33,8 @@ ACTION_CHOICES = [
     ("Download + Like", {"like", "download"}),
     ("Download + Unlike", {"unlike", "download"}),
     ("Scrape individual posts by URL or Post ID", {"manual_url"}),
+    ("Update metadata from files on disk (no downloads)", {"metadata"}),
+    ("Download all purchased content (all creators)", {"paid_all"}),
 ]
 
 _ACTION_TIPS = {
@@ -43,7 +48,32 @@ _ACTION_TIPS = {
         "Model and area selection are skipped — enter URLs directly on the next page.\n"
         "Equivalent to the TUI 'manual --url' command."
     ),
+    "Update metadata from files on disk (no downloads)": (
+        "Bring the database up to date without downloading anything.\n"
+        "Files already on disk are marked as downloaded, and post info is\n"
+        "refreshed from the API. Equivalent to the CLI 'metadata' command."
+    ),
 }
+
+_ACTION_TIPS["Download all purchased content (all creators)"] = (
+    "Download everything you have bought, from every creator — including\n"
+    "expired and deleted accounts that can't be picked on the Models page.\n"
+    "Areas and Models are skipped. Equivalent to the CLI '--scrape-paid',\n"
+    "with '--excluded-username' for the Exclude box."
+)
+
+PAID_ALL_MEDIATYPES = ["Images", "Videos", "Audios"]
+
+# Metadata modes (CLI: ofscraper metadata -md MODE)
+METADATA_MODES = [
+    ("update", "Update (recommended)",
+     "Mark files already on disk as downloaded, then refresh post info from the API."),
+    ("check", "Check",
+     "Only refresh post info from the API. Download status and filenames are not changed."),
+    ("complete", "Complete",
+     "Mark EVERYTHING in the chosen areas as downloaded, even media that is not on disk,\n"
+     "and refresh post info from the API. You will be asked to confirm before it runs."),
+]
 
 CHECK_CHOICES = [
     ("Check posts: build table of timeline/pinned/archived media", {"post_check"}),
@@ -120,6 +150,10 @@ class ActionPage(QWidget):
 
         # Build userlist sub-widget — inserted after the Download radio
         self._userlist_widget = self._build_userlist_widget()
+        # Metadata options sub-widget — inserted after the Metadata radio
+        self._metadata_widget = self._build_metadata_widget()
+        # All-purchased options sub-widget — inserted after its radio
+        self._paid_all_widget = self._build_paid_all_widget()
 
         for i, (label, actions) in enumerate(ACTION_CHOICES):
             radio = QRadioButton(label)
@@ -131,6 +165,10 @@ class ActionPage(QWidget):
             layout.addWidget(radio)
             if i == 0:  # "Download content from a user"
                 layout.addWidget(self._userlist_widget)
+            if "metadata" in actions:
+                layout.addWidget(self._metadata_widget)
+            if "paid_all" in actions:
+                layout.addWidget(self._paid_all_widget)
 
         # Separator between action modes and check modes
         sep = QFrame()
@@ -273,6 +311,281 @@ class ActionPage(QWidget):
         except Exception as e:
             log.warning(f"[GUI] Could not apply userlist to args: {e}")
 
+    def _build_metadata_widget(self):
+        """Build the metadata options sub-widget (hidden until Metadata is selected)."""
+        container = QWidget()
+        container.setVisible(False)
+
+        inner = QVBoxLayout(container)
+        inner.setContentsMargins(28, 0, 0, 4)
+        inner.setSpacing(2)
+
+        label = QLabel("Metadata mode:")
+        apply_font(label, "Segoe UI", 10)
+        label.setProperty("muted", True)
+        inner.addWidget(label)
+
+        self._metadata_mode_group = QButtonGroup(container)
+        self._metadata_mode_group.setExclusive(True)
+        self._metadata_mode_radios = {}
+        for idx, (value, text, tip) in enumerate(METADATA_MODES):
+            rb = QRadioButton(text)
+            apply_font(rb, "Segoe UI", 11)
+            rb.setToolTip(tip)
+            rb.setProperty("metadata_mode", value)
+            self._metadata_mode_group.addButton(rb, idx)
+            inner.addWidget(rb)
+            self._metadata_mode_radios[value] = rb
+        self._metadata_mode_radios["update"].setChecked(True)
+
+        self._metadata_mark_stray_check = QCheckBox("Mark unmatched media as locked")
+        apply_font(self._metadata_mark_stray_check, "Segoe UI", 11)
+        self._metadata_mark_stray_check.setToolTip(
+            "Media in the database that the API no longer returns for the chosen\n"
+            "areas is marked as locked (CLI: --mark-stray-locked)."
+        )
+        inner.addWidget(self._metadata_mark_stray_check)
+
+        self._metadata_hash_check = QCheckBox("Check file hashes this run (slower)")
+        apply_font(self._metadata_hash_check, "Segoe UI", 11)
+        self._metadata_hash_check.setToolTip(
+            "Reads every matching file on disk and stores its hash.\n"
+            "Starts with your Config setting (Remove Hash Match) and only\n"
+            "applies to this run; the config is not changed."
+        )
+        self._metadata_hash_check.setChecked(self._config_hash_default())
+        inner.addWidget(self._metadata_hash_check)
+
+        return container
+
+    def _build_paid_all_widget(self):
+        """Build the exclude list + media types sub-widget for the all-purchased action."""
+        container = QWidget()
+        container.setVisible(False)
+
+        inner = QVBoxLayout(container)
+        inner.setContentsMargins(28, 0, 0, 4)
+        inner.setSpacing(4)
+
+        hint = QLabel(
+            "Skips the Areas and Models pages. Creators you list here are left out,\n"
+            "including deleted accounts (use the name shown in your downloads)."
+        )
+        apply_font(hint, "Segoe UI", 10)
+        hint.setProperty("muted", True)
+        hint.setWordWrap(True)
+        inner.addWidget(hint)
+
+        row = QHBoxLayout()
+        lbl = QLabel("Exclude creators:")
+        apply_font(lbl, "Segoe UI", 11)
+        row.addWidget(lbl)
+        self._paid_all_exclude_input = QLineEdit()
+        self._paid_all_exclude_input.setPlaceholderText("e.g.  name1, name2  (comma-separated usernames)")
+        self._paid_all_exclude_input.setToolTip(
+            "Usernames to skip, separated by commas. Case doesn't matter.\n"
+            "Equivalent to the CLI '--excluded-username'."
+        )
+        row.addWidget(self._paid_all_exclude_input)
+        self._paid_all_pick_btn = QPushButton("Pick…")
+        self._paid_all_pick_btn.setToolTip(
+            "Choose from the creators OF-Scraper knows about: your loaded\n"
+            "subscriptions and creators seen in earlier all-purchased runs."
+        )
+        self._paid_all_pick_btn.clicked.connect(self._on_paid_all_pick)
+        row.addWidget(self._paid_all_pick_btn)
+        inner.addLayout(row)
+
+        types_row = QHBoxLayout()
+        types_lbl = QLabel("Media types:")
+        apply_font(types_lbl, "Segoe UI", 11)
+        types_row.addWidget(types_lbl)
+        self._paid_all_type_checks = {}
+        for mt in PAID_ALL_MEDIATYPES:
+            cb = QCheckBox(mt)
+            apply_font(cb, "Segoe UI", 11)
+            cb.setChecked(True)
+            types_row.addWidget(cb)
+            self._paid_all_type_checks[mt] = cb
+        types_row.addStretch()
+        inner.addLayout(types_row)
+
+        self._load_paid_all_settings()
+        return container
+
+    def _load_paid_all_settings(self):
+        try:
+            from ofscraper.gui.utils.gui_settings import load_gui_settings
+
+            gs = load_gui_settings()
+        except Exception:
+            return
+        excluded = gs.get("paid_all_excluded") or []
+        if isinstance(excluded, list):
+            self._paid_all_exclude_input.setText(", ".join(str(x) for x in excluded))
+        types = gs.get("paid_all_media_types")
+        if isinstance(types, dict):
+            for mt, cb in self._paid_all_type_checks.items():
+                cb.setChecked(bool(types.get(mt, True)))
+
+    def _save_paid_all_settings(self, options):
+        try:
+            from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
+
+            gs = load_gui_settings()
+            gs["paid_all_excluded"] = list(options["excluded"])
+            gs["paid_all_media_types"] = {
+                mt: mt in options["mediatypes"] for mt in PAID_ALL_MEDIATYPES
+            }
+            save_gui_settings(gs, quiet=True)
+        except Exception as e:
+            log.debug(f"[GUI] Could not save all-purchased settings: {e}")
+
+    def get_paid_all_options(self):
+        """Return {"excluded": [lowercase names], "mediatypes": [...]}."""
+        text = self._paid_all_exclude_input.text()
+        excluded = []
+        for name in text.split(","):
+            name = name.strip().lstrip("@").lower()
+            if name and name not in excluded:
+                excluded.append(name)
+        types = [mt for mt, cb in self._paid_all_type_checks.items() if cb.isChecked()]
+        return {"excluded": excluded, "mediatypes": types or list(PAID_ALL_MEDIATYPES)}
+
+    @staticmethod
+    def known_creator_names():
+        """Creators to offer in Pick…: loaded subscriptions + earlier all-purchased runs."""
+        names = set()
+        try:
+            import ofscraper.managers.manager as _manager
+
+            mm = _manager.Manager.current_model_manager
+            names.update(m.name for m in (mm.all_subs or []) if getattr(m, "name", None))
+        except Exception:
+            pass
+        try:
+            from ofscraper.gui.utils.gui_settings import load_gui_settings
+
+            names.update(str(n) for n in (load_gui_settings().get("paid_all_known_creators") or []))
+        except Exception:
+            pass
+        return sorted(names, key=str.lower)
+
+    def _on_paid_all_pick(self):
+        from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QListWidget, QListWidgetItem
+
+        current = set(self.get_paid_all_options()["excluded"])
+        names = self.known_creator_names()
+        # keep names typed by hand in the list too
+        names += sorted((n for n in current if n not in {x.lower() for x in names}), key=str.lower)
+        if not names:
+            if self._load_subscriptions_for_pick():
+                return
+            QMessageBox.information(
+                self,
+                "No creators known yet",
+                "OF-Scraper doesn't know any creator names yet.\n\n"
+                "Type the usernames instead. After the first all-purchased\n"
+                "run, every creator from it is listed here too.",
+            )
+            return
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Exclude creators")
+        lay = QVBoxLayout(dlg)
+        search = QLineEdit()
+        search.setPlaceholderText("Search…")
+        lay.addWidget(search)
+        lst = QListWidget()
+        for n in names:
+            item = QListWidgetItem(n)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked if n.lower() in current else Qt.CheckState.Unchecked
+            )
+            lst.addItem(item)
+        lay.addWidget(lst)
+        search.textChanged.connect(
+            lambda t: [
+                lst.item(i).setHidden(t.lower() not in lst.item(i).text().lower())
+                for i in range(lst.count())
+            ]
+        )
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        lay.addWidget(buttons)
+        dlg.resize(360, 460)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        chosen = [
+            lst.item(i).text()
+            for i in range(lst.count())
+            if lst.item(i).checkState() == Qt.CheckState.Checked
+        ]
+        self._paid_all_exclude_input.setText(", ".join(chosen))
+
+    def _load_subscriptions_for_pick(self):
+        """No names yet: offer to load the subscription list (the same
+        background load the Areas page does), then reopen Pick….
+        Returns False if it can't, so the caller explains instead."""
+        area_page = getattr(self.window(), "area_page", None)
+        if area_page is None or not hasattr(area_page, "_start_model_load"):
+            return False
+        if getattr(area_page, "_models_loaded", False):
+            return False  # loaded, but no subscriptions
+        answer = QMessageBox.question(
+            self,
+            "Load your subscriptions?",
+            "OF-Scraper doesn't know any creator names yet.\n\n"
+            "Load your subscription list now? It takes a few seconds,\n"
+            "and then this list opens again.",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return True
+        if not getattr(area_page, "_models_loading", False):
+            area_page._start_model_load()
+        self._paid_all_pick_btn.setEnabled(False)
+        self._paid_all_pick_btn.setText("Loading…")
+        timer = QTimer(self)
+        timer.setInterval(250)
+
+        def _check():
+            if getattr(area_page, "_models_loading", False):
+                return
+            timer.stop()
+            timer.deleteLater()
+            self._paid_all_pick_btn.setText("Pick…")
+            self._paid_all_pick_btn.setEnabled(True)
+            if getattr(area_page, "_models_loaded", False):
+                self._on_paid_all_pick()
+            # on failure the Areas page already showed why
+
+        timer.timeout.connect(_check)
+        timer.start()
+        return True
+
+    @staticmethod
+    def _config_hash_default():
+        try:
+            import ofscraper.utils.config.data as _config_data
+
+            return bool(_config_data.get_hash())
+        except Exception:
+            return False
+
+    def get_metadata_options(self):
+        """Return the chosen metadata options as a dict for the workflow."""
+        checked = self._metadata_mode_group.checkedButton()
+        mode = checked.property("metadata_mode") if checked else "update"
+        return {
+            "mode": mode or "update",
+            "mark_stray": self._metadata_mark_stray_check.isChecked(),
+            "hash": self._metadata_hash_check.isChecked(),
+        }
+
     def _build_msg_filter_widget(self):
         """Build the three-option message filter sub-widget."""
         container = QWidget()
@@ -325,11 +638,18 @@ class ActionPage(QWidget):
         self._msg_filter_radios[MSG_FILTER_PAID_ONLY].setChecked(True)
         self._userlist_input.clear()
         self._userlist_widget.setVisible(True)
+        self._metadata_widget.setVisible(False)
+        self._metadata_mode_radios["update"].setChecked(True)
+        self._metadata_mark_stray_check.setChecked(False)
+        self._metadata_hash_check.setChecked(self._config_hash_default())
+        self._paid_all_widget.setVisible(False)
 
     def _on_action_changed(self, btn_id):
         if 0 <= btn_id < len(ALL_CHOICES):
             self._selected_actions = ALL_CHOICES[btn_id][1]
         self._msg_filter_widget.setVisible("msg_check" in self._selected_actions)
+        self._metadata_widget.setVisible("metadata" in self._selected_actions)
+        self._paid_all_widget.setVisible("paid_all" in self._selected_actions)
         # Show userlist widget only for "Download content from a user" (btn_id 0)
         self._userlist_widget.setVisible(btn_id == 0)
 
@@ -343,6 +663,12 @@ class ActionPage(QWidget):
         if self._selected_actions:
             # Apply userlist BEFORE emitting so model loading uses the correct filter
             self._apply_userlist_to_args()
+            if "metadata" in self._selected_actions:
+                app_signals.metadata_options_changed.emit(self.get_metadata_options())
+            if "paid_all" in self._selected_actions:
+                options = self.get_paid_all_options()
+                self._save_paid_all_settings(options)
+                app_signals.paid_all_options_changed.emit(options)
             log.info(f"Actions selected: {self._selected_actions}")
             app_signals.action_selected.emit(self._selected_actions)
         else:

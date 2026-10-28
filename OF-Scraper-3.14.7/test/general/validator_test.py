@@ -5,7 +5,7 @@ from InquirerPy.validator import EmptyInputValidator
 from prompt_toolkit.document import Document
 from prompt_toolkit.validation import ValidationError
 
-from ofscraper.const.test_constants import *
+from ofscraper.utils.of_env.values.test.test_constants import *
 from ofscraper.prompts.prompt_validators import (
     dateplaceholdervalidator,
     dirformatvalidator,

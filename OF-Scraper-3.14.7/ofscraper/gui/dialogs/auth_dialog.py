@@ -3379,8 +3379,9 @@ _USE_CDP = False
 _WEBENGINE_DEBUG_PORT: "int | None" = None
 
 
-def _get_or_create_debug_port() -> int:
-    """Return the Chromium remote-debugging port allocated at startup."""
+def _get_or_create_debug_port() -> "int | None":
+    """Return the Chromium remote-debugging port allocated at startup, or None
+    when debugging is off (see OFSCRAPER_GUI_WEBENGINE_DEBUG in gui/app.py)."""
     global _WEBENGINE_DEBUG_PORT
     if _WEBENGINE_DEBUG_PORT is None:
         port_str = os.environ.get("OFSCRAPER_WEBENGINE_DEBUG_PORT")
@@ -3388,15 +3389,7 @@ def _get_or_create_debug_port() -> int:
             try:
                 _WEBENGINE_DEBUG_PORT = int(port_str)
             except Exception:
-                _WEBENGINE_DEBUG_PORT = 9208
-        else:
-            import random
-            _WEBENGINE_DEBUG_PORT = random.randint(9200, 9299)
-            existing = os.environ.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
-            flags = "--disable-blink-features=AutomationControlled"
-            if _USE_CDP:
-                flags = f"--remote-debugging-port={_WEBENGINE_DEBUG_PORT} " + flags
-            os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = f"{existing} {flags}".strip()
+                return None
     return _WEBENGINE_DEBUG_PORT
 
 
@@ -4031,7 +4024,7 @@ class BrowserLoginDialog(QDialog):
         # CDP listener — connects to Chromium's remote debugging endpoint and
         # captures x-bc from the actual network-layer headers (including those
         # added by service workers, which JS injection in the main world misses).
-        if self._use_cdp:
+        if self._use_cdp and self._debug_port:
             self._cdp_listener = _CDPListener(self._debug_port, self)
             self._cdp_listener.xbc_captured.connect(self._on_cdp_xbc)
             self._cdp_listener.start()
@@ -4335,6 +4328,17 @@ class BrowserLoginDialog(QDialog):
         """
         from PyQt6.QtGui import QDesktopServices as _QDS
         from PyQt6.QtCore import QUrl as _QUrl
+        if not self._debug_port:
+            QMessageBox.information(
+                self,
+                "DevTools is off",
+                "DevTools needs remote debugging, which is off because any program "
+                "on this computer could use it to control this login window.\n\n"
+                "To turn it on for one session, set the environment variable\n"
+                "OFSCRAPER_GUI_WEBENGINE_DEBUG=1 and restart the GUI.\n\n"
+                "Or copy x-bc from your normal browser's DevTools instead.",
+            )
+            return
         url = f"http://localhost:{self._debug_port}"
         _QDS.openUrl(_QUrl(url))
 
@@ -4365,9 +4369,11 @@ class BrowserLoginDialog(QDialog):
         if self._cdp_listener:
             self._cdp_listener.stop()
             self._cdp_listener.wait(1000)
-        self._cdp_listener = _CDPListener(self._debug_port, self)
-        self._cdp_listener.xbc_captured.connect(self._on_cdp_xbc)
-        self._cdp_listener.start()
+            self._cdp_listener = None
+        if self._debug_port:
+            self._cdp_listener = _CDPListener(self._debug_port, self)
+            self._cdp_listener.xbc_captured.connect(self._on_cdp_xbc)
+            self._cdp_listener.start()
         # deleteAllCookies / clearHttpCache are async — delay the reload so
         # they complete before the new page load picks up fresh cookies.
         if self._view:

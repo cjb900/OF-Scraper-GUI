@@ -63,6 +63,18 @@ def _format_bytes_short(n: int) -> str:
     return f"{n:.1f} PB"
 
 
+def _run_download_totals(workflow) -> tuple[dict, dict]:
+    """(per_model, totals) for this run. Totals add up the per-model stats when
+    there are any; otherwise the counters, which only hold the last model's."""
+    per_model = dict(getattr(workflow, "_per_model_run_stats", {}) or {})
+    if not per_model:
+        return per_model, _snapshot_download_globals()
+    keys = ("videos", "photos", "audios", "forced", "failed", "bytes")
+    return per_model, {
+        k: sum(int(s.get(k, 0) or 0) for s in per_model.values()) for k in keys
+    }
+
+
 def build_pending_summary_payload(
     workflow,
     *,
@@ -71,7 +83,12 @@ def build_pending_summary_payload(
 ) -> dict | None:
     """Build the scrape-summary dict consumed by table_page after finish."""
     db_stats = db_stats or {}
-    models = list(getattr(workflow, "_selected_models", None) or [])
+    models = list(
+        getattr(workflow, "_selected_models", None)
+        # all-purchased runs: the creators it processed
+        or getattr(workflow, "_paid_all_models", None)
+        or []
+    )
     # Manual URL runs may only have usernames in db_stats / media-id tracking.
     if not models and db_stats:
         from types import SimpleNamespace
@@ -105,22 +122,13 @@ def build_pending_summary_payload(
         }
 
     if is_normal_gui_download:
-        per_model = dict(getattr(workflow, "_per_model_run_stats", {}) or {})
-        if per_model:
-            sum_videos = sum(int(s.get("videos", 0) or 0) for s in per_model.values())
-            sum_photos = sum(int(s.get("photos", 0) or 0) for s in per_model.values())
-            sum_audios = sum(int(s.get("audios", 0) or 0) for s in per_model.values())
-            sum_forced = sum(int(s.get("forced", 0) or 0) for s in per_model.values())
-            sum_failed = sum(int(s.get("failed", 0) or 0) for s in per_model.values())
-            sum_bytes = sum(int(s.get("bytes", 0) or 0) for s in per_model.values())
-        else:
-            snap = _snapshot_download_globals()
-            sum_videos = snap["videos"]
-            sum_photos = snap["photos"]
-            sum_audios = snap["audios"]
-            sum_forced = snap["forced"]
-            sum_failed = snap["failed"]
-            sum_bytes = snap["bytes"]
+        per_model, totals = _run_download_totals(workflow)
+        sum_videos = totals["videos"]
+        sum_photos = totals["photos"]
+        sum_audios = totals["audios"]
+        sum_forced = totals["forced"]
+        sum_failed = totals["failed"]
+        sum_bytes = totals["bytes"]
         run_dl = sum_videos + sum_photos + sum_audios
         db_info = {}
         for m in models:
@@ -142,7 +150,8 @@ def build_pending_summary_payload(
             "per_model": per_model,
         }
 
-    snap = _snapshot_download_globals()
+    # paid scrapes and other runs: per-creator stats when recorded
+    per_model, snap = _run_download_totals(workflow)
     run_dl = snap["videos"] + snap["photos"] + snap["audios"]
     db_info = {}
     for m in models:
@@ -160,6 +169,7 @@ def build_pending_summary_payload(
         "total_bytes": snap["bytes"],
         "model_names": [m.name for m in models],
         "db_info": db_info,
+        "per_model": per_model,
     }
 
 
@@ -228,11 +238,18 @@ def format_daemon_last_run_chip(run_number: int, payload: dict | None) -> str:
     return " · ".join(parts) if len(parts) > 1 else parts[0]
 
 
-def _record_per_model_download_stats(workflow, username: str) -> None:
-    """Store this model's download stats before the next model resets globals."""
+def _record_per_model_download_stats(workflow, username: str, *, nothing_downloaded: bool = False) -> None:
+    """Store this model's download stats before the next model resets globals.
+
+    The downloader only resets the counters when it has media to download, so
+    with nothing_downloaded the counters still hold the previous model's
+    numbers: record zeros instead.
+    """
     if workflow is None or not username:
         return
     snap = _snapshot_download_globals()
+    if nothing_downloaded:
+        snap = {k: 0 for k in snap}
     if not hasattr(workflow, "_per_model_run_stats") or workflow._per_model_run_stats is None:
         workflow._per_model_run_stats = {}
     workflow._per_model_run_stats[str(username)] = snap
@@ -1305,7 +1322,7 @@ def _query_post_info(cur):
     return post_info
 
 
-def _load_models_from_db(selected_models, date_range=None, media_ids=None, stats_only=False, per_model_from_dates=None):
+def _load_models_from_db(selected_models, date_range=None, media_ids=None, stats_only=False, per_model_from_dates=None, append=False):
     """Query the DB for all media records of each selected model and emit
     them to the GUI table.  Runs synchronously (called from the scraper
     background thread after the pipeline finishes).
@@ -1323,6 +1340,9 @@ def _load_models_from_db(selected_models, date_range=None, media_ids=None, stats
     date_range is NOT enabled, use the per-model datetime as the lower-bound
     filter so the table only shows content from that date onward (e.g. since
     the DB was last touched).  Ignored when date_range is already enabled.
+
+    append: add the rows to the table instead of replacing it (paid scrapes
+    emit one creator at a time).
 
     Returns a dict: {username: {"photos": N, "videos": N, "audios": N,
                                 "dl_photos": N, "dl_videos": N, "dl_audios": N}}
@@ -1526,9 +1546,12 @@ def _load_models_from_db(selected_models, date_range=None, media_ids=None, stats
                     pass
 
     if all_rows and not stats_only:
-        # Use data_replace so the DB result replaces any rows
-        # emitted by the live scraper pipeline, preventing duplicates.
-        app_signals.data_replace.emit(all_rows)
+        if append:
+            app_signals.data_loading_finished.emit(all_rows)
+        else:
+            # Use data_replace so the DB result replaces any rows
+            # emitted by the live scraper pipeline, preventing duplicates.
+            app_signals.data_replace.emit(all_rows)
         log.info(
             f"Emitted {len(all_rows)} total items from DB for all models"
         )
@@ -1607,6 +1630,68 @@ def _emit_download_status(media, model_id, username, extra_table_rows=None):
 # ---------------------------------------------------------------------------
 # GUI scraper manager
 # ---------------------------------------------------------------------------
+async def _paid_all_targets(paid_content, known=None):
+    """Creators for the all-purchased action, as (targets, skipped_names).
+
+    Every model_id in the paid list is included. Names come from the loaded
+    subscriptions when possible (no API call); other ids, such as expired or
+    deleted accounts, are looked up the way process_all_paid() does.
+    --excluded-username names are left out, as in the CLI.
+    """
+    from types import SimpleNamespace
+
+    import ofscraper.data.posts.post as _OF
+    from ofscraper.filters.models.other import is_excluded_username
+
+    if known is None:
+        known = {}
+        try:
+            import ofscraper.managers.manager as _manager
+
+            known = {
+                str(m.id): m.name
+                for m in (_manager.Manager.current_model_manager.all_subs or [])
+            }
+        except Exception:
+            pass
+    unknown = [mid for mid in paid_content if str(mid) not in known]
+    if unknown:
+        app_signals.log_message.emit(
+            "INFO",
+            f"Looking up {len(unknown)} creator(s) not in your subscription list...",
+        )
+    targets, skipped = [], []
+    for mid in paid_content:
+        name = known.get(str(mid))
+        if not name:
+            try:
+                name = await _OF.resolve_paid_username(mid)
+            except Exception as e:
+                log.warning(f"Skipping creator {mid}: could not look up the username ({e})")
+                continue
+        if is_excluded_username(name):
+            log.warning(f"Skipping {name}_{mid}: excluded by --excluded-username")
+            skipped.append(name)
+            continue
+        targets.append(SimpleNamespace(id=mid, name=name))
+    return targets, skipped
+
+
+def _remember_paid_all_creators(names):
+    """Keep creator names from all-purchased runs for the Pick… list."""
+    try:
+        from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
+
+        gs = load_gui_settings()
+        known = set(str(n) for n in (gs.get("paid_all_known_creators") or []))
+        new = known | {str(n) for n in names if n}
+        if new != known:
+            gs["paid_all_known_creators"] = sorted(new, key=str.lower)[:5000]
+            save_gui_settings(gs, quiet=True)
+    except Exception as e:
+        log.debug(f"[GUI] Could not save creator names: {e}")
+
+
 def _make_gui_scraper_manager():
     """Create a scraperManager subclass that emits media data to the GUI."""
     from ofscraper.commands.scraper.scraper import scraperManager
@@ -1857,7 +1942,7 @@ def _make_gui_scraper_manager():
                             # Still update table row statuses (e.g. profile images and
                             # already-downloaded items filtered from the queue).
                             _emit_download_status([], model_id, username, extra_table_rows=table_rows)
-                            _record_per_model_download_stats(_workflow_ref, username)
+                            _record_per_model_download_stats(_workflow_ref, username, nothing_downloaded=True)
                             continue
                         # Start periodic DB polling for real-time Downloaded updates
                         _gui_state.start_polling(media, model_id, username)
@@ -2005,6 +2090,15 @@ class GUIWorkflow:
         self._daemon_sound = True
         self._daemon_stop = threading.Event()
         self._msg_check_filter = "paid_only"  # "paid_only" | "free_only" | "all"
+        # Metadata action options from the action page (CLI: metadata -md MODE ...)
+        self._metadata_options = {"mode": "update", "mark_stray": False, "hash": False}
+        # args.command as parsed at launch; restored after metadata runs
+        self._launch_command = None
+        # All-purchased action (CLI: --scrape-paid --excluded-username ...)
+        self._paid_all_options = {"excluded": [], "mediatypes": ["Images", "Videos", "Audios"]}
+        self._paid_all_models = []  # creators processed in the last all-purchased run
+        # --excluded-username as parsed at launch; the exclude box adds to it per run
+        self._launch_excluded = None
         self._live_rows_emitted = False
         self._db_prerun_mtimes = {}  # {model_id: arrow datetime} — DB mtime before runner() touches it
         self._db_prerun_dl_counts = {}  # {model_name: {dl_photos, dl_videos, dl_audios}} — pre-scrape baseline
@@ -2034,8 +2128,49 @@ class GUIWorkflow:
         app_signals.downloads_queued.connect(self._on_downloads_queued)
         app_signals.msg_check_include_free_toggled.connect(self._on_msg_check_include_free)
         app_signals.manual_urls_confirmed.connect(self._on_manual_urls_confirmed)
+        app_signals.metadata_options_changed.connect(self._on_metadata_options)
+        app_signals.paid_all_options_changed.connect(self._on_paid_all_options)
+
+    def _on_paid_all_options(self, options):
+        opts = dict(options or {})
+        self._paid_all_options = {
+            "excluded": [str(n).strip().lower() for n in (opts.get("excluded") or []) if str(n).strip()],
+            "mediatypes": list(opts.get("mediatypes") or ["Images", "Videos", "Audios"]),
+        }
+
+    def start_paid_all(self):
+        """Start the all-purchased action (no Areas/Models pages)."""
+        self._selected_actions = {"paid_all"}
+        self._manual_urls = []
+        # before _start_scraping: its confirm dialog reads this state
+        self._reset_paid_all_state()
+        self._daemon_stop.clear()
+        self._start_scraping()
+
+    def _reset_paid_all_state(self):
+        """This action has its own options only. Values left over from the Areas
+        page (rescrape, delete DB / files, daemon, dates, models) must not apply."""
+        self._scrape_paid = True
+        self._selected_models = []
+        self._selected_areas = []
+        self._selected_mediatypes = list((self._paid_all_options or {}).get("mediatypes") or [])
+        self._advanced = {}
+        self._daemon_enabled = False
+        self._date_range = {}
+
+    def _on_metadata_options(self, options):
+        opts = dict(options or {})
+        mode = opts.get("mode") if opts.get("mode") in ("update", "check", "complete") else "update"
+        self._metadata_options = {
+            "mode": mode,
+            "mark_stray": bool(opts.get("mark_stray")),
+            "hash": bool(opts.get("hash")),
+        }
 
     def _on_action_selected(self, actions):
+        if self._selected_actions == {"paid_all"} and set(actions or []) != {"paid_all"}:
+            # all-purchased forces a paid scrape; don't carry it into other actions
+            self._scrape_paid = False
         self._selected_actions = actions
         log.info(f"[GUI Workflow] Actions set: {actions}")
         # Drop stale models when entering check mode so areas_selected cannot
@@ -2323,6 +2458,16 @@ class GUIWorkflow:
         except Exception as e:
             log.debug(f"Remote key-mode start check skipped: {e}")
 
+        if not self._confirm_metadata_complete():
+            try:
+                app_signals.status_message.emit(
+                    "Metadata not started — Complete mode declined"
+                )
+                app_signals.scraping_finished.emit()
+            except Exception:
+                pass
+            return
+
         try:
             from ofscraper.gui.utils.config_validation import confirm_config_for_scrape
             from PyQt6.QtWidgets import QApplication
@@ -2539,6 +2684,12 @@ class GUIWorkflow:
         import sys
 
         args = read_args.retriveArgs()
+        if self._launch_command is None:
+            self._launch_command = getattr(args, "command", None)
+        if self._launch_excluded is None:
+            self._launch_excluded = list(getattr(args, "excluded_username", None) or [])
+        # The all-purchased exclude box must not keep hiding models in later runs.
+        args.excluded_username = list(self._launch_excluded)
 
         # Manual URL / post-ID mode — set command=manual and skip everything else
         if self._selected_actions == {"manual_url"}:
@@ -2575,6 +2726,16 @@ class GUIWorkflow:
                     "keep_message_purchased_dupes": False,
                     "quality": None,
                 }
+
+        # A previous metadata run set command="metadata", which changes what the
+        # scraper does (activities, areas, paid scrape); undo it for this run.
+        args.command = self._launch_command
+        args.metadata = None
+        args.mark_stray = False
+
+        if self._selected_actions == {"paid_all"}:
+            self._set_paid_all_args(args, write_args, _settings)
+            return
 
         # Set actions (3.14.3 scraper checks args.actions; keep args.action for compat)
         args.action = list(self._selected_actions)
@@ -2681,6 +2842,8 @@ class GUIWorkflow:
         args.gui = True
         # Avoid Rich Live / RichHandler console I/O from download worker threads.
         args.no_rich = True
+        if "metadata" in self._selected_actions:
+            self._apply_metadata_args(args)
         write_args.setArgs(args)
         # Invalidate the settings cache so settings.get_settings() picks up the new
         # actions, after, before, etc. that we just wrote.  Without this,
@@ -2768,6 +2931,164 @@ class GUIWorkflow:
                 )
             time.sleep(1)
         return True
+
+    def _set_paid_all_args(self, args, write_args, _settings):
+        """Everything purchased, from every creator (CLI: --scrape-paid
+        --excluded-username ...). No areas, no model list, one run."""
+        opts = self._paid_all_options or {}
+        self._reset_paid_all_state()
+        base = self._baseline_args or {}
+
+        args.action = ["download"]
+        args.actions = ["download"]
+        args.download_area = set()
+        args.like_area = set()
+        args.posts = []
+        args.usernames = []
+        args.scrape_paid = True
+        args.excluded_username = sorted(
+            set(opts.get("excluded") or []) | set(self._launch_excluded or [])
+        )
+        if self._selected_mediatypes:
+            args.mediatypes = list(self._selected_mediatypes)
+        args.allow_dupe_downloads = bool(base.get("allow_dupe_downloads", False))
+        args.keep_message_purchased_dupes = bool(
+            base.get("keep_message_purchased_dupes", False)
+        )
+        args.quality = base.get("quality", None)
+        args.after = base.get("after", None)
+        args.before = None
+        args.no_cache = bool(base.get("no_cache", False))
+        args.no_api_cache = bool(base.get("no_api_cache", False))
+        args.discord_level = base.get("discord_level", "OFF")
+        args.daemon = False
+        args.gui = True
+        args.no_rich = True
+        write_args.setArgs(args)
+        try:
+            _settings.update_settings()
+        except Exception:
+            pass
+        log.info(
+            f"[GUI All Purchased] Args: excluded={args.excluded_username}, "
+            f"mediatypes={getattr(args, 'mediatypes', None)}"
+        )
+
+    def _confirm_metadata_complete(self) -> bool:
+        """Complete mode marks media as downloaded even when it isn't on disk."""
+        if "metadata" not in self._selected_actions:
+            return True
+        if (self._metadata_options or {}).get("mode") != "complete":
+            return True
+        from PyQt6.QtWidgets import QApplication, QMessageBox
+
+        reply = QMessageBox.question(
+            QApplication.activeWindow(),
+            "Mark everything as downloaded?",
+            "Metadata 'Complete' marks ALL media in the chosen areas as downloaded,\n"
+            "including media that is not on disk. Those items will then be skipped\n"
+            "by later downloads.\n\n"
+            "Use 'Update' instead if you only want files already on disk marked.\n\n"
+            "Run Complete mode?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
+
+    def _apply_metadata_args(self, args):
+        """Turn the download-style args built above into the args the CLI's
+        ``ofscraper metadata -md MODE [--mark-stray-locked] [--scrape-paid MODE]``
+        produces: dates, media types and models are kept, areas move to posts."""
+        opts = self._metadata_options or {}
+        mode = opts.get("mode") or "update"
+        areas = list(self._selected_areas)
+        args.command = "metadata"
+        args.metadata = mode
+        args.mark_stray = bool(opts.get("mark_stray"))
+        args.anon = False
+        args.action = None
+        args.actions = []
+        args.posts = areas
+        args.download_area = set(areas)
+        args.like_area = set()
+        # metadata's --scrape-paid takes the mode, not a flag
+        args.scrape_paid = mode if self._scrape_paid else None
+        args.daemon = None
+        log.info(
+            f"[GUI Metadata] Args: mode={mode}, mark_stray={args.mark_stray}, "
+            f"hash={bool(opts.get('hash'))}, areas={areas}, "
+            f"scrape_paid={args.scrape_paid}, users={args.usernames}"
+        )
+
+    def _run_metadata_mode(self):
+        """One-shot metadata run (CLI: ofscraper metadata), then reload the table
+        from the database so the Downloaded column shows the new status."""
+        import ofscraper.commands.metadata.metadata as metadata_mod
+        import ofscraper.utils.config.data as config_data
+        import ofscraper.utils.settings as _settings
+
+        opts = self._metadata_options or {}
+        mode = opts.get("mode") or "update"
+        names = [m.name for m in (self._selected_models or [])]
+        total = len(names)
+        done = {"count": 0}
+
+        # Settings are rebuilt from the config during the run (update_args), so the
+        # per-run hash choice has to replace the config reader, not settings.hash.
+        orig_get_hash = config_data.get_hash
+        want_hash = bool(opts.get("hash"))
+        config_data.get_hash = lambda *a, **k: want_hash
+
+        # Cancel between models: the metadata loop re-raises KeyboardInterrupt.
+        manager_cls = metadata_mod.MetadataCommandManager
+        orig_data_helper = manager_cls._data_helper
+        had_own_helper = "_data_helper" in vars(manager_cls)
+
+        def _data_helper(mgr, ele):
+            if _gui_cancel_event.is_set():
+                raise KeyboardInterrupt()
+            done["count"] += 1
+            try:
+                from ofscraper.gui.utils.host_callbacks import get_host
+
+                get_host().on_status(
+                    f"Metadata ({mode}): {getattr(ele, 'name', '')} "
+                    f"({done['count']} of {total})"
+                )
+            except Exception:
+                pass
+            return orig_data_helper(mgr, ele)
+
+        manager_cls._data_helper = _data_helper
+        app_signals.status_message.emit(f"Running metadata ({mode})...")
+        app_signals.log_message.emit(
+            "INFO",
+            f"Starting metadata mode '{mode}' for {total} model(s)"
+            + (f", hashing on" if want_hash else ""),
+        )
+        try:
+            _settings.update_settings()
+            metadata_mod.process_selected_areas()
+            if _gui_cancel_event.is_set():
+                raise KeyboardInterrupt()
+            app_signals.log_message.emit("INFO", f"Metadata mode '{mode}' complete")
+        finally:
+            if had_own_helper:
+                manager_cls._data_helper = orig_data_helper
+            else:
+                del manager_cls._data_helper
+            config_data.get_hash = orig_get_hash
+            try:
+                _settings.update_settings()
+            except Exception:
+                pass
+
+        app_signals.log_message.emit("INFO", "Loading content from database...")
+        _load_models_from_db(self._selected_models, date_range=self._date_range or {})
+        app_signals.status_message.emit(
+            f"Metadata {mode} complete for {total} model(s) — "
+            "the table shows the updated download status"
+        )
 
     def _run_check_mode(self):
         """Run a check mode (post_check / msg_check / paid_check / story_check).
@@ -2935,6 +3256,11 @@ class GUIWorkflow:
                 self._run_check_mode()
                 return
 
+            # Metadata: one-shot run — no daemon loop, nothing to download
+            if "metadata" in self._selected_actions:
+                self._run_metadata_mode()
+                return
+
             while True:
                 if _gui_cancel_event.is_set():
                     raise KeyboardInterrupt()
@@ -2956,6 +3282,9 @@ class GUIWorkflow:
                 self._per_model_run_stats = {}
                 self._manual_media_ids = None
                 self._manual_model_names = []
+                # paid media ids are per run; keeping them showed older runs' rows
+                self._scrape_paid_media_ids = set()
+                self._paid_all_models = []
                 try:
                     from ofscraper.gui.utils.progress_bridge import reset_throttle_state
 
@@ -3046,6 +3375,13 @@ class GUIWorkflow:
                             "INFO",
                             f"Running manual URL scrape: {len(self._manual_urls)} URL(s)",
                         )
+                    elif self._selected_actions == {"paid_all"}:
+                        _excl = (self._paid_all_options or {}).get("excluded") or []
+                        app_signals.log_message.emit(
+                            "INFO",
+                            "Downloading all purchased content from every creator"
+                            + (f", excluding: {', '.join(_excl)}" if _excl else ""),
+                        )
                     else:
                         app_signals.log_message.emit(
                             "INFO",
@@ -3099,7 +3435,8 @@ class GUIWorkflow:
                         # metadata for every creator (unavoidable) but only DOWNLOAD
                         # content for the models the user actually selected.
                         _orig_process_paid_dict = None
-                        if self._scrape_paid and self._selected_models:
+                        _patch_paid_all = self._selected_actions == {"paid_all"}
+                        if self._scrape_paid and (self._selected_models or _patch_paid_all):
                             try:
                                 import ofscraper.data.posts.scrape_paid as _spm
                                 import ofscraper.data.posts.post as _OF
@@ -3108,12 +3445,14 @@ class GUIWorkflow:
                                     m.name.lower() for m in self._selected_models
                                 }
                                 log.debug(
-                                    f"[DIAG] Patching process_paid_dict for: {list(_selected_usernames_lower)}"
+                                    f"[DIAG] Patching process_paid_dict for: "
+                                    f"{'all creators' if _patch_paid_all else list(_selected_usernames_lower)}"
                                 )
-                                app_signals.log_message.emit(
-                                    "INFO",
-                                    f"Filtering paid scrape to selected models: {[m.name for m in self._selected_models]}",
-                                )
+                                if not _patch_paid_all:
+                                    app_signals.log_message.emit(
+                                        "INFO",
+                                        f"Filtering paid scrape to selected models: {[m.name for m in self._selected_models]}",
+                                    )
 
                                 # Capture selected_models and date_range for closure
                                 _patch_selected_models = list(self._selected_models)
@@ -3140,13 +3479,29 @@ class GUIWorkflow:
                                         log.debug(f"[DIAG] get_all_paid_posts() RAISED: {_e}\n{_tb.format_exc()}")
                                         return
 
+                                    if _patch_paid_all:
+                                        # all creators: every id in the paid list, minus excluded
+                                        _targets, _skipped = await _paid_all_targets(paid_content)
+                                        self._paid_all_models = list(_targets)
+                                        _remember_paid_all_creators(
+                                            [t.name for t in _targets] + _skipped
+                                        )
+                                        app_signals.log_message.emit(
+                                            "INFO",
+                                            f"Purchased content from {len(_targets)} creator(s)"
+                                            + (f"; skipped (excluded): {', '.join(_skipped)}" if _skipped else ""),
+                                        )
+                                    else:
+                                        _targets = _patch_selected_models
                                     log.debug(
                                         f"[DIAG] get_all_paid_posts() returned {len(paid_content)} entries. "
-                                        f"Processing only {len(_patch_selected_models)} selected model(s)."
+                                        f"Processing {len(_targets)} model(s)."
                                     )
 
                                     output = {}
-                                    for _m in _patch_selected_models:
+                                    # first creator replaces the table, the rest add to it
+                                    _rows_shown = False
+                                    for _m in _targets:
                                         _mid = _m.id
                                         _uname = _m.name
                                         # paid_content keys may be int or str
@@ -3200,13 +3555,23 @@ class GUIWorkflow:
                                             try:
                                                 # Pass media_ids so only the 40 scraped rows are shown,
                                                 # not all 206 historical records in the DB.
-                                                _load_models_from_db([_m], date_range={}, media_ids=_final_media_ids)
+                                                _load_models_from_db(
+                                                    [_m], date_range={}, media_ids=_final_media_ids,
+                                                    append=_rows_shown,
+                                                )
+                                                _rows_shown = True
                                                 log.debug(f"[DIAG] Live table rows emitted for {_uname}")
                                             except Exception as _emit_err:
                                                 log.debug(f"[DIAG] Live row emit failed: {_emit_err}")
                                         except Exception as _e2:
                                             import traceback as _tb2
                                             log.debug(f"[DIAG] Error processing {_uname}: {_e2}\n{_tb2.format_exc()}")
+                                            _skip_msg = (
+                                                f"Purchased content for {_uname} could not be prepared "
+                                                f"and was skipped this run: {_e2}"
+                                            )
+                                            log.warning(_skip_msg)
+                                            app_signals.log_message.emit("WARNING", _skip_msg)
 
                                     length = len(output)
                                     log.debug(f"[DIAG] Yielding {length} model(s) to download pipeline")
@@ -3238,6 +3603,11 @@ class GUIWorkflow:
                                     try:
                                         return await _orig_process_user(_pu_value, _pu_length)
                                     finally:
+                                        # per-creator stats for the summary (the
+                                        # counters reset for each creator)
+                                        _record_per_model_download_stats(
+                                            self, _pu_uname, nothing_downloaded=not _pu_medias
+                                        )
                                         if _pu_medias:
                                             _gui_state.stop_polling()
                                             _emit_download_status(_pu_medias, _pu_mid, _pu_uname)
@@ -3371,6 +3741,11 @@ class GUIWorkflow:
                             log.debug(f"[DIAG] pre-scrape dl snapshot failed: {_pre_dl_err}")
                             self._db_prerun_dl_counts = {}
 
+                        try:
+                            from ofscraper.gui.patch_version import PATCH_ID as _run_pid
+                            log.info(f"[GUI] patch {_run_pid}")  # which patch made this log
+                        except Exception:
+                            pass
                         log.debug("[DIAG] About to call scraping_manager.runner()")
                         try:
                             scraping_manager.runner()
@@ -3478,7 +3853,8 @@ class GUIWorkflow:
                         "INFO", "Loading content from database..."
                     )
                     _db_stats = _load_models_from_db(
-                        self._selected_models,
+                        # all-purchased runs have no model list: use the creators it processed
+                        self._selected_models or list(self._paid_all_models or []),
                         # Skip date filter for paid scrapes — the API already filtered
                         # to purchased content; DB posted_at may be the original creation
                         # date (not purchase date), so date filtering drops valid rows.

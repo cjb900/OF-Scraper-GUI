@@ -215,6 +215,7 @@ class AreaSelectorPage(QWidget):
 
         # Include post text options
         text_group = compact_group(QGroupBox("Post Text"))
+        self._text_group = text_group
         text_layout = QVBoxLayout(text_group)
         tune_group_layout(text_layout)
 
@@ -271,8 +272,10 @@ class AreaSelectorPage(QWidget):
         )
         apply_font(self.scrape_paid_check, "Segoe UI", 11)
         self.scrape_paid_check.setToolTip(
-            "Tries harder to enumerate all paid/purchased items.\n"
-            "May be significantly slower but catches items missed by normal scraping."
+            "Tries harder to enumerate all paid/purchased items for the models you select.\n"
+            "May be significantly slower but catches items missed by normal scraping.\n"
+            "For purchases from every creator, use 'Download all purchased content'\n"
+            "on the Select Action page."
         )
         row = QHBoxLayout()
         row.addWidget(self.scrape_paid_check)
@@ -315,16 +318,20 @@ class AreaSelectorPage(QWidget):
             )
         )
         self.discord_updates_check.toggled.connect(self._on_discord_check_toggled)
-        row = QHBoxLayout()
+        # In a widget so the whole row can be hidden for the metadata action
+        self._discord_row = QWidget()
+        row = QHBoxLayout(self._discord_row)
+        row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(self.discord_updates_check)
         row.addWidget(self.discord_level_combo)
         row.addWidget(_make_help_btn("sca-discord-updates"))
         row.addStretch()
-        extras_layout.addLayout(row)
+        extras_layout.addWidget(self._discord_row)
         layout.addWidget(extras_group)
 
         # Advanced options
         adv_group = compact_group(QGroupBox("Advanced Scrape Options"))
+        self._adv_group = adv_group
         adv_layout = QVBoxLayout(adv_group)
         tune_group_layout(adv_layout)
 
@@ -446,8 +453,10 @@ class AreaSelectorPage(QWidget):
         sep_daemon.setStyleSheet(f"color: {c('sep')};")
         self._separators.append(sep_daemon)
         layout.addWidget(sep_daemon)
+        self._daemon_sep = sep_daemon
 
         daemon_group = compact_group(QGroupBox("Daemon Mode (Auto-Repeat Scraping)"))
+        self._daemon_group = daemon_group
         daemon_layout = QVBoxLayout(daemon_group)
         tune_group_layout(daemon_layout)
 
@@ -1575,6 +1584,7 @@ class AreaSelectorPage(QWidget):
 
     def _update_available_areas(self):
         is_check = bool(self._current_actions & _CHECK_MODES)
+        self._show_download_only_options("metadata" not in self._current_actions)
 
         if is_check:
             if "post_check" in self._current_actions:
@@ -1597,7 +1607,11 @@ class AreaSelectorPage(QWidget):
                 available = LIKE_AREAS
             else:
                 available = DOWNLOAD_AREAS
-            self.areas_group.setTitle("Content Areas")
+            self.areas_group.setTitle(
+                "Metadata Areas"
+                if "metadata" in self._current_actions
+                else "Content Areas"
+            )
             self.areas_group.show()
 
         for area, cb in self._area_checks.items():
@@ -1608,6 +1622,22 @@ class AreaSelectorPage(QWidget):
                 cb.hide()
                 cb.setEnabled(False)
                 cb.setChecked(False)
+
+    def _show_download_only_options(self, show):
+        """Hide the post-text, Discord, advanced and daemon options for the
+        metadata action, which downloads nothing and runs once."""
+        for widget in (
+            getattr(self, "_text_group", None),
+            getattr(self, "_discord_row", None),
+            getattr(self, "_adv_group", None),
+            getattr(self, "_daemon_group", None),
+            getattr(self, "_daemon_sep", None),
+        ):
+            if widget is not None:
+                widget.setVisible(show)
+        if not show:
+            self.daemon_check.setChecked(False)
+            self.discord_updates_check.setChecked(False)
 
     def _select_all(self):
         for cb in self._area_checks.values():

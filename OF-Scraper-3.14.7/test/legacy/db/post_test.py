@@ -1,9 +1,10 @@
 import tempfile
 
-from ofscraper.classes.posts import Post
-from ofscraper.const.test_constants import *
+from ofscraper.classes.of.posts import Post
+from ofscraper.utils.of_env.values.test.test_constants import *
 from ofscraper.db.operations import *
 from ofscraper.utils.paths.paths import cleanDB
+import pathlib
 
 
 def test_post_create(mocker):

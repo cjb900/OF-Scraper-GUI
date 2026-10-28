@@ -567,7 +567,7 @@ class ConfigPage(QWidget):
                                "Used in File Format {text} and when naming .txt files from captions.\n"
                                "Keep under ~250 when naming text files from post text so\n"
                                "name + \".txt\" stays within the 255-character/byte OS limit.\n"
-                               "0 = do not include post text in media filenames.")
+                               "0 = no limit (keep the whole post text).")
         self._add_line(form, "space_replacer", "Space Replacer", " ",
                        tooltip="Character(s) to replace spaces in filenames.\nLeave empty to keep spaces as-is.")
         self._add_line(form, "date", "Date Format", "YYYY-MM-DD",

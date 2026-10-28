@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSplitter,
     QVBoxLayout,
+    QWidget,
 )
 
 from ofscraper.gui.utils.ui_scale import apply_font, scale_px

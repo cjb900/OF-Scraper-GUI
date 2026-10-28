@@ -198,8 +198,11 @@ async def download(c, ele, model_id, username):
         return data
     except Exception as E:
         common_globals.log.debug(f"{get_medialog(ele)} exception {E}")
-        common_globals.log.debug(
-            f"{get_medialog(ele)} exception {traceback.format_exc()}"
-        )
+        # Known setup problems (e.g. missing CDM files) were already explained
+        # once; a traceback per media item only repeats it.
+        if not getattr(E, "no_retry", False):
+            common_globals.log.debug(
+                f"{get_medialog(ele)} exception {traceback.format_exc()}"
+            )
         _record_gui_failure(ele, username, str(E))
         return "skipped", 0

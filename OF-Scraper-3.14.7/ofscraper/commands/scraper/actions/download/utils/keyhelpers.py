@@ -1,6 +1,8 @@
 import asyncio
+import logging
 import pathlib
 import re
+import struct
 import traceback
 from functools import partial
 
@@ -29,6 +31,108 @@ _REMOTE_CDRM_MODES = frozenset({"cdrm", "cdrm2", "keydb"})
 def setLog(input_):
     global log
     log = input_
+
+
+class CdmFilesMissing(Exception):
+    """Manual key mode can't work without the CDM files; retrying won't help."""
+
+    no_retry = True
+
+
+_cdm_problem_logged = False
+
+
+def manual_cdm_problem(client_id=None, private_key=None):
+    """Return a plain message when manual key mode can't load its CDM files, else None.
+
+    A blank path would otherwise become Path("") == "." and fail with
+    "Is a directory: '.'" for every DRM video.
+    """
+    if client_id is None and private_key is None:
+        s = settings.get_settings()
+        client_id, private_key = s.client_id, s.private_key
+    problems = []
+    for label, value in (("client-id", client_id), ("private-key", private_key)):
+        value = str(value or "").strip()
+        if not value:
+            problems.append(f"{label} is not set")
+        elif not pathlib.Path(value).is_file():
+            problems.append(f"{label} file not found: {value}")
+    if not problems:
+        return None
+    return (
+        "Key Mode is manual but the CDM files can't be used ("
+        + "; ".join(problems)
+        + "). Set client-id and private-key under cdm_options in config.json "
+        "(GUI: Configuration → CDM / DRM Key Creation), or choose another Key Mode. "
+        "DRM videos are skipped until then."
+    )
+
+
+async def has_cached_key(ele):
+    if not of_env.getattr("USE_WIV_CACHE_KEY"):
+        return False
+    return bool(
+        await asyncio.get_event_loop().run_in_executor(
+            common_globals.thread, partial(cache.get, ele.license)
+        )
+    )
+
+
+async def check_manual_cdm(ele):
+    """Raise CdmFilesMissing before a DRM download that could never be decrypted."""
+    global _cdm_problem_logged
+    keymode = str(settings.get_settings().key_mode or "manual").lower().strip()
+    if keymode != "manual":
+        return
+    problem = manual_cdm_problem()
+    if not problem or await has_cached_key(ele):
+        return
+    if not _cdm_problem_logged:
+        _cdm_problem_logged = True
+        logging.getLogger("shared").error(problem)
+    raise CdmFilesMissing(problem)
+
+
+def strip_pssh(path):
+    """
+    Turn pssh boxes in a decrypted file into same-sized 'free' boxes.
+
+    ffmpeg 8+ copies the source's pssh (DRM init data) into the decrypted
+    output; 7.x dropped it. The media is identical either way, but a clear
+    file still carrying pssh can look protected to some players. Renaming
+    keeps every offset valid, so nothing else in the file changes.
+    Returns the number of boxes changed.
+    """
+    changed = 0
+    with open(path, "r+b") as f:
+        f.seek(0, 2)
+        file_end = f.tell()
+
+        def walk(start, end, depth):
+            nonlocal changed
+            pos = start
+            while pos + 8 <= end:
+                f.seek(pos)
+                size, typ = struct.unpack(">I4s", f.read(8))
+                header = 8
+                if size == 1:
+                    size = struct.unpack(">Q", f.read(8))[0]
+                    header = 16
+                elif size == 0:
+                    size = end - pos
+                if size < header or pos + size > end:
+                    return
+                if typ == b"pssh":
+                    f.seek(pos + 4)
+                    f.write(b"free")
+                    changed += 1
+                elif depth == 0 and typ in (b"moov", b"moof"):
+                    walk(pos + header, pos + size, depth + 1)
+                pos += size
+
+        walk(0, file_end, 0)
+    return changed
 
 
 async def un_encrypt(item, c, ele, input_=None):
@@ -91,6 +195,11 @@ async def un_encrypt(item, c, ele, input_=None):
             raise Exception(f"{get_medialog(ele)} ffmpeg decryption failed")
         else:
             log.debug(f"{get_medialog(ele)} ffmpeg  decrypt success {newpath}")
+            try:
+                if n := strip_pssh(newpath):
+                    log.debug(f"{get_medialog(ele)} removed {n} pssh box(es) from {newpath}")
+            except Exception as E:  # cleanup is optional; never fail a good decrypt
+                log.debug(f"{get_medialog(ele)} could not strip pssh from {newpath}: {E}")
             pathlib.Path(item["path"]).unlink(missing_ok=True)
             item["path"] = newpath
             await asyncio.get_event_loop().run_in_executor(
@@ -157,6 +266,8 @@ async def key_helper_manual(c, pssh, licence_url, id):
         pssh_obj = PSSH(pssh)
 
         # load device
+        if problem := manual_cdm_problem():
+            raise CdmFilesMissing(problem)
         private_key = pathlib.Path(settings.get_settings().private_key).read_bytes()
         client_id = pathlib.Path(settings.get_settings().client_id).read_bytes()
         device = Device(

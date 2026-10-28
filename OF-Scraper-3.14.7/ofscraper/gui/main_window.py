@@ -1268,6 +1268,11 @@ class MainWindow(QMainWindow):
         """Move from action page to area/filter configuration page, or URL input page."""
         if actions == {"manual_url"}:
             self.scraper_stack.setCurrentWidget(self.url_input_page)
+        elif actions == {"paid_all"}:
+            # All purchased content: no areas or models to pick — start now.
+            self.scraper_stack.setCurrentWidget(self.table_page)
+            self.table_page.sidebar.setVisible(False)
+            self.table_page.start_paid_all_run()
         else:
             self.scraper_stack.setCurrentWidget(self.area_page)
 
@@ -1462,7 +1467,9 @@ class MainWindow(QMainWindow):
             else None
         )
 
-        ffmpeg_raw = (str(ffmpeg_path).strip() if ffmpeg_path is not None else "")
+        from ofscraper.utils.config.path_norm import strip_path_quotes
+
+        ffmpeg_raw = strip_path_quotes(str(ffmpeg_path)) if ffmpeg_path is not None else ""
         missing_ffmpeg = True
         if ffmpeg_raw:
             try:
@@ -1472,8 +1479,8 @@ class MainWindow(QMainWindow):
 
         cdm_opts = cfg.get("cdm_options") if isinstance(cfg.get("cdm_options"), dict) else {}
         key_mode = str(cdm_opts.get("key-mode-default") or "manual").lower().strip() or "manual"
-        client_raw = str(cdm_client).strip() if cdm_client is not None else ""
-        priv_raw = str(cdm_private).strip() if cdm_private is not None else ""
+        client_raw = strip_path_quotes(str(cdm_client)) if cdm_client is not None else ""
+        priv_raw = strip_path_quotes(str(cdm_private)) if cdm_private is not None else ""
         missing_manual_cdm = True
         if client_raw and priv_raw:
             try:

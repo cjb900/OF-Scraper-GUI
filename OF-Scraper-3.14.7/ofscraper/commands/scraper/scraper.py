@@ -23,7 +23,7 @@ from ofscraper.commands.utils.command import CommandManager
 import ofscraper.utils.actions as actions
 import ofscraper.utils.checkers as checkers
 import ofscraper.managers.manager as manager
-from ofscraper.commands.scraper.utils.schedule import set_schedule
+from ofscraper.commands.scraper.utils.schedule import DaemonWakeup, set_schedule
 import ofscraper.utils.config.data as data
 import ofscraper.utils.menu as menu
 from ofscraper.commands.scraper.utils.jobqueue import jobqueue
@@ -240,6 +240,7 @@ def main():
 
 
 def daemon_process():
+    exit.sigterm_as_keyboard_interrupt()
     checkers.check_auth()
     worker_thread = None
     scrapingManager = scraperManager()
@@ -250,14 +251,21 @@ def daemon_process():
     log.info("[bold]Daemon mode on[/bold]")
     manager.Manager.current_model_manager.sync_models()
     actions.select_areas()
+    wakeup = DaemonWakeup()
+    wakeup.install()
     try:
+        # The scheduler only queues jobs; the main thread runs them. As a
+        # non-daemon thread it sat in jobqueue.join() forever and kept the
+        # process alive after Ctrl+C/SIGTERM.
         worker_thread = threading.Thread(
-            target=set_schedule, args=[scrapingManager.runner], daemon=False
+            target=set_schedule, args=[scrapingManager.runner],
+            kwargs={"wakeup": wakeup}, daemon=True
         )
         worker_thread.start()
         while True:
+            # outside the try: a signal while idle here has no job to mark done
+            job_func = jobqueue.get()
             try:
-                job_func = jobqueue.get()
                 job_func()
             except Exception as E:
                 log.traceback_(E)
@@ -265,6 +273,9 @@ def daemon_process():
             finally:
                 jobqueue.task_done()
     except KeyboardInterrupt as E:
+        wakeup.stopped = True
+        # Ctrl+C, or SIGTERM from docker stop / kill (via sigterm_as_keyboard_interrupt)
+        log.warning("Stop requested: shutting down the daemon")
         try:
             with exit.DelayedKeyboardInterrupt():
                 schedule.clear()
@@ -276,6 +287,7 @@ def daemon_process():
                 schedule.clear()
                 raise E
     except Exception as E:
+        wakeup.stopped = True
         try:
             with exit.DelayedKeyboardInterrupt():
                 schedule.clear()
@@ -286,6 +298,8 @@ def daemon_process():
             with exit.DelayedKeyboardInterrupt():
                 schedule.clear()
                 raise E
+    finally:
+        wakeup.restore()
 
 
 @exit.exit_wrapper

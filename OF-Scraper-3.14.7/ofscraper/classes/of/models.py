@@ -28,11 +28,11 @@ class Model:
 
     @property
     def avatar(self):
-        return self._model["avatar"]
+        return self._model.get("avatar")
 
     @property
     def header(self):
-        return self._model["header"]
+        return self._model.get("header")
 
     @property
     def sub_price(self):

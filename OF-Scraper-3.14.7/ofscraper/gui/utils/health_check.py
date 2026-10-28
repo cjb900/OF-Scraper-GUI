@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
+from ofscraper.utils.config.path_norm import strip_path_quotes
+
 
 @dataclass(frozen=True)
 class HealthChip:
@@ -149,8 +151,8 @@ def _key_chip() -> HealthChip:
         )
 
     cdm = cfg.get("cdm_options") if isinstance(cfg.get("cdm_options"), dict) else {}
-    client = str((cdm or {}).get("client-id") or "").strip()
-    private = str((cdm or {}).get("private-key") or "").strip()
+    client = strip_path_quotes(str((cdm or {}).get("client-id") or ""))
+    private = strip_path_quotes(str((cdm or {}).get("private-key") or ""))
     missing_files = True
     if client and private:
         try:
