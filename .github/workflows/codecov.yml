@@ -2,11 +2,13 @@ name: codecov
 permissions: read-all
 on:
   push:
-    branches: main
+    branches: [main, testing]
     # Publish semver tags as releases.
     tags: [v*.*.*]
   pull_request:
-    branches: main
+    branches: [main, testing]
+  # "Run workflow" button in the Actions tab
+  workflow_dispatch:
 
 jobs:
   run:
