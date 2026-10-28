@@ -67,6 +67,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   - [Volumes (config, downloads, CDM keys, crash logs)](#volumes-config-downloads-cdm-keys-crash-logs)
   - [First login / auth inside Docker](#first-login--auth-inside-docker)
   - [Auto-starting a scrape on container startup](#auto-starting-a-scrape-on-container-startup)
+  - [Running the CLI instead of the GUI (MODE=cli)](#running-the-cli-instead-of-the-gui-modecli)
   - [Selecting the patch version at build time](#selecting-the-patch-version-at-build-time)
   - [Useful Compose commands](#useful-compose-commands)
   - [Docker limitations](#docker-limitations)
@@ -1119,7 +1120,7 @@ A Docker setup is included for running the **patched GUI** in a headless environ
 | File | Role |
 |---|---|
 | `docker/Dockerfile` | Builds Ubuntu 24.04 + ofscraper + GUI patch + Xvfb / noVNC |
-| `docker/entrypoint.sh` | Starts virtual display, VNC, noVNC, then `ofscraper --gui` |
+| `docker/entrypoint.sh` | Starts virtual display, VNC, noVNC, then `ofscraper --gui` (or just the CLI with `MODE=cli`) |
 | `docker-compose.yml` | Convenient build/run, ports, env, and volume mounts |
 
 ### What you get
@@ -1152,7 +1153,7 @@ OF-Scraper-GUI/                          ← run all docker compose commands her
 |---|---|---|
 | `docker-compose.yml` | **Yes** | Defines `ofscraper-gui` service, ports `6699`/`5900`, env, volumes |
 | `docker/Dockerfile` | **Yes** | Installs ofscraper, applies the selected GUI patch, sets up noVNC |
-| `docker/entrypoint.sh` | **Yes** | Starts Xvfb → VNC → noVNC → `ofscraper --gui $GUI_ARGS` |
+| `docker/entrypoint.sh` | **Yes** | Starts Xvfb → VNC → noVNC → `ofscraper --gui $GUI_ARGS` (`MODE=cli`: only `ofscraper $CLI_ARGS`) |
 | `patch_ofscraper_*_gui.py` at **repo root** | **Yes** | `Dockerfile` `COPY`s these from the root (not from `OF-Scraper-*/`) |
 | `OF-Scraper-3.14.7/` (or other version folders) | **No** for Docker GUI | Useful for desktop patching / development; **not** read by the current GUI Dockerfile |
 | `docker/comfyui-joycaption/` | **No** | Separate optional stack for the JoyCaption plugin only |
@@ -1374,6 +1375,38 @@ Equivalent one-off without editing the file:
 ```bash
 docker compose run --rm -e GUI_ARGS="--username ALL --posts all" -p 6699:6699 ofscraper-gui
 ```
+
+### Running the CLI instead of the GUI (MODE=cli)
+
+Set `MODE=cli` to run plain `ofscraper` in the container: no GUI, virtual display, VNC or noVNC. It's meant for a **daemon** that scrapes on a schedule:
+
+```yaml
+environment:
+  - MODE=cli
+  - CLI_ARGS=--daemon 120 --username ALL --posts all --action download
+```
+
+```bash
+docker compose up -d ofscraper-gui
+docker compose logs -f ofscraper-gui          # the CLI's output
+```
+
+- **Stop:** `docker compose stop ofscraper-gui` shuts the daemon down cleanly (the current run is interrupted the same way as Ctrl+C), well within `stop_grace_period`.
+- **Scrape now:** `docker kill --signal=USR1 ofscraper-gui` starts the next daemon run immediately when the daemon is idle between runs (ignored while a run is in progress).
+- **Exit code:** the container exits with the CLI's exit code.
+- `CLI_ARGS` are the arguments after `ofscraper` (the same flags as on a desktop). There is no `--gui` and no restart loop.
+
+**One-shot runs and the interactive menu:** a run without `--daemon` exits when it's done, and `restart: unless-stopped` would start it again. Use `docker compose run --rm` for those. Arguments after the service name replace `CLI_ARGS`:
+
+```bash
+# one scrape, then the container is removed
+docker compose run --rm -e MODE=cli ofscraper-gui --username somemodel --posts all --action download
+
+# the interactive menu (needs a terminal; compose run provides one)
+docker compose run --rm -e MODE=cli ofscraper-gui
+```
+
+`MODE=cli` without `CLI_ARGS`, arguments or a terminal stops with a message (exit code 2). Set `MODE=gui` (the default) to go back to the GUI.
 
 ### Selecting the patch version at build time
 

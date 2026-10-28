@@ -5,7 +5,7 @@ services:
       dockerfile: docker/Dockerfile
       args:
         # Which GUI patch version to use at build time.
-        # Must match one of the OF-Scraper-X.X.X/patch_ofscraper_X.X.X_gui.py files.
+        # Must match one of the patch_ofscraper_X.X.X_gui.py files in the repo root.
         # Available: 3.12.9, 3.14.3, 3.14.5, 3.14.7
         GUI_PATCH_VERSION: "3.14.7"
     container_name: ofscraper-gui
@@ -22,6 +22,16 @@ services:
       # Leave blank (or remove) to open the GUI without auto-starting a scrape.
       # Example: --daemon 120 --username ALL -ts --posts all --discord low
       - GUI_ARGS=
+      # gui (default): the GUI over noVNC, as above.
+      # cli: no GUI, display or VNC; runs "ofscraper CLI_ARGS" instead.
+      #   Meant for --daemon runs (a one-shot run would be restarted by
+      #   "restart: unless-stopped"; use "docker compose run --rm" for those).
+      #   docker stop shuts the daemon down cleanly;
+      #   "docker kill --signal=USR1 ofscraper-gui" starts the next run now.
+      - MODE=gui
+      # CLI args for MODE=cli.
+      # Example: --daemon 120 --username ALL --posts all --action download
+      - CLI_ARGS=
       # ── Qt/rendering performance in Docker ──────────────────────────────────
       # Use Qt's built-in 2D software rasterizer instead of llvmpipe (Mesa software
       # OpenGL). For a widget-only app, Qt's own painter is faster and uses far less CPU.
@@ -71,6 +81,9 @@ services:
     # ports:  # Not used with network_mode: host — remove the above line to restore
     #   - "6699:6699"
     restart: unless-stopped
+    # docker stop asks OF-Scraper to cancel the current scrape and exit; give
+    # it time to finish in-flight work before Docker falls back to SIGKILL.
+    stop_grace_period: 30s
     ulimits:
       nofile:
         soft: 65536
