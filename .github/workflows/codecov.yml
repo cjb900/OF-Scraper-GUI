@@ -1,4 +1,4 @@
-name: codecov
+name: tests
 permissions: read-all
 on:
   push:
@@ -30,12 +30,14 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install Qt system libraries
-        # the GUI tests run headless (offscreen) but PyQt6 still loads these
+      - name: Install Qt system libraries and FFmpeg
+        # the GUI tests run headless (offscreen) but PyQt6 still loads these;
+        # ffmpeg is needed by the DRM decrypt test
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libegl1 libgl1 libx11-6 libdbus-1-3 libfontconfig1 libfreetype6 libglib2.0-0t64 libxkbcommon0
+            libegl1 libgl1 libx11-6 libdbus-1-3 libfontconfig1 libfreetype6 libglib2.0-0t64 libxkbcommon0 \
+            ffmpeg
       - name: Install dependencies
         # gui: without PyQt6 every GUI test file skips itself
         run: uv sync --locked --extra test --extra gui
@@ -46,12 +48,8 @@ jobs:
         run: uv run --frozen python -c "from PyQt6.QtWidgets import QApplication; QApplication([])"
         env:
           QT_QPA_PLATFORM: offscreen
-      - name: Run tests and collect coverage
-        run: uv run --frozen pytest --cov=ofscraper --cov-report term --cov-report xml:coverage.xml
+      - name: Run tests
+        # the coverage table is printed in the log (not uploaded anywhere)
+        run: uv run --frozen pytest --cov=ofscraper --cov-report term
         env:
           QT_QPA_PLATFORM: offscreen
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
-        with:
-          files: OF-Scraper-3.14.7/coverage.xml
-          fail_ci_if_error: false

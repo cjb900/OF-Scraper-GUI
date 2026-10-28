@@ -13,3 +13,9 @@ def test_ci_runs_the_gui_tests():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "--extra gui" in text
     assert text.count("QT_QPA_PLATFORM: offscreen") >= 2
+
+
+@pytest.mark.skipif(not WORKFLOW.exists(), reason="CI workflow not in this checkout")
+def test_ci_installs_ffmpeg_for_the_drm_test():
+    # test_drm_decrypt_output skips itself when ffmpeg is missing
+    assert "ffmpeg" in WORKFLOW.read_text(encoding="utf-8")
