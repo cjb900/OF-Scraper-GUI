@@ -1,11 +1,51 @@
-# OF-Scraper GUI Patch
+<p align="center">
+  <img src="docs/images/logo.png" width="128" alt="OF-Scraper GUI logo">
+</p>
+
+<h1 align="center">OF-Scraper GUI</h1>
+
+<p align="center">
+  <b>A full desktop GUI for OF-Scraper: pick, browse and download from one window instead of the command line.</b>
+</p>
+
+<p align="center">
+  <img alt="OF-Scraper 3.12.9 – 3.14.7" src="https://img.shields.io/badge/OF--Scraper-3.12.9%20%E2%80%93%203.14.7-3b82f6">
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776ab?logo=python&logoColor=white">
+  <img alt="PyQt6" src="https://img.shields.io/badge/GUI-PyQt6-41cd52?logo=qt&logoColor=white">
+  <img alt="Windows, Linux, Docker" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux%20%7C%20Docker-6b7280">
+  <a href="https://github.com/cjb900/OF-Scraper-GUI/actions/workflows/codecov.yml?query=branch%3Atesting"><img alt="tests (testing branch)" src="https://github.com/cjb900/OF-Scraper-GUI/actions/workflows/codecov.yml/badge.svg?branch=testing"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start"><b>Get started</b></a> •
+  <a href="docs/install.md">Install</a> •
+  <a href="docs/gui-guide.md">GUI guide</a> •
+  <a href="#docker">Docker</a> •
+  <a href="docs/plugins.md">Plugins</a> •
+  <a href="docs/versions.md">Versions</a> •
+  <a href="docs/troubleshooting.md">Troubleshooting</a>
+</p>
+
+---
 
 A self-contained Python script that patches an installed (non-binary) copy of [OF-Scraper](https://github.com/datawhores/OF-Scraper) to add a full **PyQt6 GUI**, opened with `ofscraper --gui`.
 
 **Supported OF-Scraper versions:** `3.12.9`, `3.14.3`, `3.14.5`, and `3.14.7` (one patch script per version; 3.14.7 has the most features, see [Versions](docs/versions.md)).
 
-<img src="https://github.com/user-attachments/assets/e7c590a6-3b05-4e93-9d8c-f35eb673aa46" width="600" alt="Main Window — Select Action">
-<img src="https://github.com/user-attachments/assets/0d04b396-9ae2-40db-a29e-c40bf6f55f7a" width="600" alt="Scraping page — media table">
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/e7c590a6-3b05-4e93-9d8c-f35eb673aa46" width="600" alt="Main Window — Select Action">
+  <img src="https://github.com/user-attachments/assets/0d04b396-9ae2-40db-a29e-c40bf6f55f7a" width="600" alt="Scraping page — media table">
+</p>
+
+## Contents
+
+- [What it adds](#what-it-adds)
+- [Before you start](#before-you-start)
+- [Quick start](#quick-start)
+- [Docker](#docker)
+- [Documentation](#documentation)
+- [Notes](#notes)
+- [Disclaimer](#disclaimer)
 
 ## What it adds
 
