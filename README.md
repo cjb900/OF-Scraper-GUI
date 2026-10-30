@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/logo.png" width="128" alt="OF-Scraper GUI logo">
+  <img src="docs/images/logo.svg" width="128" alt="OF-Scraper GUI logo">
 </p>
 
 <h1 align="center">OF-Scraper GUI</h1>

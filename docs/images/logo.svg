@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 59 59" width="256" height="256" role="img" aria-label="OF-Scraper GUI logo">
+  <!-- Redrawn from ofscraper/gui/assets/icon.png (59 px); same 59-unit grid. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a74d0"/>
+      <stop offset="1" stop-color="#035aa9"/>
+    </linearGradient>
+    <linearGradient id="front" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#dde5ee"/>
+    </linearGradient>
+    <linearGradient id="arm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e3eaf1"/>
+    </linearGradient>
+    <linearGradient id="side" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b8bed3"/>
+      <stop offset="1" stop-color="#959cb7"/>
+    </linearGradient>
+    <radialGradient id="glass" cx="0.42" cy="0.58" r="0.62">
+      <stop offset="0" stop-color="#e9e24c"/>
+      <stop offset="0.3" stop-color="#7cc95e"/>
+      <stop offset="0.55" stop-color="#16b8b3"/>
+      <stop offset="0.8" stop-color="#2b3f7a"/>
+      <stop offset="1" stop-color="#2a1d42"/>
+    </radialGradient>
+  </defs>
+
+  <!-- background -->
+  <rect width="59" height="59" rx="12" fill="url(#bg)"/>
+
+  <!-- soft shadow under the device -->
+  <ellipse cx="29" cy="50.6" rx="21" ry="2.6" fill="#012b57" opacity="0.22"/>
+
+  <!-- base step -->
+  <path d="M19 48.6 L31.5 43.6 L34 44.8 L21.5 50.3 Z" fill="#c6d0db"/>
+
+  <!-- left side of the box -->
+  <path d="M4 18.2 L14 17 L19 48.8 L5.2 44.8 Q4 44.4 4 43.2 Z" fill="url(#side)"/>
+  <!-- vents and dots on the side -->
+  <g stroke="#7f86a3" stroke-width="0.7" stroke-linecap="round">
+    <path d="M6.3 22.5 L11.6 22"/>
+    <path d="M6.4 24.6 L11.8 24.1"/>
+    <path d="M6.5 26.7 L12 26.2"/>
+  </g>
+  <circle cx="6.8" cy="36.2" r="0.85" fill="#22273a"/>
+  <circle cx="9.6" cy="38.2" r="0.85" fill="#22273a"/>
+
+  <!-- arm -->
+  <path d="M29 15.6 L53.6 12.3 Q56.4 12 55.6 14.6 L47.6 34.6 Q46.9 36.1 45.3 36.5 L31 40.2 Z" fill="url(#arm)"/>
+  <!-- light top edge of the arm -->
+  <path d="M29 15.6 L53.6 12.3 Q56.4 12 55.6 14.6 L55.1 15.8 L29.2 18.6 Z" fill="#ffffff"/>
+  <path d="M29.2 18.6 L55.1 15.8" stroke="#d3dbe5" stroke-width="0.45"/>
+  <!-- arm lower shading -->
+  <path d="M31 40.2 L45.3 36.5 Q46.9 36.1 47.6 34.6 L49 31 L31.3 36.4 Z" fill="#d7dfe8"/>
+  <!-- marks above the slot -->
+  <g stroke="#a8b0c0" stroke-width="0.8" stroke-linecap="round">
+    <path d="M34 21.8 L39.6 21"/>
+    <path d="M34.2 23.4 L37.8 22.9"/>
+  </g>
+  <circle cx="42.2" cy="20.4" r="0.7" fill="#e3a7b8"/>
+  <!-- slot -->
+  <path d="M32.2 30.6 L47.4 25.2 Q48.2 25 48 25.8 L47.6 26.6 L32.6 32.3 Q31.8 32.5 31.9 31.6 Z" fill="#1c2130"/>
+
+  <!-- top of the box -->
+  <path d="M4 18.2 L11 14.6 L23.2 13.8 L29 15.6 L14 17 Z" fill="#f7fafc"/>
+  <g stroke="#a3abbd" stroke-width="0.7" stroke-linecap="round">
+    <path d="M14.6 15.7 L18 15.4"/>
+    <path d="M19.2 15.3 L21.6 15.1"/>
+  </g>
+
+  <!-- front of the box -->
+  <path d="M14 17 L29 15.6 L31 40.2 L31.5 43.6 L19 48.6 Z" fill="url(#front)"/>
+  <!-- seam between box and arm -->
+  <path d="M29.6 17.4 L31 39.2" stroke="#c2cad6" stroke-width="0.6" stroke-linecap="round"/>
+
+  <!-- lens: bezel, ring, glass, highlight -->
+  <ellipse cx="21" cy="29.4" rx="7.4" ry="8.7" fill="#e4eaf1"/>
+  <ellipse cx="21" cy="29.4" rx="6" ry="7.2" fill="#1a2040"/>
+  <ellipse cx="21" cy="29.6" rx="4.6" ry="5.8" fill="url(#glass)"/>
+  <ellipse cx="19.3" cy="26.4" rx="1.2" ry="0.9" fill="#ffffff" opacity="0.75"/>
+
+  <!-- buttons -->
+  <circle cx="21.2" cy="40.6" r="1.05" fill="#2bb39a"/>
+  <circle cx="28.6" cy="38.8" r="1.05" fill="#f28b4b"/>
+  <circle cx="19.6" cy="43.2" r="0.8" fill="#e05a8a"/>
+</svg>
