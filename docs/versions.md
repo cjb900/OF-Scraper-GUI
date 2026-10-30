@@ -6,12 +6,15 @@
 
 Each patch script works with exactly one OF-Scraper version. To see which patch you have installed, click the version button at the bottom of the sidebar (**About → GUI patch**), e.g. `20261028_gui_3_14_7_v402`.
 
-| Patch script | OF-Scraper version |
-|---|---|
-| `patch_ofscraper_3.12.9_gui.py` | 3.12.9 |
-| `patch_ofscraper_3.14.3_gui.py` | 3.14.3 |
-| `patch_ofscraper_3.14.5_gui.py` | 3.14.5 |
-| `patch_ofscraper_3.14.7_gui.py` | 3.14.7 |
+> [!WARNING]
+> Only the **3.14.7** patch is being updated. The 3.12.9, 3.14.3 and 3.14.5 patches have not been updated and may not work properly.
+
+| Patch script | OF-Scraper version | Status |
+|---|---|---|
+| `patch_ofscraper_3.14.7_gui.py` | 3.14.7 | **Updated** (all current fixes and features) |
+| `patch_ofscraper_3.14.5_gui.py` | 3.14.5 | Not updated, may not work properly |
+| `patch_ofscraper_3.14.3_gui.py` | 3.14.3 | Not updated, may not work properly |
+| `patch_ofscraper_3.12.9_gui.py` | 3.12.9 | Not updated, may not work properly |
 
 ## Feature availability by version
 

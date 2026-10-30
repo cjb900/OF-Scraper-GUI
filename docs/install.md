@@ -71,7 +71,7 @@ python patch_ofscraper_3.14.7_gui.py --skip-pyqt6
 python patch_ofscraper_3.14.7_gui.py --restore /path/to/backup
 ```
 
-The same flags apply to `patch_ofscraper_3.14.5_gui.py`, `patch_ofscraper_3.14.3_gui.py`, and `patch_ofscraper_3.12.9_gui.py`.
+The same flags apply to `patch_ofscraper_3.14.5_gui.py`, `patch_ofscraper_3.14.3_gui.py`, and `patch_ofscraper_3.12.9_gui.py`. Those three patches have not been updated and may not work properly; only the 3.14.7 patch is maintained (see [Versions](versions.md)).
 
 ## After patching
 

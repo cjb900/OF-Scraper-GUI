@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="OF-Scraper 3.12.9 – 3.14.7" src="https://img.shields.io/badge/OF--Scraper-3.12.9%20%E2%80%93%203.14.7-3b82f6">
+  <img alt="OF-Scraper 3.14.7" src="https://img.shields.io/badge/OF--Scraper-3.14.7-3b82f6">
   <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776ab?logo=python&logoColor=white">
   <img alt="PyQt6" src="https://img.shields.io/badge/GUI-PyQt6-41cd52?logo=qt&logoColor=white">
   <img alt="Windows, Linux, Docker" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux%20%7C%20Docker-6b7280">
@@ -30,7 +30,10 @@
 
 A self-contained Python script that patches an installed (non-binary) copy of [OF-Scraper](https://github.com/datawhores/OF-Scraper) to add a full **PyQt6 GUI**, opened with `ofscraper --gui`.
 
-**Supported OF-Scraper versions:** `3.12.9`, `3.14.3`, `3.14.5`, and `3.14.7` (one patch script per version; 3.14.7 has the most features, see [Versions](docs/versions.md)).
+**Supported OF-Scraper version:** `3.14.7` (`patch_ofscraper_3.14.7_gui.py`).
+
+> [!WARNING]
+> Only the **3.14.7** patch is being updated. The patches for **3.12.9**, **3.14.3** and **3.14.5** are still in the repository but have not been updated and may not work properly. Use OF-Scraper 3.14.7 with the 3.14.7 patch. See [Versions](docs/versions.md).
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/e7c590a6-3b05-4e93-9d8c-f35eb673aa46" width="600" alt="Main Window — Select Action">
