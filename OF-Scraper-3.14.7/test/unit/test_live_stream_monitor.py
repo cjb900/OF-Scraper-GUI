@@ -786,3 +786,62 @@ def test_system_libraries_are_only_installed_with_admin_rights(tmp_path, monkeyp
     assert ran_deps is root
     if not root:
         assert any("sudo" in line and "install-deps" in line for line in logs)
+
+
+# ── Stream end while recording ───────────────────────────────────────────────
+
+class _Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+def test_recording_stops_after_two_not_live_answers():
+    answers = iter([False, False])
+    clock = _Clock()
+    w = lsm._StreamEndWatch("creator", check=lambda u: next(answers), clock=clock)
+    clock.t = 30; w.got_data()
+    assert w.reason() is None  # not time to ask yet
+    clock.t = 61; w.got_data()
+    assert w.reason() is None  # first "not live": could be a blip
+    clock.t = 122; w.got_data()
+    assert "stream has ended" in w.reason()
+
+
+def test_a_live_answer_or_failed_check_resets_the_count():
+    answers = iter([False, True, False, None, False])
+    clock = _Clock()
+    w = lsm._StreamEndWatch("creator", check=lambda u: next(answers), clock=clock)
+    for i in range(1, 6):
+        clock.t = 61 * i; w.got_data()
+        assert w.reason() is None
+
+
+def test_recording_stops_when_no_data_arrives():
+    clock = _Clock()
+    w = lsm._StreamEndWatch("creator", check=lambda u: True, clock=clock)
+    clock.t = 299
+    assert w.reason() is None
+    clock.t = 300
+    assert "No new data" in w.reason()
+
+
+def test_live_check_uses_the_active_stream_api(monkeypatch):
+    monkeypatch.setattr(api, "fetch_active_stream", lambda u: None)
+    assert lsm._stream_still_live("creator") is False
+    monkeypatch.setattr(api, "fetch_active_stream", lambda u: {"isActive": True})
+    assert lsm._stream_still_live("creator") is True
+    monkeypatch.setattr(api, "fetch_active_stream", lambda u: (_ for _ in ()).throw(RuntimeError("net")))
+    assert lsm._stream_still_live("creator") is None
+
+
+def test_the_recording_loop_feeds_and_asks_the_end_watch():
+    import inspect
+
+    src = inspect.getsource(lsm.Plugin.record_stream)
+    assert "end_watch = _StreamEndWatch(username)" in src
+    # new chunks reset the no-data timer; every loop pass asks whether to stop
+    flush = src.index("_chunk_file.flush()")
+    assert src.index("end_watch.got_data()", flush) < src.index("end_watch.reason()")

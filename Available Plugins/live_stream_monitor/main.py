@@ -219,6 +219,57 @@ def _playwright_user_agent(auth_ua: str | None) -> str | None:
     return ua or None
 
 
+# While recording: ask OnlyFans whether the stream is still on, and give up
+# when no data has arrived for this long (the page can stay on /live with a
+# frozen "playing" video after the stream ends).
+_LIVE_CHECK_SECONDS = 60
+_NOT_LIVE_CHECKS_TO_STOP = 2
+_NO_DATA_STOP_SECONDS = 300
+
+
+def _stream_still_live(username: str):
+    """True / False from OnlyFans' /streams/active; None if the check failed."""
+    try:
+        try:
+            from .of_live_api import fetch_active_stream
+        except ImportError:
+            from of_live_api import fetch_active_stream  # type: ignore
+        return fetch_active_stream(username) is not None
+    except Exception:
+        return None
+
+
+class _StreamEndWatch:
+    """Decides when a recording should stop because the stream is over."""
+
+    def __init__(self, username: str, check=None, clock=time.monotonic):
+        self.username = username
+        self._check = check or _stream_still_live
+        self._clock = clock
+        self._last_check = self._last_data = clock()
+        self._not_live = 0
+
+    def got_data(self) -> None:
+        self._last_data = self._clock()
+
+    def reason(self):
+        """A message to stop with, or None to keep recording."""
+        now = self._clock()
+        if now - self._last_check >= _LIVE_CHECK_SECONDS:
+            self._last_check = now
+            live = self._check(self.username)
+            # A failed check (None) doesn't count either way.
+            self._not_live = self._not_live + 1 if live is False else 0
+            if self._not_live >= _NOT_LIVE_CHECKS_TO_STOP:
+                return f"OnlyFans says {self.username}'s stream has ended"
+        if now - self._last_data >= _NO_DATA_STOP_SECONDS:
+            return (
+                f"No new data from {self.username}'s stream for "
+                f"{_NO_DATA_STOP_SECONDS // 60} min"
+            )
+        return None
+
+
 def _session_init_script(auth: dict) -> str:
     """Put x-bc where the OnlyFans web app reads it, before any page script runs.
 
@@ -3063,6 +3114,7 @@ class Plugin(BasePlugin):
                 offline_counter = 0
                 max_offline = 360  # 360 × 5 s = 30 min fallback for hung sessions
                 diag_tick = 0      # re-run audio diagnostic every 12 polls (60 s)
+                end_watch = _StreamEndWatch(username)
 
                 while not stop_event.is_set():
                     stop_event.wait(5)
@@ -3080,6 +3132,7 @@ class Plugin(BasePlugin):
                             if chunks:
                                 _chunk_file.flush()
                                 last_chunk_time = datetime.datetime.now()
+                                end_watch.got_data()
                         except Exception:
                             pass
 
@@ -3121,6 +3174,12 @@ class Plugin(BasePlugin):
                         )
                         break
 
+                    # After a stream ends the page can stay on /live with a frozen
+                    # "playing" video, so ask OnlyFans (twice, to ride out a blip).
+                    end_reason = end_watch.reason()
+                    if end_reason:
+                        self._emit_log(f"[Playwright] {end_reason} — stopping.")
+                        break
                     # Secondary stop: 30 min of no video activity (hung session)
                     try:
                         is_playing = rec_page.evaluate("""() => {

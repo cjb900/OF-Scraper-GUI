@@ -1,6 +1,6 @@
 {
   "name": "Live Stream Monitor",
-  "version": "1.3.6",
+  "version": "1.3.7",
   "author": "Antigravity",
   "description": "Monitors subscribed models, auto-captures live streams with Playwright MediaRecorder (headless by default). Diagnostics (probe / API dumps) are hidden behind Show diagnostics.",
   "api_version": 1
