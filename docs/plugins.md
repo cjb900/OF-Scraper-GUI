@@ -240,23 +240,41 @@ Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects
 
 This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
 
-**Highlights (plugin v1.3.x)**
+**Highlights (plugin v1.3.6)**
+
+The version shows on the Plugins page and next to the Live Monitor page title.
+
 - Privacy mode masks usernames/paths in the plugin UI and console
 - Windows capture paths use normal backslash display
-- Injects `sess` / `auth_id` / `auth_uid*` from Authentication; Playwright login only when a capture starts and no valid session/profile exists
+- **No window (headless browser)**, on by default: captures run in Chrome's headless mode, with no window at all. Untick it to use a real Chrome window (optionally kept off-screen with *Hide capture window*), e.g. to log in by hand
+- The capture browser logs in with the **Authentication** login: its cookies, its **user-agent** (OnlyFans ties the session to it, even a Firefox one) and its **x-bc** (put where the website reads it). Each capture starts from a clean browser profile. If OnlyFans still shows its login page, headless captures stop straight away with a message to re-import cookies (Authentication → Test must pass)
 - Chromium install prompt when needed; Stop / Unload while a capture is running
 - Subscriptions table expands to fill the page (resizable columns); terminal sits full-width at the bottom
-- **Capture selected** plus **Stop selected** / **Stop all** / per-row **Stop** (poller can keep running)
-- Capture cooldown after stop/fail so Auto-Capture does not immediately re-spawn the same creator
-- **Show diagnostics** (off by default) reveals optional tools:
+- **Capture selected** / **Stop all** / per-row **Stop** (poller can keep running). Buttons that can't do anything right now (nothing selected, creator ignored or already capturing) are greyed out
+- **Right-click a creator** for Capture now, Stop, Open recordings folder, Ignore and Copy name (Copy name is hidden in Privacy mode). Double-click opens the recordings folder; if there are no recordings yet, the console says so instead of creating an empty folder
+- Ignored creators are greyed out and marked "ignored". **Only live** next to the filter box shows just the creators who are live or being captured
+- While recording, the Status column shows the time and file size so far, e.g. `Recording 🔴 (12:04 · 850 MB)`
+- **Desktop notifications** (on by default) when a recording starts, is saved, or a capture fails. Names are hidden in Privacy mode
+- Once Chromium works, Playwright Setup shrinks to "🟢 Chromium ready"; **Manage…** shows Reinstall Chromium and Clear saved browser logins
+- The table updates rows in place between polls, so your scroll position and selection stay put
+- The top of the page shows whether the monitor is working: last check time, seconds until the next one, how many creators are live and recording
+- Poll interval, capture folder and Auto-Capture are remembered. If Auto-Capture was on when you closed the GUI, it starts again on the next launch (an auth failure turns it off)
+- The console keeps the last 2,000 lines, and stays where you scrolled until you go back to the bottom
+- Capture cooldown so Auto-Capture does not immediately re-spawn the same creator: 30 s after **Stop**, 2 min after any start that didn't reach recording, 10 min after a login timeout
+- **Stop** takes effect within a few seconds, even while the browser is waiting for a login or for the player
+- The capture browser runs with Chrome's **sandbox on**. It's turned off only as root or in a container (where Chrome can't use it), or if Chrome reports it can't start one; the console then says so
+- When a stream ends, the recording's length is fixed with the **FFmpeg from Configuration → Download** (or a built-in fallback). Long recordings are processed without loading them into memory
+- **Clear saved browser logins** (Playwright Setup → Manage…) deletes the capture browser's saved OnlyFans logins. There is one per creator under `<config>/playwright_profiles/`, readable only by you
+- **Show diagnostics** (off by default) reveals optional tools and the detailed audio/player log lines during captures:
   - *Diagnostics probe only* / **Probe selected…** — join live ~45s, redacted HLS/WebRTC/API evidence under `live_probe_reports/` (no WebM)
   - **Fetch live API dump…** — redacted `/streams/active` + `/streams/active/url` JSON under `live_api_dumps/`
+  - Reports hide tokens and email addresses, but they still contain creator names and stream details; check them before sharing
 - Native Agora Server SDK joins are **not** supported (OF rejects them); Playwright is the capture path on Windows and Linux
 
 **Setup**
 1. Copy the `Available Plugins/live_stream_monitor` folder into your plugins folder
 2. Enable via Plugins page or `plugin_enabled = 1`, then Load now / restart
-3. Install Chromium from the Live Monitor page if prompted
+3. Install Chromium from the Live Monitor page if prompted. Playwright is installed the same way OF-Scraper was: `pipx inject ofscraper playwright` for pipx, `uv pip install` into OF-Scraper's uv environment for uv, and pip otherwise. If that fails, the console shows the command to run yourself. On Linux the plugin never asks for your password: it installs Chromium's system libraries only when it already runs as root (e.g. Docker). Desktops usually have them; if Chromium can't start, run the `sudo … playwright install-deps chromium` command the console shows
 4. Enable Auto-Capture — polling uses normal GUI auth; Chromium opens only when someone goes live
 
 ---

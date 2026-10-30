@@ -66,6 +66,18 @@ _SECRET_JSON_KEYS = {
 }
 
 
+# Personal data that OF API responses (e.g. /users/me) can carry
+_PERSONAL_KEY_PARTS = ("email", "phone", "ipaddress", "ip_address", "lastip")
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def redact_text(text: str) -> str:
+    """Mask email addresses in free text (reports may be shared for support)."""
+    if not isinstance(text, str):
+        return text
+    return _EMAIL_RE.sub("[REDACTED_EMAIL]", text)
+
+
 def url_is_interesting(url: str) -> bool:
     return bool(url and _INTERESTING_RE.search(url))
 
@@ -113,7 +125,9 @@ def redact_json(obj: Any, depth: int = 0) -> Any:
         for k, v in obj.items():
             lk = str(k).lower()
             if lk in {x.lower() for x in _SECRET_JSON_KEYS} or any(
-                s in lk for s in ("token", "sess", "secret", "password", "cookie", "auth")
+                s in lk
+                for s in ("token", "sess", "secret", "password", "cookie", "auth")
+                + _PERSONAL_KEY_PARTS
             ):
                 out[k] = "[REDACTED]"
             else:
@@ -123,8 +137,10 @@ def redact_json(obj: Any, depth: int = 0) -> Any:
         if len(obj) > 40:
             return [redact_json(x, depth + 1) for x in obj[:40]] + ["…"]
         return [redact_json(x, depth + 1) for x in obj]
-    if isinstance(obj, str) and len(obj) > 500:
-        return obj[:200] + "…"
+    if isinstance(obj, str):
+        if len(obj) > 500:
+            obj = obj[:200] + "…"
+        return redact_text(obj)
     return obj
 
 

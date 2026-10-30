@@ -1,3 +1,10 @@
 # Python bytecode is generated; never commit it
 __pycache__/
 *.pyc
+
+# Live Stream Monitor plugin: per-user runtime files
+Available Plugins/live_stream_monitor/live_stream_settings.json
+Available Plugins/live_stream_monitor/live_stream_ignored.json
+Available Plugins/live_stream_monitor/live_probe_reports/
+Available Plugins/live_stream_monitor/live_api_dumps/
+Available Plugins/live_stream_monitor/deps/

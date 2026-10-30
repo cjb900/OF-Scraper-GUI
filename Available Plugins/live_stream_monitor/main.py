@@ -11,6 +11,7 @@ import datetime
 import logging
 import subprocess
 import threading
+import re
 import traceback
 from pathlib import Path
 
@@ -23,6 +24,7 @@ try:
     from .live_probe import (
         classify_delivery,
         redact_json,
+        redact_text,
         redact_url,
         summarize_requests,
         url_is_interesting,
@@ -31,6 +33,7 @@ except ImportError:
     from live_probe import (  # type: ignore
         classify_delivery,
         redact_json,
+        redact_text,
         redact_url,
         summarize_requests,
         url_is_interesting,
@@ -134,23 +137,116 @@ def _chromium_channel_for_host() -> str | None:
     return None
 
 
-def _playwright_user_agent(auth_ua: str | None) -> str | None:
-    """Only pass auth UA into Chromium when it looks like a Chromium UA.
+def _probe_chromium_launch(
+    *,
+    channel: str | None = None,
+    browsers_path: Path | None = None,
+    timeout: int = 90,
+) -> tuple[bool, str]:
+    """Launch Chromium in a *subprocess* (never inside the Qt GUI process).
 
-    Forcing a Firefox/Zen UA onto Chrome/Chromium fingerprints the session and
-    commonly triggers OnlyFans login / captcha failures.
+    In-process ``playwright.launch()`` from a QThread under PyQt regularly
+    hard-crashes Windows GUIs (empty dialog close / access violation). Probe
+    out-of-process so Install Chromium cannot take down OF-Scraper.
+    """
+    bp = str(browsers_path or _browsers_path_for_plugin())
+    ch = (channel or "").strip() or None
+    script = (
+        "import os, sys\n"
+        f"os.environ['PLAYWRIGHT_BROWSERS_PATH'] = {bp!r}\n"
+        "from playwright.sync_api import sync_playwright\n"
+        "try:\n"
+        "    with sync_playwright() as p:\n"
+        f"        kwargs = {{'headless': True}}\n"
+        f"        channel = {ch!r}\n"
+        "        if channel:\n"
+        "            kwargs['channel'] = channel\n"
+        "        browser = p.chromium.launch(**kwargs)\n"
+        "        browser.close()\n"
+        "    print('OK', flush=True)\n"
+        "except Exception as e:\n"
+        "    print(f'{type(e).__name__}:{e!r}', flush=True)\n"
+        "    sys.exit(1)\n"
+    )
+    env = os.environ.copy()
+    env["PLAYWRIGHT_BROWSERS_PATH"] = bp
+    env["PYTHONUNBUFFERED"] = "1"
+    popen_kwargs: dict = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "text": True,
+        "env": env,
+    }
+    if sys.platform == "win32":
+        # Avoid flashing a console window; keep install UX in the dialog log.
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-u", "-c", script],
+            **popen_kwargs,
+        )
+    except Exception as e:
+        return False, f"probe_start_failed:{e!r}"
+    try:
+        out, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return False, f"probe_timeout_after_{timeout}s"
+    except Exception as e:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return False, f"probe_error:{e!r}"
+    detail = (out or "").strip() or f"exit_{proc.returncode}"
+    if proc.returncode == 0 and "OK" in detail:
+        return True, detail
+    return False, detail
+
+
+def _playwright_user_agent(auth_ua: str | None) -> str | None:
+    """The Authentication user-agent, whatever browser it came from.
+
+    OnlyFans ties the imported ``sess`` to the user-agent it was created with;
+    with any other UA (e.g. Chrome's own when the login came from Firefox) the
+    site shows the login page. Tested live 2026-10-29: Firefox UA on Chromium
+    logged in, no captcha.
     """
     ua = (auth_ua or "").strip()
-    if not ua:
-        return None
-    lower = ua.lower()
-    if "chrome/" in lower or "chromium/" in lower or "edg/" in lower:
-        return ua
-    return None
+    return ua or None
+
+
+def _session_init_script(auth: dict) -> str:
+    """Put x-bc where the OnlyFans web app reads it, before any page script runs.
+
+    The app keeps it in localStorage "bcTokenSha"; without the imported value it
+    makes a new one and treats the imported ``sess`` as logged out.
+    """
+    xbc = str((auth or {}).get("x-bc") or "").strip()
+    if not xbc:
+        return ""
+    return (
+        "try { if (location.hostname.endsWith('onlyfans.com')) "
+        f"localStorage.setItem('bcTokenSha', {json.dumps(xbc)}); }} catch (e) {{}}"
+    )
+
+
+def _reset_profile(profile_dir: Path) -> Path:
+    """Start each capture from a clean browser profile.
+
+    The login always comes from Authentication; leftovers from an older session
+    in a saved profile made OnlyFans show the login page even with the right
+    cookies, user-agent and x-bc.
+    """
+    shutil.rmtree(profile_dir, ignore_errors=True)
+    return _private_dir(profile_dir)
 
 
 def _apply_chromium_launch_kwargs(kwargs: dict, user_agent: str | None) -> dict:
-    """Mutate launch kwargs: real Chrome channel + Chromium-compatible UA only."""
+    """Mutate launch kwargs: real Chrome channel + the Authentication UA."""
     channel = _chromium_channel_for_host()
     if channel:
         kwargs["channel"] = channel
@@ -230,6 +326,34 @@ def _find_uv_binary() -> str | None:
         if c.is_file():
             return str(c)
     return None
+
+
+def _find_pipx_binary() -> str | None:
+    """Return the pipx executable, or None."""
+    found = shutil.which("pipx")
+    if found:
+        return found
+    home = Path.home()
+    for c in (home / ".local" / "bin" / "pipx", home / ".local" / "bin" / "pipx.exe"):
+        if c.is_file():
+            return str(c)
+    return None
+
+
+def _pipx_venv_name(executable: str | None = None) -> str | None:
+    """Name of the pipx app whose venv runs *executable* (".../pipx/venvs/<name>/...")."""
+    parts = Path(executable or sys.executable).parts
+    pipx_home = os.environ.get("PIPX_HOME")
+    for i in range(1, len(parts) - 1):
+        if parts[i].lower() != "venvs":
+            continue
+        parent = parts[i - 1].lower()
+        if "pipx" in parent or (pipx_home and Path(*parts[:i]) == Path(pipx_home)):
+            return parts[i + 1]
+    return None
+
+
+PLAYWRIGHT_REQ = "playwright>=1.40.0"
 
 
 def _playwright_driver_node(pkg_root: Path) -> Path:
@@ -326,7 +450,230 @@ def _browsers_path_for_plugin() -> Path:
     return path
 
 
+def _prepare_playwright(deps_path: Path) -> bool:
+    """Make a usable playwright importable.
+
+    A playwright that is already loaded and working is left alone, so checks and
+    new captures never pull the module out from under captures that are running.
+    """
+    ok, _detail, _root = _inspect_playwright_install()
+    if ok:
+        return True
+    # Prefer the active venv/site-packages over the plugin's deps folder.
+    _remove_path_entry(deps_path)
+    _purge_playwright_modules()
+    ok, _detail, _root = _inspect_playwright_install()
+    if ok:
+        return True
+    # Use deps only when it has a native driver (not a Windows mount in Linux).
+    deps_pw = deps_path / "playwright"
+    if deps_pw.is_dir() and _playwright_driver_node(deps_pw).is_file():
+        if str(deps_path) not in sys.path:
+            sys.path.insert(0, str(deps_path))
+        _purge_playwright_modules()
+        ok, _detail, _root = _inspect_playwright_install()
+    return ok
+
+
+def _in_container() -> bool:
+    """True inside Docker / Podman / Kubernetes."""
+    if os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv"):
+        return True
+    try:
+        with open("/proc/1/cgroup", errors="ignore") as f:
+            text = f.read()
+        return any(k in text for k in ("docker", "containerd", "kubepods"))
+    except OSError:
+        return False
+
+
+def _is_root() -> bool:
+    try:
+        return os.geteuid() == 0
+    except AttributeError:  # Windows
+        return False
+
+
+def _install_deps_hint() -> str:
+    """Command a Linux user can run themselves to add Chromium's system libraries."""
+    return f"sudo {sys.executable} -m playwright install-deps chromium"
+
+
+def _needs_no_sandbox() -> bool:
+    """Chrome's sandbox can't start as root or in most containers.
+
+    Everywhere else it stays on: the capture browser opens OnlyFans pages
+    (and the ads they load), and the sandbox keeps a bad page away from the PC.
+    """
+    if not sys.platform.startswith("linux"):
+        return False
+    return _is_root() or _in_container()
+
+
+_BACKGROUND_ARGS = [
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
+    "--disable-background-media-suspend",
+]
+
+
+def _capture_launch_kwargs(
+    profile_dir: Path, prefer_hidden: bool, user_agent, headless: bool = False
+) -> dict:
+    """launch_persistent_context() arguments shared by capture and probe.
+
+    *headless*: no window at all (Chrome's new headless mode). Otherwise a real
+    window, moved off-screen when *prefer_hidden*.
+    """
+    no_sandbox = _needs_no_sandbox()
+    args = [
+        "--autoplay-policy=no-user-gesture-required",
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+        "--password-store=basic",
+    ]
+    if no_sandbox:
+        args += ["--no-sandbox", "--disable-setuid-sandbox"]
+    if prefer_hidden and not headless:
+        args += ["--window-position=-20000,-20000", "--window-size=1280,720"]
+    args += _BACKGROUND_ARGS
+    kwargs = {
+        "user_data_dir": str(profile_dir),
+        "headless": bool(headless),
+        "viewport": {"width": 1280, "height": 720},
+        "args": args,
+        # Playwright turns the sandbox off unless asked; ask for it.
+        "chromium_sandbox": not no_sandbox,
+    }
+    kwargs = _apply_chromium_launch_kwargs(kwargs, user_agent)
+    if headless:
+        # A Chrome channel runs Chrome's new headless mode (the full browser);
+        # Playwright's default build would be the stripped "headless shell".
+        kwargs.setdefault("channel", "chromium")
+    return kwargs
+
+
+def _launch_capture_context(p, launch_kwargs: dict, emit):
+    """Launch the persistent context; fall back to no sandbox only if it can't start."""
+    try:
+        return p.chromium.launch_persistent_context(**launch_kwargs)
+    except Exception as e:
+        if not launch_kwargs.get("chromium_sandbox") or "sandbox" not in str(e).lower():
+            raise
+        emit(
+            "[Playwright] Chrome's sandbox can't start on this system "
+            f"({type(e).__name__}) — retrying without it. Captures still work, "
+            "but are less isolated from the pages they open."
+        )
+        retry = dict(launch_kwargs)
+        retry["chromium_sandbox"] = False
+        retry["args"] = list(retry.get("args") or []) + [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+        ]
+        return p.chromium.launch_persistent_context(**retry)
+
+
+def _wait_for_live_url(page, username: str, stop_event, seconds: float) -> bool:
+    """Wait for the browser to reach the creator's /live page (e.g. after a login).
+
+    Returns False on timeout or when Stop is pressed, checking once a second.
+    """
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if stop_event.is_set():
+            return False
+        try:
+            if _url_is_live_stream(page.url, username):
+                return True
+            page.wait_for_timeout(1000)
+        except Exception:
+            return False
+    return False
+
+
+def _private_dir(path: Path) -> Path:
+    """Create *path* readable only by this user (it holds browser logins)."""
+    path.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix":
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            pass
+    return path
+
+
+def _ffmpeg_binary() -> str | None:
+    """FFmpeg from Configuration (same lookup as downloads), else PATH."""
+    try:
+        from ofscraper.utils.system.ffmpeg import get_ffmpeg
+
+        return get_ffmpeg()
+    except Exception:
+        return shutil.which("ffmpeg")
+
+
+def _remux_timeout(path: Path) -> int:
+    """Seconds to allow a stream-copy remux: 5 min, or 10 MB/s for big files."""
+    try:
+        size_mb = path.stat().st_size / (1024 * 1024)
+    except OSError:
+        size_mb = 0
+    return int(max(300, size_mb / 10))
+
+
+_AUTH_MESSAGES = (
+    "auth fields not configured",
+    "authentication validation failed",
+    "isauth=false",
+    "wrong user",
+)
+_AUTH_STATUS_RE = re.compile(
+    r"(?:status|http|code|error)\D{0,15}\b(400|401|403)\b", re.IGNORECASE
+)
+
+
+def _http_status(exc) -> int | None:
+    for obj in (exc, getattr(exc, "response", None)):
+        if obj is None:
+            continue
+        for attr in ("status", "status_code"):
+            value = getattr(obj, attr, None)
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+    return None
+
+
+def _is_auth_error(exc) -> bool:
+    """True for login problems: HTTP 400/401/403 or our own auth messages.
+
+    Looks at real status codes (and "status 401"-style text), not at any "400"
+    in a message, so timeouts or ids containing 400 don't stop the monitor.
+    """
+    seen = set()
+    cur = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if _http_status(cur) in (400, 401, 403):
+            return True
+        text = str(cur)
+        if any(m in text.lower() for m in _AUTH_MESSAGES):
+            return True
+        if _AUTH_STATUS_RE.search(text):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
 # ---------------------------------------------------------------------------
+
+# WebM post-processing works on the file, never on the whole recording in
+# memory: a one-hour MediaRecorder capture is about 1 GB.
+_WEBM_HEAD_BYTES = 8192
+_WEBM_TAIL_BYTES = 16 * 1024 * 1024
+_WEBM_SCAN_CHUNK = 8 * 1024 * 1024
+
 
 def _patch_webm_duration(path: Path, duration_ms: float, log_fn=None) -> bool:
     """
@@ -336,9 +683,10 @@ def _patch_webm_duration(path: Path, duration_ms: float, log_fn=None) -> bool:
     block, causing VLC and other players to show 00:00 as the total length.
 
     Strategy:
-      1. If Duration (0x4489 0x88) already exists and is zero → overwrite in-place.
+      1. If Segment Info already has a Duration → overwrite its value in place.
       2. Otherwise, insert an 11-byte Duration element at the end of the Segment
-         Info block by rebuilding the affected header bytes and writing a new file.
+         Info block: write the rebuilt header to a new file and stream the rest
+         of the recording after it.
 
     WebM default TimestampScale = 1,000,000 ns/tick → 1 tick = 1 ms, so the
     Duration field value is duration_ms (a float64, big-endian).
@@ -352,9 +700,13 @@ def _patch_webm_duration(path: Path, duration_ms: float, log_fn=None) -> bool:
 
     def _read_vint(data, offset):
         """Parse EBML variable-length integer. Returns (value, byte_width)."""
+        if offset >= len(data):
+            return None, 0
         b = data[offset]
         for width, mask in enumerate([0x80, 0x40, 0x20, 0x10, 0x08], start=1):
             if b & mask:
+                if offset + width > len(data):
+                    return None, 0
                 val = b & (mask - 1)
                 for i in range(1, width):
                     val = (val << 8) | data[offset + i]
@@ -377,28 +729,18 @@ def _patch_webm_duration(path: Path, duration_ms: float, log_fn=None) -> bool:
     DURATION_ELEM = b'\x44\x89\x88' + struct.pack('>d', duration_ms)
 
     try:
-        file_bytes = path.read_bytes()
+        with open(path, "rb") as f:
+            head = f.read(_WEBM_HEAD_BYTES)
 
-        # --- Pass 1: Duration present but zero → overwrite in-place (no file rewrite) ---
-        inplace_pos = file_bytes.find(b'\x44\x89\x88', 0, 8192)
-        if inplace_pos != -1:
-            patched = bytearray(file_bytes)
-            struct.pack_into('>d', patched, inplace_pos + 3, duration_ms)
-            path.write_bytes(bytes(patched))
-            if log_fn:
-                log_fn(f"[Capture] Duration metadata written ({duration_ms/1000:.1f}s).")
-            return True
-
-        # --- Pass 2: Duration absent → insert into Segment Info block ---
         SI_ID = b'\x15\x49\xA9\x66'
-        si_pos = file_bytes.find(SI_ID, 0, 8192)
+        si_pos = head.find(SI_ID)
         if si_pos == -1:
             if log_fn:
                 log_fn("[Capture] Segment Info not found — cannot add Duration.")
             return False
 
         size_offset = si_pos + 4
-        seg_size, size_len = _read_vint(file_bytes, size_offset)
+        seg_size, size_len = _read_vint(head, size_offset)
         if size_len == 0 or seg_size is None:
             if log_fn:
                 log_fn("[Capture] Cannot parse Segment Info size — skipping.")
@@ -413,29 +755,48 @@ def _patch_webm_duration(path: Path, duration_ms: float, log_fn=None) -> bool:
 
         content_start = size_offset + size_len
         content_end = content_start + seg_size
-
-        # Already has a Duration (4-byte float variant or other encoding)?
-        if b'\x44\x89' in file_bytes[content_start:content_end]:
+        if content_end > len(head):
             if log_fn:
-                log_fn("[Capture] Duration element already present.")
+                log_fn("[Capture] Segment Info is unexpectedly large — skipping.")
+            return False
+
+        # --- Pass 1: Duration already in Segment Info → overwrite in place ---
+        dur_pos = head.find(b'\x44\x89', content_start, content_end)
+        if dur_pos != -1 and dur_pos + 3 <= content_end:
+            size_byte = head[dur_pos + 2]
+            if size_byte == 0x88:
+                payload = struct.pack('>d', duration_ms)
+            elif size_byte == 0x84:
+                payload = struct.pack('>f', duration_ms)
+            else:
+                if log_fn:
+                    log_fn("[Capture] Duration element already present.")
+                return True
+            with open(path, "r+b") as f:
+                f.seek(dur_pos + 3)
+                f.write(payload)
+            if log_fn:
+                log_fn(f"[Capture] Duration metadata written ({duration_ms/1000:.1f}s).")
             return True
 
-        # Build patched file: everything up to SegInfo size field, then new size,
-        # then original content, then Duration element, then rest of file unchanged.
+        # --- Pass 2: Duration absent → insert into Segment Info block ---
+        # New header = up to the SegInfo size field, new size, original SegInfo
+        # content, the Duration element; then the rest of the file unchanged.
         new_seg_size = seg_size + len(DURATION_ELEM)
-        new_data = (
-            file_bytes[:si_pos + 4]                  # EBML header + SegInfo element ID
-            + _encode_vint(new_seg_size)              # updated Segment Info size
-            + file_bytes[content_start:content_end]  # original Segment Info content
-            + DURATION_ELEM                           # new Duration element
-            + file_bytes[content_end:]               # Tracks + Clusters unchanged
+        new_head = (
+            head[:si_pos + 4]
+            + _encode_vint(new_seg_size)
+            + head[content_start:content_end]
+            + DURATION_ELEM
         )
 
         tmp_path = path.with_name(path.stem + ".tmp.webm")
         try:
-            tmp_path.write_bytes(new_data)
-            path.unlink()
-            tmp_path.rename(path)
+            with open(path, "rb") as src, open(tmp_path, "wb") as dst:
+                dst.write(new_head)
+                src.seek(content_end)
+                shutil.copyfileobj(src, dst, _WEBM_SCAN_CHUNK)
+            os.replace(tmp_path, path)
         except Exception:
             tmp_path.unlink(missing_ok=True)
             raise
@@ -450,21 +811,13 @@ def _patch_webm_duration(path: Path, duration_ms: float, log_fn=None) -> bool:
         return False
 
 
-def _read_webm_last_cluster_ms(file_bytes: bytes) -> float:
-    """
-    Scan all WebM Cluster timestamps and return the last one in milliseconds.
-
-    Chrome MediaRecorder writes a new Cluster every keyframe (~2-5 seconds for VP8).
-    The last cluster's timestamp + 2000ms gives a close estimate of the true content
-    duration — much more accurate than wall-clock time.
-
-    Returns 0.0 if no clusters with readable timestamps are found.
-    """
+def _last_cluster_ts_in(buf: bytes) -> int:
+    """Return the largest WebM Cluster timestamp (ms) found in *buf*, or 0."""
     CLUSTER_ID = b'\x1F\x43\xB6\x75'
     max_ts = 0
     pos = 0
     while True:
-        pos = file_bytes.find(CLUSTER_ID, pos)
+        pos = buf.find(CLUSTER_ID, pos)
         if pos == -1:
             break
         # The Cluster Timestamp element (EBML ID 0xE7) is always the first element
@@ -472,18 +825,76 @@ def _read_webm_last_cluster_ms(file_bytes: bytes) -> float:
         # (01 FF FF FF FF FF FF FF), placing E7 at pos+12. We search pos+5..pos+22
         # to also handle clusters with explicit sizes (1-4 byte VINTs).
         window_start = pos + 5
-        window_end = min(pos + 22, len(file_bytes))
-        e7_idx = file_bytes.find(b'\xe7', window_start, window_end)
-        if e7_idx != -1:
-            size_b = file_bytes[e7_idx + 1]
+        window_end = min(pos + 22, len(buf))
+        e7_idx = buf.find(b'\xe7', window_start, window_end)
+        if e7_idx != -1 and e7_idx + 1 < len(buf):
+            size_b = buf[e7_idx + 1]
             if size_b & 0x80:  # 1-byte VINT
                 ts_size = size_b & 0x7F
-                ts_bytes = file_bytes[e7_idx + 2: e7_idx + 2 + ts_size]
-                ts_val = int.from_bytes(ts_bytes, 'big')
-                if 0 < ts_val < 86_400_000:  # sanity: > 0 and < 24 hours
-                    max_ts = max(max_ts, ts_val)
+                ts_bytes = buf[e7_idx + 2: e7_idx + 2 + ts_size]
+                if len(ts_bytes) == ts_size:
+                    ts_val = int.from_bytes(ts_bytes, 'big')
+                    if 0 < ts_val < 86_400_000:  # sanity: > 0 and < 24 hours
+                        max_ts = max(max_ts, ts_val)
         pos += 4
-    return float(max_ts)
+    return max_ts
+
+
+def _read_webm_last_cluster_ms(path: Path) -> float:
+    """
+    Return the last WebM Cluster timestamp in *path*, in milliseconds.
+
+    Chrome MediaRecorder writes a new Cluster every keyframe (~2-5 seconds for VP8).
+    The last cluster's timestamp + 2000ms gives a close estimate of the true content
+    duration — much more accurate than wall-clock time.
+
+    Only the end of the file is read; the whole file is scanned (in chunks)
+    only when the tail has no cluster. Returns 0.0 if none is found.
+    """
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        tail_start = max(0, size - _WEBM_TAIL_BYTES)
+        f.seek(tail_start)
+        best = _last_cluster_ts_in(f.read())
+        if best or tail_start == 0:
+            return float(best)
+        f.seek(0)
+        carry = b""
+        while True:
+            chunk = f.read(_WEBM_SCAN_CHUNK)
+            if not chunk:
+                break
+            buf = carry + chunk
+            best = max(best, _last_cluster_ts_in(buf))
+            carry = buf[-32:]
+    return float(best)
+
+
+def _of_error_detail(exc: Exception) -> str:
+    detail = ""
+    resp = getattr(exc, "response", None)
+    if resp is None:
+        return detail
+    try:
+        body = resp.json()
+        err = body.get("error", {}) if isinstance(body, dict) else {}
+        if isinstance(err, dict):
+            msg = err.get("message") or ""
+            code = err.get("code")
+            if msg or code is not None:
+                detail = f" OnlyFans: {msg} (code {code})".rstrip()
+        if not detail:
+            text = getattr(resp, "text", "") or ""
+            if text:
+                detail = f" Body: {text[:240]}"
+    except Exception:
+        try:
+            text = getattr(resp, "text", "") or ""
+            if text:
+                detail = f" Body: {text[:240]}"
+        except Exception:
+            pass
+    return detail
 
 
 class LiveMonitorWorker(QThread):
@@ -498,49 +909,63 @@ class LiveMonitorWorker(QThread):
         self.interval = interval
         self.save_location = save_location
         self.running = True
+        # Signing rules / profile state are refreshed on the first poll only.
+        self._first_poll = True
+        # Read by the page's status line (plain values, set by this thread).
+        self.polling = False
+        self.last_poll_at = None
+        self.last_poll_ok = None
+        self.next_poll_at = None
 
     def run(self):
         self.log_msg.emit("[System] Monitoring worker thread active.")
         
         while self.running:
+            self.polling = True
+            poll_ok = False
             try:
                 # 1. Fetch subscribed models
                 self.log_msg.emit("[Monitor] Polling subscriptions status...")
-                models = self.fetch_models()
-                
+                models = self.fetch_models(refresh_auth=self._first_poll)
+                self._first_poll = False
+
                 # 2. Build current status dict
+                sessions = self.plugin.session_snapshot()
                 model_statuses = {}
                 for m in models:
                     if not m.active:
                         continue
-                    
+
                     username = m.name
                     is_live = m.model.get("hasStream", False)
                     expired_date = m.expired_string or "Active"
-                    
+
                     status = "Offline"
-                    if username in self.plugin.active_recordings:
+                    kind = (sessions.get(username) or (None, None))[0]
+                    if kind == "recording":
                         status = "Recording 🔴"
-                    elif username in self.plugin._connecting_recordings:
-                        if username in getattr(self.plugin, "_probe_sessions", set()):
-                            status = "Probing 🔬"
-                        else:
-                            status = "Connecting 🟡"
+                    elif kind == "probing":
+                        status = "Probing 🔬"
+                    elif kind == "connecting":
+                        status = "Connecting 🟡"
                     elif is_live:
                         status = "Live 🟢"
 
+                    # File counts are read here, not on the GUI thread.
+                    count, tooltip = self.plugin.stream_files_summary(
+                        username, self.save_location
+                    )
                     model_statuses[username] = {
                         "username": username,
                         "subscription": expired_date,
                         "status": status,
-                        "is_live": is_live
+                        "is_live": is_live,
+                        "streams_count": count,
+                        "streams_tooltip": tooltip,
                     }
 
                     # 3. If live and not already recording or connecting, spawn a session
-                    already_active = (
-                        username in self.plugin.active_recordings
-                        or username in self.plugin._connecting_recordings
-                    )
+                    already_active = kind is not None
                     if is_live and not already_active:
                         if self.plugin.is_ignored(username):
                             self.log_msg.emit(f"[Monitor] {username} is live but ignored — skipping.")
@@ -571,27 +996,19 @@ class LiveMonitorWorker(QThread):
                                 model_statuses[username]["status"] = "Connecting 🟡"
                 
                 # Emit update to refresh GUI table
+                poll_ok = True
                 self.status_updated.emit(model_statuses)
                 
             except Exception as e:
                 err_msg = str(e)
-                if (
-                    "Auth fields not configured" in err_msg
-                    or "Authentication validation failed" in err_msg
-                    or "400" in err_msg
-                    or "401" in err_msg
-                    or "403" in err_msg
-                    or "bad request" in err_msg.lower()
-                    or "wrong user" in err_msg.lower()
-                ):
-                    active = list(self.plugin.active_recordings.keys())
-                    connecting = list(self.plugin._connecting_recordings.keys())
+                if _is_auth_error(e):
+                    running = list(self.plugin.session_snapshot())
                     self.log_msg.emit(f"\n[Error] {err_msg}")
-                    if active or connecting:
+                    if running:
                         self.log_msg.emit(
                             "[Monitor] API auth failed — pausing auto-capture polls, "
                             "but leaving in-progress capture(s) running: "
-                            + ", ".join(active + connecting)
+                            + ", ".join(running)
                         )
                     self.auth_error.emit()
                     break
@@ -599,6 +1016,11 @@ class LiveMonitorWorker(QThread):
                     self.log_msg.emit(f"[Error] Error in monitor loop: {e}")
                     self.log_msg.emit(traceback.format_exc())
                 
+            self.last_poll_at = time.time()
+            self.last_poll_ok = poll_ok
+            self.next_poll_at = self.last_poll_at + self.interval
+            self.polling = False
+
             # Wait for next poll interval
             for _ in range(self.interval):
                 if not self.running:
@@ -607,43 +1029,22 @@ class LiveMonitorWorker(QThread):
 
         self.log_msg.emit("[System] Monitoring worker thread terminated.")
 
-    def fetch_models(self):
+    def fetch_models(self, refresh_auth: bool = False):
         """Fetch subscriptions via the same API path as Areas / Select Models.
 
         Uses a Windows ``SelectorEventLoop`` (avoids Proactor under Qt) and mutes
         Rich Live activity updates so the poll works from this QThread.
+
+        With *refresh_auth* (first poll of a monitor run) the signing-rule and
+        profile caches are reset and /users/me is checked, like Authentication →
+        Test. Later polls don't: resetting every poll re-downloaded the signing
+        rules each minute and cleared them under a scrape running at the time.
         """
         import asyncio
         import sys
         from ofscraper.data.models.utils.retriver import get_models
         from ofscraper.utils.auth.file import read_auth
         from ofscraper.utils.live import updater as live_updater
-
-        def _of_error_detail(exc: Exception) -> str:
-            detail = ""
-            resp = getattr(exc, "response", None)
-            if resp is None:
-                return detail
-            try:
-                body = resp.json()
-                err = body.get("error", {}) if isinstance(body, dict) else {}
-                if isinstance(err, dict):
-                    msg = err.get("message") or ""
-                    code = err.get("code")
-                    if msg or code is not None:
-                        detail = f" OnlyFans: {msg} (code {code})".rstrip()
-                if not detail:
-                    text = getattr(resp, "text", "") or ""
-                    if text:
-                        detail = f" Body: {text[:240]}"
-            except Exception:
-                try:
-                    text = getattr(resp, "text", "") or ""
-                    if text:
-                        detail = f" Body: {text[:240]}"
-                except Exception:
-                    pass
-            return detail
 
         try:
             auth_data = read_auth()
@@ -657,55 +1058,8 @@ class LiveMonitorWorker(QThread):
         except Exception as e:
             raise Exception(f"Authentication validation failed: {e}")
 
-        # Same prep as Authentication → Test: drop stale signing rules / session /
-        # /me cache so this QThread does not reuse a bad in-memory state.
-        try:
-            import ofscraper.utils.auth.request as auth_req
-
-            if hasattr(auth_req, "invalidate_auth_cache"):
-                auth_req.invalidate_auth_cache()
-            else:
-                auth_req.curr_auth = None
-                auth_req.last_check = None
-        except Exception:
-            pass
-        try:
-            import ofscraper.utils.profiles.data as profile_data
-
-            profile_data.currentData = None
-            profile_data.currentProfile = None
-        except Exception:
-            pass
-        try:
-            import ofscraper.managers.manager as mgr
-
-            if hasattr(mgr, "Manager") and mgr.Manager is not None:
-                mgr.Manager.session = None
-        except Exception:
-            pass
-
-        # Probe /users/me first so we can surface OnlyFans' real error body.
-        try:
-            import ofscraper.data.api.me as me_api
-
-            user_info = me_api.scrape_user()
-            if not user_info or not user_info.get("isAuth"):
-                raise Exception(
-                    "OnlyFans returned unauthorized for this session "
-                    "(isAuth=false). Re-import cookies from a logged-in tab."
-                )
-        except Exception as e:
-            detail = _of_error_detail(e)
-            msg = str(e)
-            lower = msg.lower()
-            of_wrong_user = "wrong user" in lower or "code 301" in lower
-            hint = ""
-            if of_wrong_user or "400" in msg or "401" in msg or "403" in msg:
-                hint = (
-                    " Re-import cookies from a logged-in OnlyFans tab "
-                    "(include auth_uid_ if 2FA is enabled)."
-                )
-            raise Exception(f"{msg}{detail}.{hint}".replace("..", ".").strip())
+        if refresh_auth:
+            self._refresh_auth_state()
 
         restores = []
         try:
@@ -764,9 +1118,52 @@ class LiveMonitorWorker(QThread):
             except Exception:
                 pass
 
+    def _refresh_auth_state(self):
+        """Drop stale signing rules / profile cache, then check /users/me."""
+        try:
+            import ofscraper.utils.auth.request as auth_req
+
+            if hasattr(auth_req, "invalidate_auth_cache"):
+                auth_req.invalidate_auth_cache()
+            else:
+                auth_req.curr_auth = None
+                auth_req.last_check = None
+        except Exception:
+            pass
+        try:
+            import ofscraper.utils.profiles.data as profile_data
+
+            profile_data.currentData = None
+            profile_data.currentProfile = None
+        except Exception:
+            pass
+
+        # Probe /users/me first so we can surface OnlyFans' real error body.
+        try:
+            import ofscraper.data.api.me as me_api
+
+            user_info = me_api.scrape_user()
+            if not user_info or not user_info.get("isAuth"):
+                raise Exception(
+                    "OnlyFans returned unauthorized for this session "
+                    "(isAuth=false). Re-import cookies from a logged-in tab."
+                )
+        except Exception as e:
+            detail = _of_error_detail(e)
+            msg = str(e)
+            lower = msg.lower()
+            of_wrong_user = "wrong user" in lower or "code 301" in lower
+            hint = ""
+            if of_wrong_user or _is_auth_error(e):
+                hint = (
+                    " Re-import cookies from a logged-in OnlyFans tab "
+                    "(include auth_uid_ if 2FA is enabled)."
+                )
+            raise Exception(f"{msg}{detail}.{hint}".replace("..", ".").strip())
 
 
-def _popen_logged(cmd, emit, env=None, timeout=None) -> int:
+
+def _popen_logged(cmd, emit, env=None, timeout=None, cwd=None) -> int:
     """Run *cmd*, stream lines to *emit*, return exit code (Windows-safe unbuffered)."""
     run_env = os.environ.copy()
     if env:
@@ -774,22 +1171,40 @@ def _popen_logged(cmd, emit, env=None, timeout=None) -> int:
     run_env["PYTHONUNBUFFERED"] = "1"
     run_env["PIP_DISABLE_PIP_VERSION_CHECK"] = "1"
     emit(f"[Playwright] Running: {' '.join(str(c) for c in cmd)}")
+    popen_kwargs: dict = {
+        # No terminal input: a sudo password prompt fails fast instead of
+        # waiting forever behind the GUI.
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.STDOUT,
+        "text": True,
+        "env": run_env,
+        "bufsize": 1,
+        "cwd": cwd,
+    }
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            env=run_env,
-            bufsize=1,
-        )
+        proc = subprocess.Popen(cmd, **popen_kwargs)
     except Exception as e:
         emit(f"[Playwright] Failed to start process: {e}")
         return 1
     try:
         assert proc.stdout is not None
-        for line in proc.stdout:
-            emit(f"  {line.rstrip()}")
+        # Playwright progress often uses '\\r' without newlines; flush chunks.
+        buf = ""
+        while True:
+            chunk = proc.stdout.read(256)
+            if not chunk:
+                break
+            buf += chunk.replace("\r", "\n")
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                line = line.strip()
+                if line:
+                    emit(f"  {line}")
+        if buf.strip():
+            emit(f"  {buf.strip()}")
         return int(proc.wait(timeout=timeout) if timeout else proc.wait())
     except subprocess.TimeoutExpired:
         emit(f"[Playwright] Timed out after {timeout}s — killing process.")
@@ -810,7 +1225,9 @@ def _popen_logged(cmd, emit, env=None, timeout=None) -> int:
 class ChromiumInstallWorker(QThread):
     """Background worker that runs playwright install chromium."""
     log_msg = pyqtSignal(str)
-    finished = pyqtSignal(bool)
+    # Do NOT name this ``finished`` — that shadows QThread.finished and can
+    # close the install dialog / call slots with bad args when the thread ends.
+    completed = pyqtSignal(bool)
 
     def __init__(self, browsers_path, deps_path):
         super().__init__()
@@ -820,7 +1237,80 @@ class ChromiumInstallWorker(QThread):
     def _emit(self, msg: str) -> None:
         self.log_msg.emit(msg)
 
+    def _pipx_inject(self) -> bool:
+        """pipx venvs have no pip of their own: add playwright the pipx way."""
+        pipx_bin = _find_pipx_binary()
+        app = _pipx_venv_name() or "ofscraper"
+        if not pipx_bin:
+            self._emit("[Playwright] pipx not found on PATH.")
+            return False
+        self._emit(f"[Playwright] Adding playwright to the pipx app '{app}' (may take a few minutes)...")
+        code = _popen_logged(
+            [pipx_bin, "inject", "--force", app, PLAYWRIGHT_REQ],
+            self._emit,
+            timeout=900,
+            cwd=str(Path.home()),  # like the patch: avoid a local package dir shadowing
+        )
+        if code == 0:
+            self._emit("[Playwright] playwright installed via pipx inject.")
+            return True
+        self._emit(f"[Playwright] pipx inject failed (exit {code}).")
+        return False
+
+    def _uv_install(self) -> bool:
+        """Add playwright to OF-Scraper's uv tool environment.
+
+        Not ``uv tool install ofscraper --with playwright``: that reinstalls
+        OF-Scraper and would remove the GUI patch.
+        """
+        uv_bin = _find_uv_binary()
+        if not uv_bin:
+            self._emit("[Playwright] uv not found (OF-Scraper was installed with uv).")
+            return False
+        self._emit("[Playwright] Installing playwright with uv (may take a few minutes)...")
+        code = _popen_logged(
+            [uv_bin, "pip", "install", PLAYWRIGHT_REQ, "--python", sys.executable],
+            self._emit,
+            timeout=900,
+        )
+        if code == 0:
+            self._emit("[Playwright] playwright installed via uv pip.")
+            return True
+        self._emit(f"[Playwright] uv pip failed (exit {code}).")
+        return False
+
+    def _ensure_pip(self) -> bool:
+        """True when ``python -m pip`` works, setting it up with ensurepip if needed."""
+        def _has_pip() -> bool:
+            try:
+                return subprocess.run(
+                    [sys.executable, "-m", "pip", "--version"],
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    timeout=60,
+                    **(
+                        {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0)}
+                        if sys.platform == "win32"
+                        else {}
+                    ),
+                ).returncode == 0
+            except Exception:
+                return False
+
+        if _has_pip():
+            return True
+        self._emit("[Playwright] pip is missing in this Python — setting it up with ensurepip...")
+        _popen_logged(
+            [sys.executable, "-u", "-m", "ensurepip", "--upgrade"], self._emit, timeout=300
+        )
+        if _has_pip():
+            return True
+        self._emit("[Playwright] pip is not available in this Python.")
+        return False
+
     def _pip_install_venv(self) -> bool:
+        if not self._ensure_pip():
+            return False
         cmd = [
             sys.executable,
             "-u",
@@ -828,7 +1318,7 @@ class ChromiumInstallWorker(QThread):
             "pip",
             "install",
             "--upgrade",
-            "playwright>=1.40.0",
+            PLAYWRIGHT_REQ,
         ]
         self._emit("[Playwright] Installing playwright package into active Python (may take a few minutes)...")
         code = _popen_logged(cmd, self._emit, timeout=900)
@@ -839,6 +1329,8 @@ class ChromiumInstallWorker(QThread):
         return False
 
     def _pip_install_target(self) -> bool:
+        if not self._ensure_pip():
+            return False
         self.deps_path.mkdir(parents=True, exist_ok=True)
         cmd = [
             sys.executable,
@@ -847,7 +1339,7 @@ class ChromiumInstallWorker(QThread):
             "pip",
             "install",
             "--upgrade",
-            "playwright>=1.40.0",
+            PLAYWRIGHT_REQ,
             "--target",
             str(self.deps_path),
         ]
@@ -891,54 +1383,37 @@ class ChromiumInstallWorker(QThread):
 
         install_method = _detect_ofscraper_install_method()
         self._emit(f"[Playwright] Detected install method: {install_method}")
+
+        # Install with the same tool that installed OF-Scraper (as the GUI patch
+        # does for PyQt6): pipx → pipx inject, uv → uv, pip → pip. pipx venvs
+        # have no pip of their own ("No module named pip").
+        attempts = {
+            "pipx": [self._pipx_inject],
+            "uv": [self._uv_install],
+        }.get(
+            install_method,
+            # pip (also Docker's /opt/venv); the plugin's deps folder is the
+            # last resort and must match this OS (never reuse host deps).
+            [self._pip_install_venv, self._pip_install_target],
+        )
         installed = False
+        for attempt in attempts:
+            if attempt():
+                installed = True
+                break
 
-        if install_method == "uv":
-            uv_bin = _find_uv_binary()
-            if uv_bin:
-                cmd = [
-                    uv_bin,
-                    "pip",
-                    "install",
-                    "playwright>=1.40.0",
-                    "--python",
-                    sys.executable,
-                ]
-                self._emit(f"[Playwright] Running: {' '.join(cmd)}")
-                try:
-                    proc = subprocess.Popen(
-                        cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
-                    )
-                    for line in proc.stdout:
-                        self._emit(f"  {line.rstrip()}")
-                    proc.wait()
-                    if proc.returncode == 0:
-                        installed = True
-                        self._emit("[Playwright] playwright installed via uv pip.")
-                    else:
-                        self._emit(
-                            f"[Playwright] uv pip failed (exit {proc.returncode}), "
-                            "trying pip..."
-                        )
-                except Exception as e:
-                    self._emit(f"[Playwright] uv pip error: {e}, trying pip...")
+        if not installed:
+            if install_method == "pipx":
+                manual = f"pipx inject {_pipx_venv_name() or 'ofscraper'} playwright"
+            elif install_method == "uv":
+                manual = f"uv pip install playwright --python {sys.executable}"
             else:
-                self._emit("[Playwright] uv binary not found, trying pip...")
-
-        if not installed:
-            # Docker / pipx / plain venv: install into the active interpreter first.
-            installed = self._pip_install_venv()
-
-        if not installed:
-            # Last resort isolated target (must match container OS — never reuse host deps).
-            installed = self._pip_install_target()
-
-        if not installed:
+                manual = f"{sys.executable} -m pip install playwright"
             self._emit(
                 "[Error] Could not install playwright automatically. "
-                "Try: pip install playwright  (inside the container/venv), "
-                "then click Install Chromium again. Also delete "
-                f"{self.deps_path / 'playwright'} if it came from another OS."
+                f"Run this in a terminal: {manual}  — then click Install Chromium "
+                f"again. Also delete {self.deps_path / 'playwright'} if it came "
+                "from another OS."
             )
             return False
 
@@ -961,10 +1436,19 @@ class ChromiumInstallWorker(QThread):
         return False
 
     def run(self):
+        ok = False
+        try:
+            ok = self._run_install()
+        except Exception as e:
+            self._emit(f"[Error] Chromium install crashed: {type(e).__name__}: {e!r}")
+            self._emit(traceback.format_exc())
+            ok = False
+        self.completed.emit(bool(ok))
+
+    def _run_install(self) -> bool:
         self._emit("[Playwright] Initiating Chromium installation...")
         if not self._ensure_playwright_package():
-            self.finished.emit(False)
-            return
+            return False
 
         ok, detail, root = _inspect_playwright_install()
         use_deps = False
@@ -998,66 +1482,80 @@ class ChromiumInstallWorker(QThread):
                     env.pop("PYTHONPATH", None)
 
         if sys.platform.startswith("linux"):
-            deps_cmd = [sys.executable, "-m", "playwright", "install-deps", "chromium"]
-            self._emit(f"[Playwright] Ensuring OS libs: {' '.join(deps_cmd)}")
-            try:
-                proc = subprocess.Popen(
-                    deps_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    env=env,
-                )
-                for line in proc.stdout:
-                    self._emit(f"  {line.rstrip()}")
-                proc.wait()
-                if proc.returncode != 0:
+            if _is_root():
+                # Docker / root: install Chromium's system libraries with apt.
+                deps_cmd = [sys.executable, "-m", "playwright", "install-deps", "chromium"]
+                self._emit("[Playwright] Ensuring OS libs (apt)...")
+                code = _popen_logged(deps_cmd, self._emit, env=env, timeout=600)
+                if code != 0:
                     self._emit(
-                        f"[Playwright] install-deps exited {proc.returncode} "
-                        "(continuing; image may already have the libraries)."
+                        f"[Playwright] install-deps exited {code} "
+                        "(continuing; the image may already have the libraries)."
                     )
-            except Exception as e:
-                self._emit(f"[Playwright] install-deps skipped: {e}")
+            else:
+                # As a normal user install-deps runs sudo, which asks for your
+                # password (or fingerprint) in the terminal. Never do that from
+                # the GUI: desktops usually have the libraries already, and the
+                # launch check below says what to run if they don't.
+                self._emit(
+                    "[Playwright] Skipping system-library install (needs admin "
+                    "rights). If Chromium can't start, run: "
+                    + _install_deps_hint()
+                )
 
         # If system Chrome/Edge works, skip the large Chromium download.
+        # Probe in a subprocess — in-process launch under Qt crashes Windows GUIs.
         channel = _chromium_channel_for_host()
         if channel:
             self._emit(
                 f"[Playwright] System browser channel={channel} detected — "
-                "verifying launch (bundled Chromium download not required)..."
+                "verifying launch out-of-process "
+                "(bundled Chromium download not required)..."
             )
-            try:
-                _purge_playwright_modules()
-                from playwright.sync_api import sync_playwright
-
-                with sync_playwright() as p:
-                    browser = p.chromium.launch(headless=True, channel=channel)
-                    browser.close()
+            ready, probe_detail = _probe_chromium_launch(
+                channel=channel,
+                browsers_path=self.browsers_path,
+            )
+            if ready:
                 self._emit(f"[Playwright] System {channel} is ready for Live Monitor.")
-                self.finished.emit(True)
-                return
-            except Exception as e:
-                self._emit(
-                    f"[Playwright] System {channel} launch failed ({e}); "
-                    "falling back to bundled Chromium download..."
-                )
+                return True
+            self._emit(
+                f"[Playwright] System {channel} launch failed ({probe_detail}); "
+                "falling back to bundled Chromium download..."
+            )
 
         cmd = [sys.executable, "-u", "-m", "playwright", "install", "chromium"]
         self._emit(f"[Playwright] Target folder: {self.browsers_path}")
         self._emit("[Playwright] Downloading Chromium (this can take several minutes)...")
         code = _popen_logged(cmd, self._emit, env=env, timeout=1800)
-        if code == 0:
-            self._emit("[Playwright] Chromium browser install finished.")
-            self.finished.emit(True)
-        else:
+        if code != 0:
             self._emit(f"[Error] playwright install chromium failed (exit {code}).")
-            self.finished.emit(False)
+            return False
 
+        self._emit("[Playwright] Chromium download finished — verifying launch...")
+        ready, probe_detail = _probe_chromium_launch(
+            channel=None,
+            browsers_path=self.browsers_path,
+        )
+        if ready:
+            self._emit("[Playwright] Chromium browser install finished.")
+            return True
+        hint = (
+            f"\n  If system libraries are missing: {_install_deps_hint()}"
+            if sys.platform.startswith("linux")
+            else ""
+        )
+        self._emit(
+            f"[Error] Chromium installed but launch probe failed ({probe_detail}). "
+            "Try closing OF-Scraper and re-running Install, or install manually:\n"
+            f"  {sys.executable} -m playwright install chromium" + hint
+        )
+        return False
 
 
 class ChromiumCheckWorker(QThread):
     """Run Playwright Chromium probe off the GUI thread."""
-    finished = pyqtSignal(bool)
+    completed = pyqtSignal(bool)
 
     def __init__(self, plugin):
         super().__init__()
@@ -1069,7 +1567,7 @@ class ChromiumCheckWorker(QThread):
             ok = bool(self._plugin.check_chromium_installed())
         except Exception:
             ok = False
-        self.finished.emit(ok)
+        self.completed.emit(ok)
 
 
 class _LogBridge(QObject):
@@ -1089,13 +1587,23 @@ class Plugin(BasePlugin):
         self.plugin_dir = Path(plugin_dir)
         self.gui = None
         self.worker = None
-        
+        # Stopped monitor workers still finishing a poll (kept so Qt doesn't
+        # destroy a running QThread).
+        self._retired_workers: list = []
+        # Cached result of the Chromium check (None = not checked yet).
+        self.chromium_ready = None
+
+        # Guards the three session collections below: capture threads, the
+        # poller and the GUI all use them.
+        self._state_lock = threading.RLock()
         # username -> (thread, stop_event)  [browser launching / joining stream]
         self._connecting_recordings = {}
         # username -> (thread, stop_event, start_time)  [MediaRecorder actually running]
         self.active_recordings = {}
         # usernames currently in diagnostics-probe sessions (subset of connecting)
         self._probe_sessions: set = set()
+        # username -> .webm being written (for the size shown in the table)
+        self._recording_files: dict = {}
 
         self.ignored_creators: set = set()
         self._load_ignored()
@@ -1107,13 +1615,26 @@ class Plugin(BasePlugin):
         self.probe_mode = False
         # When True, show probe / API-dump controls in the GUI (off by default).
         self.show_diagnostics = False
+        # Remembered page settings: poll seconds, capture folder ("" = the
+        # OF-Scraper save location) and whether Auto-Capture was left on.
+        self.poll_interval = 60
+        self.capture_dir = ""
+        self.auto_capture = False
+        # Desktop notification when a recording starts, is saved or fails.
+        self.notify = True
+        # Capture browser without any window (Chrome's new headless mode).
+        self.no_window = True
         self._load_settings()
 
         self.log = logging.getLogger("ofscraper_plugins")
         self._log_bridge = _LogBridge()
 
     def on_load(self):
-        self.log.info("Live Stream Monitor loaded.")
+        self.log.info(f"Live Stream Monitor v{self.version} loaded.")
+
+    @property
+    def version(self) -> str:
+        return str((getattr(self, "metadata", None) or {}).get("version") or "?")
 
     def _emit_log(self, msg: str) -> None:
         """Emit a console line via the durable log bridge (never requires self.worker)."""
@@ -1168,6 +1689,21 @@ class Plugin(BasePlugin):
                     self.probe_mode = bool(data.get("probe_mode"))
                 if "show_diagnostics" in data:
                     self.show_diagnostics = bool(data.get("show_diagnostics"))
+                if "poll_interval" in data:
+                    try:
+                        self.poll_interval = min(
+                            3600, max(10, int(data.get("poll_interval")))
+                        )
+                    except (TypeError, ValueError):
+                        pass
+                if isinstance(data.get("capture_dir"), str):
+                    self.capture_dir = data["capture_dir"]
+                if "auto_capture" in data:
+                    self.auto_capture = bool(data.get("auto_capture"))
+                if "notify" in data:
+                    self.notify = bool(data.get("notify"))
+                if "no_window" in data:
+                    self.no_window = bool(data.get("no_window"))
         except Exception:
             pass
 
@@ -1180,6 +1716,11 @@ class Plugin(BasePlugin):
                         "headless_capture": bool(self.headless_capture),
                         "probe_mode": bool(self.probe_mode),
                         "show_diagnostics": bool(self.show_diagnostics),
+                        "poll_interval": int(self.poll_interval),
+                        "capture_dir": str(self.capture_dir or ""),
+                        "auto_capture": bool(self.auto_capture),
+                        "notify": bool(self.notify),
+                        "no_window": bool(self.no_window),
                     },
                     indent=2,
                 ),
@@ -1199,6 +1740,16 @@ class Plugin(BasePlugin):
     def set_show_diagnostics(self, enabled: bool):
         self.show_diagnostics = bool(enabled)
         self._save_settings()
+
+    def set_page_settings(self, **values):
+        """Save any of poll_interval / capture_dir / auto_capture / notify (only on change)."""
+        changed = False
+        for key in ("poll_interval", "capture_dir", "auto_capture", "notify", "no_window"):
+            if key in values and getattr(self, key) != values[key]:
+                setattr(self, key, values[key])
+                changed = True
+        if changed:
+            self._save_settings()
 
     def probe_reports_dir(self) -> Path:
         path = Path(self.plugin_dir) / "live_probe_reports"
@@ -1252,7 +1803,8 @@ class Plugin(BasePlugin):
     def on_ui_teardown(self, main_window):
         """Remove Live Monitor nav/page before unload."""
         try:
-            self.stop_monitor()
+            # Give captures a moment to save their files.
+            self.stop_monitor(wait_seconds=15)
         except Exception:
             pass
         try:
@@ -1265,48 +1817,95 @@ class Plugin(BasePlugin):
 
     def on_unload(self):
         """Clean up background processes on shutdown."""
-        self.stop_monitor()
+        self.stop_monitor(wait_seconds=15)
+        for worker in self._retired_workers:
+            try:
+                worker.wait(2000)
+            except Exception:
+                pass
+
+    # ── Session state (thread-safe) ───────────────────────────────────────────
+
+    def session_snapshot(self) -> dict:
+        """Copy of current sessions: {username: (kind, start_time)}.
+
+        kind is "recording", "connecting" or "probing"; start_time is set for
+        recordings only. Safe to call from any thread.
+        """
+        with self._state_lock:
+            out = {
+                u: ("probing" if u in self._probe_sessions else "connecting", None)
+                for u in self._connecting_recordings
+            }
+            for u, (_thread, _stop, start) in self.active_recordings.items():
+                out[u] = ("recording", start)
+            return out
+
+    def _set_cooldown(self, username: str, seconds: float) -> None:
+        with self._state_lock:
+            self._capture_cooldown[username] = time.time() + seconds
+
+    def _cooldown_left(self, username: str) -> float:
+        with self._state_lock:
+            return float(self._capture_cooldown.get(username) or 0) - time.time()
+
+    def _end_session(self, username: str) -> None:
+        with self._state_lock:
+            self._connecting_recordings.pop(username, None)
+            self.active_recordings.pop(username, None)
+            self._probe_sessions.discard(username)
+            self._recording_files.pop(username, None)
+
+    def recording_size(self, username: str):
+        """Bytes written so far by *username*'s recording, or None."""
+        with self._state_lock:
+            path = self._recording_files.get(username)
+        if path is None:
+            return None
+        try:
+            return os.stat(path).st_size
+        except OSError:
+            return None
+
+    def _notify(self, title: str, username: str, detail: str = "") -> None:
+        """Desktop notification (any thread); the name is masked in Privacy mode."""
+        if not self.notify:
+            return
+        try:
+            from ofscraper.gui.signals import app_signals
+            from ofscraper.gui.utils.privacy_mode import mask_username
+
+            name = mask_username(username) or username
+            app_signals.show_notification.emit(title, f"{name}{detail}")
+        except Exception as e:
+            self.log.debug(f"Live monitor notification failed: {e}")
 
     def check_chromium_installed(self) -> bool:
-        """Helper that verifies if Playwright and Chromium are fully installed and loadable."""
-        _browsers_path_for_plugin()
+        """Verify Playwright and a Chromium browser are installed and launchable.
 
+        Slow (launches a browser in a subprocess): call it off the GUI thread.
+        """
+        browsers_path = _browsers_path_for_plugin()
         deps_path = Path(self.plugin_dir) / "deps"
-        # Prefer the active venv/site-packages. Only fall back to deps when native.
-        _remove_path_entry(deps_path)
-        _purge_playwright_modules()
-        ok, detail, root = _inspect_playwright_install()
-        if not ok:
-            # Try deps only when it has a native driver (not a Windows mount in Linux).
-            deps_pw = deps_path / "playwright"
-            if deps_pw.is_dir() and _playwright_driver_node(deps_pw).is_file():
-                if str(deps_path) not in sys.path:
-                    sys.path.insert(0, str(deps_path))
-                _purge_playwright_modules()
-                ok, detail, root = _inspect_playwright_install()
-            if not ok:
-                return False
-
-        try:
-            from playwright.sync_api import sync_playwright
-            with sync_playwright() as p:
-                channel = _chromium_channel_for_host()
-                # Prefer system Chrome/Edge — no bundled Chromium download required.
-                if channel:
-                    try:
-                        browser = p.chromium.launch(headless=True, channel=channel)
-                        browser.close()
-                        return True
-                    except Exception:
-                        pass
-                try:
-                    browser = p.chromium.launch(headless=True)
-                    browser.close()
-                    return True
-                except Exception:
-                    return False
-        except Exception:
+        if not _prepare_playwright(deps_path):
+            self.chromium_ready = False
             return False
+
+        # Out-of-process probes only — never launch Chromium inside the Qt process
+        # just to check install status (that path hard-crashes Windows GUIs).
+        channel = _chromium_channel_for_host()
+        if channel:
+            ready, _detail = _probe_chromium_launch(
+                channel=channel, browsers_path=browsers_path
+            )
+            if ready:
+                self.chromium_ready = True
+                return True
+        ready, _detail = _probe_chromium_launch(
+            channel=None, browsers_path=browsers_path
+        )
+        self.chromium_ready = bool(ready)
+        return bool(ready)
 
     def install_chromium(self, log_sink=None, finished_cb=None):
         """Spawns background installer worker to download Chromium binary.
@@ -1314,12 +1913,16 @@ class Plugin(BasePlugin):
         Optional *log_sink* / *finished_cb* let modal dialogs own the UX while
         still falling back to the Live Monitor tab console.
         """
+        from PyQt6.QtCore import Qt
+
         browsers_path = _browsers_path_for_plugin()
         deps_path = Path(self.plugin_dir) / "deps"
 
         self.install_worker = ChromiumInstallWorker(browsers_path, deps_path)
         sink = log_sink or (self.gui.append_log if self.gui else self._emit_log)
-        self.install_worker.log_msg.connect(sink)
+        self.install_worker.log_msg.connect(
+            sink, Qt.ConnectionType.QueuedConnection
+        )
 
         def _done(ok: bool):
             if finished_cb:
@@ -1336,90 +1939,95 @@ class Plugin(BasePlugin):
                 except Exception:
                     pass
 
-        self.install_worker.finished.connect(_done)
+        self.install_worker.completed.connect(
+            _done, Qt.ConnectionType.QueuedConnection
+        )
         self.install_worker.start()
 
     def start_monitor(self, interval, save_location):
         """Instantiates and starts the polling monitor worker thread."""
+        self._retired_workers = [w for w in self._retired_workers if not w.isFinished()]
         self.worker = LiveMonitorWorker(self, interval, save_location)
         self.worker.log_msg.connect(self.gui.append_log)
         self.worker.status_updated.connect(self.gui.update_status_table)
         self.worker.auth_error.connect(self.gui.handle_auth_error)
         self.worker.start()
 
-    def stop_monitor(self, *, terminate_recordings: bool = True):
-        """Stops the monitor poll loop.
+    def stop_monitor(self, *, terminate_recordings: bool = True, wait_seconds: float = 0):
+        """Stops the monitor poll loop without blocking the GUI.
 
         When *terminate_recordings* is True (manual Stop), connecting/active
-        capture threads are signalled and joined. When False (API auth failure
-        mid-capture), polls stop but Playwright recordings keep running until
-        the stream ends or the user stops them.
+        capture threads are asked to stop; each one saves its file and removes
+        itself. When False (API auth failure mid-capture), polls stop but
+        Playwright recordings keep running until the stream ends or the user
+        stops them. *wait_seconds* > 0 (unload / shutdown) waits up to that long
+        in total for the captures to finish saving.
         """
-        # Stop polling loop first (keep worker object until recorders finish)
-        if self.worker:
-            self.worker.running = False
-            self.worker.quit()
+        worker, self.worker = self.worker, None
+        if worker is not None:
+            worker.running = False
+            # The poll thread exits within ~1 s (or after the current poll);
+            # keep a reference until then instead of waiting here.
+            self._retired_workers.append(worker)
 
-        if terminate_recordings:
-            # Terminate threads still in the connecting phase
-            for username, (thread, stop_event) in list(self._connecting_recordings.items()):
-                self._emit_log(f"[Monitor] Terminating connecting stream for {username}...")
-                stop_event.set()
-            for username, (thread, stop_event) in list(self._connecting_recordings.items()):
-                thread.join(timeout=10)
-            self._connecting_recordings.clear()
-            self._probe_sessions.clear()
+        if not terminate_recordings:
+            return
 
-            # Terminate threads that are actively recording
-            for username, (thread, stop_event, _start_time) in list(self.active_recordings.items()):
-                self._emit_log(f"[Monitor] Terminating capture stream for {username}...")
-                stop_event.set()
-            for username, (thread, stop_event, _start_time) in list(self.active_recordings.items()):
-                thread.join(timeout=10)
-            self.active_recordings.clear()
+        with self._state_lock:
+            sessions = [
+                (u, t, e) for u, (t, e) in self._connecting_recordings.items()
+            ] + [
+                (u, t, e) for u, (t, e, _start) in self.active_recordings.items()
+            ]
+        for username, _thread, stop_event in sessions:
+            self._emit_log(f"[Monitor] Stopping capture for {username}...")
+            stop_event.set()
 
-        if self.worker:
-            self.worker.wait(5000)
-            self.worker = None
+        if wait_seconds > 0:
+            deadline = time.monotonic() + wait_seconds
+            for _username, thread, _stop in sessions:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                thread.join(timeout=remaining)
 
     def start_recording(self, username, save_location):
         """Spawns a new recording thread for a live creator."""
-        if username in self._connecting_recordings or username in self.active_recordings:
-            self._emit_log(f"[Capture] {username} already has an active session — skip.")
-            return False
-        cool_until = float(self._capture_cooldown.get(username) or 0)
-        now = time.time()
-        if cool_until > now:
-            self._emit_log(
-                f"[Capture] {username} on cooldown ({int(cool_until - now)}s left) — skip."
+        with self._state_lock:
+            if username in self._connecting_recordings or username in self.active_recordings:
+                self._emit_log(f"[Capture] {username} already has an active session — skip.")
+                return False
+            left = self._cooldown_left(username)
+            if left > 0:
+                self._emit_log(f"[Capture] {username} on cooldown ({int(left)}s left) — skip.")
+                return False
+            stop_event = threading.Event()
+            rec_thread = threading.Thread(
+                target=self.record_stream,
+                args=(username, save_location, stop_event),
+                daemon=True
             )
-            return False
-        stop_event = threading.Event()
-        rec_thread = threading.Thread(
-            target=self.record_stream,
-            args=(username, save_location, stop_event),
-            daemon=True
-        )
-        # Register as connecting immediately so the worker won't spawn a duplicate.
-        # active_recordings is only set once the MediaRecorder is actually running.
-        self._connecting_recordings[username] = (rec_thread, stop_event)
-        self._capture_cooldown.pop(username, None)
+            # Register as connecting immediately so the worker won't spawn a duplicate.
+            # active_recordings is only set once the MediaRecorder is actually running.
+            self._connecting_recordings[username] = (rec_thread, stop_event)
+            self._capture_cooldown.pop(username, None)
         rec_thread.start()
         return True
 
     def start_probe(self, username, save_location=None):
         """Spawns a diagnostics probe (network/API evidence, no WebM recording)."""
-        if username in self._connecting_recordings or username in self.active_recordings:
-            self._emit_log(f"[Probe] {username} already has an active session — skip.")
-            return
-        stop_event = threading.Event()
-        rec_thread = threading.Thread(
-            target=self.probe_stream,
-            args=(username, save_location, stop_event),
-            daemon=True,
-        )
-        self._connecting_recordings[username] = (rec_thread, stop_event)
-        self._probe_sessions.add(username)
+        with self._state_lock:
+            if username in self._connecting_recordings or username in self.active_recordings:
+                self._emit_log(f"[Probe] {username} already has an active session — skip.")
+                return
+            stop_event = threading.Event()
+            rec_thread = threading.Thread(
+                target=self.probe_stream,
+                args=(username, save_location, stop_event),
+                daemon=True,
+            )
+            self._connecting_recordings[username] = (rec_thread, stop_event)
+            self._probe_sessions.add(username)
         rec_thread.start()
 
     def stop_capture(self, username: str) -> bool:
@@ -1428,29 +2036,73 @@ class Plugin(BasePlugin):
         if not username:
             return False
         stopped = False
-        if username in self._connecting_recordings:
-            _thread, stop_event = self._connecting_recordings[username]
-            stop_event.set()
+        with self._state_lock:
+            connecting = self._connecting_recordings.get(username)
+            active = self.active_recordings.get(username)
+        if connecting is not None:
+            connecting[1].set()
             self._emit_log(f"[Capture] Stopping connecting session for {username}…")
             stopped = True
-        if username in self.active_recordings:
-            _thread, stop_event, _start = self.active_recordings[username]
-            stop_event.set()
+        if active is not None:
+            active[1].set()
             self._emit_log(f"[Capture] Stopping active capture for {username}…")
             stopped = True
         if stopped:
             # Brief cooldown so auto-capture doesn't immediately re-spawn
-            self._capture_cooldown[username] = time.time() + 30
+            self._set_cooldown(username, 30)
         return stopped
 
     def stop_all_captures(self) -> int:
         """Stop every connecting/active capture/probe; leave monitor poller running."""
-        names = set(self._connecting_recordings) | set(self.active_recordings)
         n = 0
-        for u in list(names):
+        for u in list(self.session_snapshot()):
             if self.stop_capture(u):
                 n += 1
         return n
+
+    def stream_files_summary(self, username, save_location) -> tuple:
+        """(count, tooltip) for a creator's recorded streams. Reads the disk:
+        call it from the poll thread, not the GUI thread."""
+        try:
+            save_base = save_location or get_save_location()
+            path = Path(save_base) / username / "Live_Streams"
+            if not path.is_dir():
+                return 0, "Directory does not exist yet (no captures started)"
+            files = []
+            for f in path.glob("*.webm"):
+                if f.name.endswith(".tmp.webm") or not f.is_file():
+                    continue
+                st = f.stat()
+                files.append((st.st_mtime, st.st_size, f.name))
+            if not files:
+                return 0, "No recorded streams found in directory"
+            files.sort(reverse=True)
+            lines = []
+            for mtime, size, name in files[:10]:
+                when = datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+                lines.append(f"  • {name} ({size / (1024 * 1024):.1f} MB) - {when}")
+            if len(files) > 10:
+                lines.append(f"  • ... and {len(files) - 10} more stream(s)")
+            return len(files), "Recent Captures:\n" + "\n".join(lines)
+        except Exception:
+            return 0, ""
+
+    def browser_profiles_dir(self) -> Path:
+        return get_config_path().parent / "playwright_profiles"
+
+    def clear_browser_profiles(self) -> int:
+        """Delete the saved capture-browser logins (one Chrome profile per creator).
+
+        Refuses while a capture is running. Returns how many were removed.
+        """
+        if self.session_snapshot():
+            raise RuntimeError("Stop all captures first.")
+        root = self.browser_profiles_dir()
+        if not root.is_dir():
+            return 0
+        count = sum(1 for p in root.iterdir() if p.is_dir())
+        shutil.rmtree(root)
+        return count
 
     def api_dumps_dir(self) -> Path:
         p = self.plugin_dir / "live_api_dumps"
@@ -1470,7 +2122,13 @@ class Plugin(BasePlugin):
             from token_inspect import compare_join_to_token  # type: ignore
 
         self._emit_log(f"[API] Resolving live join for {username}…")
-        info = resolve_live_join(username)
+        try:
+            info = resolve_live_join(username)
+        except Exception as e:
+            # Always surface the message in the plugin log (Qt/faulthandler
+            # may otherwise make a bare raise look like a silent crash).
+            self._emit_log(f"[API] resolve_live_join failed: {type(e).__name__}: {e}")
+            raise
         agora = info.get("agora") or {}
         stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         out = self.api_dumps_dir() / f"live_api_{username}_{stamp}.json"
@@ -1544,22 +2202,14 @@ class Plugin(BasePlugin):
             config_dir = get_config_path().parent
             _browsers_path_for_plugin()
 
-            deps_path = Path(self.plugin_dir) / "deps"
-            _remove_path_entry(deps_path)
-            _purge_playwright_modules()
-            ok, _detail, _root = _inspect_playwright_install()
-            if not ok:
-                deps_pw = deps_path / "playwright"
-                if deps_pw.is_dir() and _playwright_driver_node(deps_pw).is_file():
-                    if str(deps_path) not in sys.path:
-                        sys.path.insert(0, str(deps_path))
-                    _purge_playwright_modules()
+            _prepare_playwright(Path(self.plugin_dir) / "deps")
 
             from playwright.sync_api import sync_playwright
             from ofscraper.utils.auth.file import read_auth
 
-            profile_dir = config_dir / "playwright_profiles" / username
-            profile_dir.mkdir(parents=True, exist_ok=True)
+            # Holds this creator's browser login: keep it private to the user.
+            _private_dir(config_dir / "playwright_profiles")
+            profile_dir = _reset_profile(config_dir / "playwright_profiles" / username)
 
             auth = read_auth()
             user_agent = auth.get("user_agent")
@@ -1595,16 +2245,10 @@ class Plugin(BasePlugin):
                 Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
                 window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){}, app: {} };
             """
-            launch_args = [
-                "--autoplay-policy=no-user-gesture-required",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                "--password-store=basic",
-            ]
             live_url = report["live_url"]
-            prefer_hidden = bool(getattr(self, "headless_capture", True))
+            prefer_hidden = bool(getattr(self, "headless_capture", True)) and not bool(
+                getattr(self, "no_window", False)
+            )
             traffic = []
             api_samples = []
             seen_req = set()
@@ -1612,30 +2256,16 @@ class Plugin(BasePlugin):
             self._emit_log(f"[Probe] Launching browser for {username} (diagnostics only)...")
 
             with sync_playwright() as p:
-                launch_kwargs = {
-                    "user_data_dir": str(profile_dir),
-                    "headless": False,
-                    "viewport": {"width": 1280, "height": 720},
-                    "args": list(launch_args),
-                }
-                extra = [
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                    "--disable-background-timer-throttling",
-                    "--disable-background-media-suspend",
-                ]
-                if prefer_hidden:
-                    launch_kwargs["args"] = launch_args + [
-                        "--window-position=-20000,-20000",
-                        "--window-size=1280,720",
-                    ] + extra
-                else:
-                    launch_kwargs["args"] = launch_args + extra
-                _apply_chromium_launch_kwargs(launch_kwargs, user_agent)
-
-                rec_ctx = p.chromium.launch_persistent_context(**launch_kwargs)
+                launch_kwargs = _capture_launch_kwargs(
+                    profile_dir, prefer_hidden, user_agent,
+                    headless=bool(getattr(self, "no_window", False)),
+                )
+                rec_ctx = _launch_capture_context(p, launch_kwargs, self._emit_log)
                 if cookies_to_add:
                     rec_ctx.add_cookies(cookies_to_add)
+                session_script = _session_init_script(auth)
+                if session_script:
+                    rec_ctx.add_init_script(session_script)
                 rec_ctx.add_init_script(stealth_script)
                 rec_page = rec_ctx.new_page()
 
@@ -1693,7 +2323,7 @@ class Plugin(BasePlugin):
                                             {
                                                 "url": redact_url(url),
                                                 "status": resp.status,
-                                                "text_preview": body[:400],
+                                                "text_preview": redact_text(body[:400]),
                                             }
                                         )
                             except Exception:
@@ -1761,16 +2391,14 @@ class Plugin(BasePlugin):
                     self._emit_log(
                         "[Probe] Login required — waiting up to 3 minutes in this window…"
                     )
-                    try:
-                        rec_page.wait_for_url(
-                            lambda url: _url_is_live_stream(url, username),
-                            timeout=180000,
+                    if not _wait_for_live_url(rec_page, username, stop_event, 180):
+                        self._emit_log(
+                            "[Probe] Login not finished (timed out or stopped) — "
+                            "writing partial report."
                         )
-                        rec_page.wait_for_timeout(3000)
-                    except Exception:
-                        self._emit_log("[Probe] Login timed out — writing partial report.")
                         rec_ctx.close()
                         raise RuntimeError("login_timeout")
+                    rec_page.wait_for_timeout(3000)
 
                 if not _url_is_live_stream(rec_page.url, username):
                     report["notes"].append(f"Not on live page: {rec_page.url}")
@@ -1800,7 +2428,7 @@ class Plugin(BasePlugin):
                     if not _url_is_live_stream(rec_page.url, username):
                         report["notes"].append(f"Left live page: {rec_page.url}")
                         break
-                    time.sleep(1)
+                    stop_event.wait(1)
 
                 try:
                     diag = rec_page.evaluate(
@@ -1896,25 +2524,19 @@ class Plugin(BasePlugin):
                     self._emit_log(f"[Probe] Result: {cls.get('summary')}")
             except Exception as we:
                 self._emit_log(f"[Probe] Could not write report: {we}")
-            self._probe_sessions.discard(username)
-            self._connecting_recordings.pop(username, None)
+            self._end_session(username)
 
     def record_stream(self, username, save_location, stop_event):
         """Playwright-based WebRTC stream recorder task."""
+        final_path = None
+        recording_started = False
+        login_timed_out = False
+        _chunk_file = None
         try:
             config_dir = get_config_path().parent
             _browsers_path_for_plugin()
 
-            deps_path = Path(self.plugin_dir) / "deps"
-            _remove_path_entry(deps_path)
-            _purge_playwright_modules()
-            ok, _detail, _root = _inspect_playwright_install()
-            if not ok:
-                deps_pw = deps_path / "playwright"
-                if deps_pw.is_dir() and _playwright_driver_node(deps_pw).is_file():
-                    if str(deps_path) not in sys.path:
-                        sys.path.insert(0, str(deps_path))
-                    _purge_playwright_modules()
+            _prepare_playwright(Path(self.plugin_dir) / "deps")
 
             from playwright.sync_api import sync_playwright
 
@@ -1926,8 +2548,9 @@ class Plugin(BasePlugin):
             # (cookies, local storage, cf_clearance) after the first manual login so
             # every subsequent capture is fully automatic. Using per-model subdirs
             # allows concurrent captures of different models without profile-lock conflicts.
-            profile_dir = config_dir / "playwright_profiles" / username
-            profile_dir.mkdir(parents=True, exist_ok=True)
+            # Holds this creator's browser login: keep it private to the user.
+            _private_dir(config_dir / "playwright_profiles")
+            profile_dir = _reset_profile(config_dir / "playwright_profiles" / username)
 
             self._emit_log(f"[Playwright] Launching browser for {username}...")
 
@@ -1948,18 +2571,8 @@ class Plugin(BasePlugin):
                         : _origQuery(params);
             """
 
-            launch_args = [
-                "--autoplay-policy=no-user-gesture-required",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
-                "--password-store=basic",
-            ]
 
             live_url = f"https://onlyfans.com/{username}/live"
-            _chunk_file = None
-            final_path = None
             final_name = None
             rec_start_time = None
             last_chunk_time = None
@@ -2004,54 +2617,27 @@ class Plugin(BasePlugin):
 
             with sync_playwright() as p:
 
-                # Single headed context for auth + recording. True Playwright
-                # headless drops the OnlyFans session (return_to login loop).
-                # "Hide capture window" = move the real Chrome window off-screen.
-                prefer_hidden = bool(getattr(self, "headless_capture", True))
-                launch_kwargs = {
-                    "user_data_dir": str(profile_dir),
-                    "headless": False,
-                    "viewport": {"width": 1280, "height": 720},
-                    "args": list(launch_args),
-                }
-                if prefer_hidden:
-                    launch_kwargs["args"] = launch_args + [
-                        "--window-position=-20000,-20000",
-                        "--window-size=1280,720",
-                        "--disable-backgrounding-occluded-windows",
-                        "--disable-renderer-backgrounding",
-                        "--disable-background-timer-throttling",
-                        "--disable-background-media-suspend",
-                    ]
-                else:
-                    launch_kwargs["args"] = launch_args + [
-                        "--disable-backgrounding-occluded-windows",
-                        "--disable-renderer-backgrounding",
-                        "--disable-background-timer-throttling",
-                        "--disable-background-media-suspend",
-                    ]
-                _apply_chromium_launch_kwargs(launch_kwargs, user_agent)
+                # One context for auth + recording. The login comes from
+                # Authentication: cookies + its user-agent + x-bc (bcTokenSha).
+                no_window = bool(getattr(self, "no_window", False))
+                prefer_hidden = bool(getattr(self, "headless_capture", True)) and not no_window
+                launch_kwargs = _capture_launch_kwargs(
+                    profile_dir, prefer_hidden, user_agent, headless=no_window
+                )
                 channel = launch_kwargs.get("channel")
                 if channel:
-                    self._emit_log(
-                        f"[Playwright] Using system browser channel={channel} "
-                        "(avoids bundled Chromium captcha loops)."
-                    )
-                elif _playwright_user_agent(user_agent) is None and (user_agent or "").strip():
-                    self._emit_log(
-                        "[Playwright] Auth user-agent is not Chromium-compatible; "
-                        "not overriding the browser UA (Firefox/Zen UA on Chromium "
-                        "often causes endless captchas)."
-                    )
-                if prefer_hidden:
-                    self._emit_log(
-                        "[Playwright] Capture window will stay off-screen "
-                        "(true headless breaks OnlyFans login sessions)."
-                    )
+                    self._emit_log(f"[Playwright] Using browser channel={channel}.")
+                if no_window:
+                    self._emit_log("[Playwright] Capture browser runs without a window (headless).")
+                elif prefer_hidden:
+                    self._emit_log("[Playwright] Capture window will stay off-screen.")
 
-                rec_ctx = p.chromium.launch_persistent_context(**launch_kwargs)
+                rec_ctx = _launch_capture_context(p, launch_kwargs, self._emit_log)
                 if cookies_to_add:
                     rec_ctx.add_cookies(cookies_to_add)
+                session_script = _session_init_script(auth)
+                if session_script:
+                    rec_ctx.add_init_script(session_script)
 
                 audio_init_script = """
 (() => {
@@ -2115,6 +2701,17 @@ class Plugin(BasePlugin):
                 current_url = rec_page.url
                 self._emit_log(f"[Playwright] Auth check URL: {current_url}")
 
+                if "return_to" in current_url and no_window:
+                    login_timed_out = True
+                    self._emit_log(
+                        "[Playwright] OnlyFans didn't accept the Authentication login "
+                        "(it showed the login page). Re-import cookies in the "
+                        "Authentication tab and make sure Test passes; or untick "
+                        "\"No window\" to log in by hand in the capture window."
+                    )
+                    rec_ctx.close()
+                    return
+
                 if "return_to" in current_url:
                     if prefer_hidden:
                         try:
@@ -2143,16 +2740,18 @@ class Plugin(BasePlugin):
                         "run Test, then retry capture.\n"
                         "  Waiting up to 3 minutes if you finish login in this window…"
                     )
-                    try:
-                        rec_page.wait_for_url(
-                            lambda url: _url_is_live_stream(url, username),
-                            timeout=180000,
-                        )
-                        rec_page.wait_for_timeout(5000)
-                    except Exception:
-                        self._emit_log("[Playwright] Login timed out — aborting capture.")
+                    if not _wait_for_live_url(rec_page, username, stop_event, 180):
+                        if stop_event.is_set():
+                            self._emit_log("[Playwright] Stopped while waiting for login.")
+                        else:
+                            login_timed_out = True
+                            self._emit_log(
+                                "[Playwright] Login timed out — aborting capture "
+                                "(auto-capture retries this creator in 10 min)."
+                            )
                         rec_ctx.close()
                         return
+                    rec_page.wait_for_timeout(5000)
 
                     self._emit_log(f"[Playwright] Logged in. URL: {rec_page.url}")
                     (profile_dir / ".session_saved").touch()
@@ -2194,7 +2793,10 @@ class Plugin(BasePlugin):
                 self._emit_log("[Playwright] Waiting for stream player (up to 60 s)...")
                 stream_ready = False
                 for _ in range(12):  # 12 × 5 s = 60 s
-                    time.sleep(5)
+                    if stop_event.wait(5):
+                        self._emit_log("[Playwright] Stopped while waiting for the player.")
+                        rec_ctx.close()
+                        return
                     if not _url_is_live_stream(rec_page.url, username):
                         self._emit_log(
                             f"[Playwright] Live page redirected to {rec_page.url} — "
@@ -2292,34 +2894,40 @@ class Plugin(BasePlugin):
 
                     return info;
                 }""")
-                self._emit_log("[Diag] === Audio Architecture ===")
-                for i, v in enumerate(diag.get("videos", [])):
-                    self._emit_log(f"[Diag] <video[{i}]> readyState={v.get('readyState')} muted={v.get('muted')} paused={v.get('paused')} srcType={v.get('srcObjectType','none')}")
-                    for t in v.get("videoTracks", []):
-                        self._emit_log(f"[Diag]   videoTrack id={t['id']} enabled={t['enabled']} muted={t['muted']} state={t['readyState']}")
-                    for t in v.get("audioTracks", []):
-                        self._emit_log(f"[Diag]   audioTrack id={t['id']} enabled={t['enabled']} muted={t['muted']} state={t['readyState']}")
-                    if not v.get("videoTracks") and not v.get("audioTracks") and v.get("srcObjectType") != "MediaStream":
-                        self._emit_log(f"[Diag]   src={v.get('src')}")
-                for i, a in enumerate(diag.get("audios", [])):
-                    self._emit_log(f"[Diag] <audio[{i}]> paused={a.get('paused')} muted={a.get('muted')} srcType={a.get('srcObjectType','none')}")
-                    for t in a.get("audioTracks", []):
-                        self._emit_log(f"[Diag]   audioTrack id={t['id']} enabled={t['enabled']} muted={t['muted']} state={t['readyState']}")
-                    if not a.get("audioTracks"):
-                        self._emit_log(f"[Diag]   src={a.get('src')}")
-                sdk_globals = diag.get("sdkGlobals", [])
-                self._emit_log(f"[Diag] SDK globals: {sdk_globals if sdk_globals else 'none found'}")
-                tap_count = diag.get("audioTapCount", 0)
-                tap_track = diag.get("audioTapTrack", 0)
-                self._emit_log(f"[Diag] AudioContext lazy-taps: {tap_count}  audio-track-ready: {bool(tap_track)}")
-                for p in diag.get("audioPlays", []):
+                if not self.show_diagnostics:
                     self._emit_log(
-                        f"[Diag] AudioPlay[{p['i']}] inDom={p.get('inDom')} "
-                        f"srcType={p.get('srcType')} audioTracks={p.get('audioTracks')}"
+                        f"[Playwright] Player: {len(diag.get('videos') or [])} video "
+                        f"element(s), audio tap ready: {bool(diag.get('audioTapTrack'))}"
                     )
-                if not diag.get("audioPlays"):
-                    self._emit_log("[Diag] AudioPlay: none captured yet")
-                self._emit_log("[Diag] === End ===")
+                else:
+                    self._emit_log("[Diag] === Audio Architecture ===")
+                    for i, v in enumerate(diag.get("videos", [])):
+                        self._emit_log(f"[Diag] <video[{i}]> readyState={v.get('readyState')} muted={v.get('muted')} paused={v.get('paused')} srcType={v.get('srcObjectType','none')}")
+                        for t in v.get("videoTracks", []):
+                            self._emit_log(f"[Diag]   videoTrack id={t['id']} enabled={t['enabled']} muted={t['muted']} state={t['readyState']}")
+                        for t in v.get("audioTracks", []):
+                            self._emit_log(f"[Diag]   audioTrack id={t['id']} enabled={t['enabled']} muted={t['muted']} state={t['readyState']}")
+                        if not v.get("videoTracks") and not v.get("audioTracks") and v.get("srcObjectType") != "MediaStream":
+                            self._emit_log(f"[Diag]   src={v.get('src')}")
+                    for i, a in enumerate(diag.get("audios", [])):
+                        self._emit_log(f"[Diag] <audio[{i}]> paused={a.get('paused')} muted={a.get('muted')} srcType={a.get('srcObjectType','none')}")
+                        for t in a.get("audioTracks", []):
+                            self._emit_log(f"[Diag]   audioTrack id={t['id']} enabled={t['enabled']} muted={t['muted']} state={t['readyState']}")
+                        if not a.get("audioTracks"):
+                            self._emit_log(f"[Diag]   src={a.get('src')}")
+                    sdk_globals = diag.get("sdkGlobals", [])
+                    self._emit_log(f"[Diag] SDK globals: {sdk_globals if sdk_globals else 'none found'}")
+                    tap_count = diag.get("audioTapCount", 0)
+                    tap_track = diag.get("audioTapTrack", 0)
+                    self._emit_log(f"[Diag] AudioContext lazy-taps: {tap_count}  audio-track-ready: {bool(tap_track)}")
+                    for ap in diag.get("audioPlays", []):
+                        self._emit_log(
+                            f"[Diag] AudioPlay[{ap['i']}] inDom={ap.get('inDom')} "
+                            f"srcType={ap.get('srcType')} audioTracks={ap.get('audioTracks')}"
+                        )
+                    if not diag.get("audioPlays"):
+                        self._emit_log("[Diag] AudioPlay: none captured yet")
+                    self._emit_log("[Diag] === End ===")
 
                 # Open output file and start MediaRecorder to capture the actual
                 # WebRTC audio+video stream (captureStream pulls both tracks).
@@ -2440,10 +3048,14 @@ class Plugin(BasePlugin):
                     # "Recording 🔴" and the duration timer starts from the right moment.
                     rec_start_time = datetime.datetime.now()
                     last_chunk_time = rec_start_time
-                    self._connecting_recordings.pop(username, None)
-                    self.active_recordings[username] = (
-                        threading.current_thread(), stop_event, rec_start_time
-                    )
+                    recording_started = True
+                    with self._state_lock:
+                        self._connecting_recordings.pop(username, None)
+                        self.active_recordings[username] = (
+                            threading.current_thread(), stop_event, rec_start_time
+                        )
+                        self._recording_files[username] = final_path
+                    self._notify("Live recording started", username)
                 else:
                     reason = recorder_result.get("reason", "unknown") if isinstance(recorder_result, dict) else recorder_result
                     self._emit_log(f"[Playwright] Warning: MediaRecorder failed ({reason}) — stream may not be captured.")
@@ -2453,7 +3065,7 @@ class Plugin(BasePlugin):
                 diag_tick = 0      # re-run audio diagnostic every 12 polls (60 s)
 
                 while not stop_event.is_set():
-                    time.sleep(5)
+                    stop_event.wait(5)
 
                     # Drain MediaRecorder chunks queued in JS into the output file.
                     # This avoids expose_function threading conflicts with Playwright sync API.
@@ -2477,7 +3089,7 @@ class Plugin(BasePlugin):
 
                     # Periodic re-diagnostic so we see the DOM once actual live content starts
                     diag_tick += 1
-                    if diag_tick % 12 == 0:
+                    if self.show_diagnostics and diag_tick % 12 == 0:
                         try:
                             d2 = rec_page.evaluate("""() => {
                                 const vids = [...document.querySelectorAll('video')].map((v,i)=>({
@@ -2561,71 +3173,81 @@ class Plugin(BasePlugin):
 
             if final_path and final_path.exists() and final_path.stat().st_size > 0:
                 self._emit_log(f"[Capture] Stream saved: {final_name}")
-                # Compute the best duration estimate:
-                # 1st choice: last WebM cluster timestamp + 5 s timeslice (actual media time)
-                # 2nd choice: wall-clock from rec start to last chunk written (no shutdown time)
-                # 3rd choice: wall-clock to now (includes shutdown overhead — least accurate)
-                duration_ms = 0.0
-                try:
-                    cluster_ms = _read_webm_last_cluster_ms(final_path.read_bytes())
-                    if cluster_ms > 0:
-                        # Add 2 s to cover frames written after the last cluster timestamp.
-                        # (Clusters start at keyframes; the cluster's content may extend
-                        # a second or two past the cluster timestamp before the track ended.)
-                        duration_ms = cluster_ms + 2000.0
-                except Exception:
-                    pass
-                if duration_ms <= 0 and rec_start_time:
-                    ref = last_chunk_time if last_chunk_time else datetime.datetime.now()
-                    duration_ms = (ref - rec_start_time).total_seconds() * 1000.0
-                # MediaRecorder writes streaming WebM without a Duration header, so VLC
-                # shows 00:00 as end time. Try ffmpeg first (reads real media timestamps);
-                # fall back to an in-place EBML patch using actual cluster timestamps.
-                ffmpeg_bin = shutil.which("ffmpeg")
-                if ffmpeg_bin:
-                    tmp_path = final_path.with_name(final_path.stem + ".tmp.webm")
-                    try:
-                        proc = subprocess.run(
-                            [ffmpeg_bin, "-y", "-i", str(final_path), "-c", "copy", str(tmp_path)],
-                            capture_output=True, timeout=120
-                        )
-                        if proc.returncode == 0 and tmp_path.exists() and tmp_path.stat().st_size > 0:
-                            final_path.unlink()
-                            tmp_path.rename(final_path)
-                            self._emit_log("[Capture] Duration metadata written (ffmpeg).")
-                        else:
-                            tmp_path.unlink(missing_ok=True)
-                            self._emit_log("[Capture] ffmpeg failed — trying EBML patch.")
-                            _patch_webm_duration(final_path, duration_ms, self._emit_log)
-                    except Exception as fe:
-                        tmp_path.unlink(missing_ok=True)
-                        self._emit_log(f"[Capture] ffmpeg error ({fe}) — trying EBML patch.")
-                        _patch_webm_duration(final_path, duration_ms, self._emit_log)
-                else:
-                    _patch_webm_duration(final_path, duration_ms, self._emit_log)
+                self._finalize_recording(final_path, rec_start_time, last_chunk_time)
+                self._notify("Live recording saved", username)
             else:
                 self._emit_log(f"[Capture] No data was recorded for {username}.")
 
         except Exception as ex:
             self._emit_log(f"[Error] Stream capture failed for {username}: {ex}")
             self._emit_log(traceback.format_exc())
-            self._capture_cooldown[username] = time.time() + 120
         finally:
             if _chunk_file:
                 try:
                     _chunk_file.close()
                 except Exception:
                     pass
-            self._connecting_recordings.pop(username, None)
-            self.active_recordings.pop(username, None)
+            # Don't leave empty files behind (they'd count as recorded streams).
+            try:
+                if final_path is not None and final_path.exists() and final_path.stat().st_size == 0:
+                    final_path.unlink()
+            except OSError:
+                pass
+            # Any start that didn't reach recording waits before auto-capture
+            # tries again (a manual Stop sets its own 30 s cooldown).
+            if not recording_started and not stop_event.is_set():
+                self._set_cooldown(username, 600 if login_timed_out else 120)
+                self._notify(
+                    "Live capture failed", username, " — see the Live Monitor console"
+                )
+            self._end_session(username)
+
+    def _finalize_recording(self, final_path: Path, rec_start_time, last_chunk_time):
+        """Write the duration into a finished WebM (players show 00:00 otherwise)."""
+        # Best duration estimate, used only if ffmpeg can't remux:
+        # 1st choice: last WebM cluster timestamp (actual media time)
+        # 2nd choice: wall-clock from rec start to last chunk written
+        duration_ms = 0.0
+        try:
+            cluster_ms = _read_webm_last_cluster_ms(final_path)
+            if cluster_ms > 0:
+                # Add 2 s to cover frames written after the last cluster timestamp.
+                duration_ms = cluster_ms + 2000.0
+        except Exception:
+            pass
+        if duration_ms <= 0 and rec_start_time:
+            ref = last_chunk_time if last_chunk_time else datetime.datetime.now()
+            duration_ms = (ref - rec_start_time).total_seconds() * 1000.0
+
+        # ffmpeg reads the real media timestamps; the EBML patch is the fallback.
+        ffmpeg_bin = _ffmpeg_binary()
+        if not ffmpeg_bin:
+            _patch_webm_duration(final_path, duration_ms, self._emit_log)
+            return
+        tmp_path = final_path.with_name(final_path.stem + ".tmp.webm")
+        timeout = _remux_timeout(final_path)
+        try:
+            proc = subprocess.run(
+                [ffmpeg_bin, "-y", "-i", str(final_path), "-c", "copy", str(tmp_path)],
+                capture_output=True, timeout=timeout,
+            )
+            if proc.returncode == 0 and tmp_path.exists() and tmp_path.stat().st_size > 0:
+                os.replace(tmp_path, final_path)
+                self._emit_log("[Capture] Duration metadata written (ffmpeg).")
+                return
+            tmp_path.unlink(missing_ok=True)
+            self._emit_log("[Capture] ffmpeg failed — trying EBML patch.")
+        except subprocess.TimeoutExpired:
+            tmp_path.unlink(missing_ok=True)
+            self._emit_log(f"[Capture] ffmpeg took over {timeout}s — trying EBML patch.")
+        except Exception as fe:
+            tmp_path.unlink(missing_ok=True)
+            self._emit_log(f"[Capture] ffmpeg error ({fe}) — trying EBML patch.")
+        _patch_webm_duration(final_path, duration_ms, self._emit_log)
 
     def get_streams_count(self, username, save_location) -> int:
         """Returns the number of saved WebM live streams in the model's directory."""
         try:
-            save_base = save_location or get_save_location()
-            save_dir = Path(save_base) / username / "Live_Streams"
-            if not save_dir.is_dir():
-                return 0
-            return len(list(save_dir.glob("*.webm")))
+            return self.stream_files_summary(username, save_location)[0]
         except Exception:
             return 0

@@ -10,6 +10,17 @@ from urllib.parse import quote
 log = logging.getLogger("ofscraper_plugins")
 
 
+def _api(url: str) -> str:
+    """Apply the API Path setting (Configuration → Advanced) to a default URL."""
+    try:
+        from ofscraper.utils.api_path import apply_api_path_prefix
+        from ofscraper.utils.of_env.of_env import _configured_api_path
+
+        return apply_api_path_prefix(url, _configured_api_path()) or url
+    except Exception:
+        return url
+
+
 def _of_get_json(url: str) -> Any:
     """GET *url* with a signed OF session; return parsed JSON."""
     import ofscraper.managers.manager as manager
@@ -40,7 +51,7 @@ def post_stream_look(stream_id: int | str) -> Any:
     sid = str(stream_id).strip()
     if not sid:
         raise RuntimeError("stream_id required for /look")
-    url = f"https://onlyfans.com/api2/v2/streams/{sid}/look"
+    url = _api(f"https://onlyfans.com/api2/v2/streams/{sid}/look")
     return _of_post_json(url, {})
 
 
@@ -49,16 +60,84 @@ def fetch_active_stream(username: str) -> dict | None:
     user = (username or "").strip()
     if not user:
         return None
-    url = (
+    url = _api(
         f"https://onlyfans.com/api2/v2/users/{user}/streams/active"
         f"?view=full_with_check"
     )
-    data = _of_get_json(url)
+    try:
+        data = _of_get_json(url)
+    except Exception as e:
+        # Session/HTTP failures must not look like a mysterious crash on
+        # ``if not stream`` — surface a clear, catchable RuntimeError.
+        raise RuntimeError(
+            f"Failed to fetch active stream for {user}: {type(e).__name__}: {e}"
+        ) from e
+    if data is None:
+        return None
     if not isinstance(data, dict):
+        log.debug(
+            "active stream for %s: unexpected JSON type %s",
+            user,
+            type(data).__name__,
+        )
+        return None
+    # Some error payloads are dicts without isActive
+    if data.get("error") and not data.get("isActive"):
         return None
     if not data.get("isActive") or data.get("isFinished"):
         return None
     return data
+
+
+def _as_mapping(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _first_id(*candidates: Any) -> int | str | None:
+    """Return the first usable numeric/string id from *candidates*."""
+    for raw in candidates:
+        if raw is None or raw is False:
+            continue
+        if isinstance(raw, bool):
+            continue
+        if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            try:
+                return int(raw)
+            except (TypeError, ValueError):
+                continue
+        text = str(raw).strip()
+        if not text or text.lower() in {"none", "null"}:
+            continue
+        return text
+    return None
+
+
+def extract_model_user_id(stream: dict) -> int | str | None:
+    """
+    Pull the creator/model user id from an /streams/active payload.
+
+    OF has used several field names over time; try them all before failing.
+    """
+    user = _as_mapping(stream.get("user"))
+    user_data = _as_mapping(stream.get("userData") or stream.get("user_data"))
+    partner = _as_mapping(stream.get("primaryPartner") or stream.get("partner"))
+    return _first_id(
+        user.get("id"),
+        user.get("user_id"),
+        user.get("uid"),
+        user_data.get("id"),
+        user_data.get("user_id"),
+        partner.get("id"),
+        partner.get("user_id"),
+        stream.get("primaryPartnerUserId"),
+        stream.get("primaryPartnerUserID"),
+        stream.get("userId"),
+        stream.get("user_id"),
+        stream.get("modelId"),
+        stream.get("model_id"),
+        stream.get("creatorId"),
+        stream.get("creator_id"),
+    )
 
 
 def fetch_agora_credentials(model_user_id: int | str, stream_type: str = "agora_direct") -> dict:
@@ -69,7 +148,7 @@ def fetch_agora_credentials(model_user_id: int | str, stream_type: str = "agora_
         "preferred_servers": [],
     }
     ext_q = quote(json.dumps(extension, separators=(",", ":")), safe="")
-    url = (
+    url = _api(
         f"https://onlyfans.com/api2/v2/users/{model_user_id}/streams/active/url"
         f"?extension={ext_q}"
     )
@@ -175,18 +254,53 @@ def resolve_live_join(username: str) -> dict:
         "username", "stream", "agora": <parse_agora_cred>,
         "stream_type", "stream_id", "model_user_id"
       }
+
+    Raises RuntimeError with an explicit message when the creator is offline,
+    the payload lacks a model id, or the Agora URL cannot be parsed. Callers
+    (GUI dump / diagnostics) should show ``str(exc)`` to the user.
     """
-    stream = fetch_active_stream(username)
-    if not stream:
-        raise RuntimeError(f"{username} has no active stream (API).")
+    try:
+        stream = fetch_active_stream(username)
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(
+            f"Active-stream lookup failed for {username}: {type(e).__name__}: {e}"
+        ) from e
+
+    # Use identity check — ``if not stream`` is fine for None/{} but a future
+    # non-mapping payload must not blow up on truthiness before we raise.
+    if stream is None:
+        msg = f"{username} has no active stream (API)."
+        log.info("[live_api] %s", msg)
+        raise RuntimeError(msg)
+
+    if not isinstance(stream, dict):
+        msg = (
+            f"{username}: active stream response is {type(stream).__name__}, "
+            "expected object"
+        )
+        log.warning("[live_api] %s", msg)
+        raise RuntimeError(msg)
 
     stream_id = stream.get("id")
-    user = stream.get("user") or {}
-    model_id = user.get("id") or stream.get("primaryPartnerUserId")
+    model_id = extract_model_user_id(stream)
     if model_id is None:
-        raise RuntimeError("Active stream missing model user id")
+        keys = sorted(str(k) for k in stream.keys())
+        user_keys = sorted(
+            str(k) for k in _as_mapping(stream.get("user")).keys()
+        )
+        msg = (
+            "Active stream missing model user id "
+            f"(username={username!r} stream_id={stream_id!r} "
+            f"stream_keys={keys} user_keys={user_keys})"
+        )
+        log.warning("[live_api] %s", msg)
+        raise RuntimeError(msg)
 
     available = stream.get("viewerAvailableStreamTypes") or []
+    if not isinstance(available, list):
+        available = []
     stream_type = stream.get("streamType") or (
         available[0] if available else "agora_direct"
     )
@@ -196,8 +310,17 @@ def resolve_live_join(username: str) -> dict:
             stream_type,
         )
 
-    payload = fetch_agora_credentials(model_id, stream_type=str(stream_type))
-    agora = parse_agora_cred(payload)
+    try:
+        payload = fetch_agora_credentials(model_id, stream_type=str(stream_type))
+        agora = parse_agora_cred(payload)
+    except RuntimeError:
+        raise
+    except Exception as e:
+        raise RuntimeError(
+            f"Agora credential fetch failed for {username} "
+            f"(model_id={model_id}): {type(e).__name__}: {e}"
+        ) from e
+
     return {
         "username": username,
         "stream": stream,
