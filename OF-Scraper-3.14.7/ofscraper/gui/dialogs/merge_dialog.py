@@ -15,7 +15,8 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
-from ofscraper.gui.utils.ui_scale import apply_font
+from ofscraper.gui.utils.privacy_mode import MaskedPathFields, redact_log_message
+from ofscraper.gui.utils.ui_scale import apply_font, style_page_title
 from ofscraper.gui.styles import c
 from ofscraper.gui.utils.thread_worker import AsyncWorker
 from ofscraper.gui.widgets.styled_button import StyledButton
@@ -30,16 +31,16 @@ class MergePage(QWidget):
         super().__init__(parent)
         self.manager = manager
         self._setup_ui()
+        self._paths = MaskedPathFields(self.source_input, self.dest_input)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
         # Header
         header = QLabel("Merge Databases")
-        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
-        header.setProperty("heading", True)
+        style_page_title(header)
         layout.addWidget(header)
 
         subtitle = QLabel(
@@ -117,18 +118,18 @@ class MergePage(QWidget):
     def _browse_source(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Source Folder")
         if folder:
-            self.source_input.setText(folder)
+            self._paths.set_value(self.source_input, folder)
 
     def _browse_dest(self):
         folder = QFileDialog.getExistingDirectory(
             self, "Select Destination Folder"
         )
         if folder:
-            self.dest_input.setText(folder)
+            self._paths.set_value(self.dest_input, folder)
 
     def _on_merge(self):
-        source = self.source_input.text().strip()
-        dest = self.dest_input.text().strip()
+        source = self._paths.value(self.source_input)
+        dest = self._paths.value(self.dest_input)
 
         if not source:
             QMessageBox.warning(self, "Missing", "Please select a source folder.")
@@ -140,14 +141,18 @@ class MergePage(QWidget):
         reply = QMessageBox.question(
             self,
             "Confirm Merge",
-            f"Merge databases from:\n{source}\n\nInto:\n{dest}\n\nContinue?",
+            redact_log_message(
+                f"Merge databases from:\n{source}\n\nInto:\n{dest}\n\nContinue?"
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
 
         self.output_text.clear()
-        self.output_text.appendPlainText(f"Starting merge from {source} to {dest}...")
+        self.output_text.appendPlainText(
+            redact_log_message(f"Starting merge from {source} to {dest}...")
+        )
         self.merge_btn.setEnabled(False)
         app_signals.status_message.emit("Merge in progress...")
 
@@ -176,7 +181,7 @@ class MergePage(QWidget):
             )
             if failures:
                 for f in failures:
-                    self.output_text.appendPlainText(f"  FAILED: {f}")
+                    self.output_text.appendPlainText(redact_log_message(f"  FAILED: {f}"))
         else:
             self.output_text.appendPlainText("Merge completed (no details returned).")
         app_signals.status_message.emit("Merge complete")
@@ -184,6 +189,6 @@ class MergePage(QWidget):
     def _on_merge_error(self, error_msg):
         self._merge_worker = None
         self.merge_btn.setEnabled(True)
-        self.output_text.appendPlainText(f"\nERROR: {error_msg}")
+        self.output_text.appendPlainText(redact_log_message(f"\nERROR: {error_msg}"))
         app_signals.status_message.emit("Merge failed")
         QMessageBox.critical(self, "Merge Error", error_msg)

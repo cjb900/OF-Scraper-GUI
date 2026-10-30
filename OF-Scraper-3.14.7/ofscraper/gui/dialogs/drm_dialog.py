@@ -21,7 +21,8 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
-from ofscraper.gui.utils.ui_scale import apply_font
+from ofscraper.gui.utils.privacy_mode import MaskedPathFields, redact_log_message
+from ofscraper.gui.utils.ui_scale import apply_font, style_page_title
 from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 
@@ -111,12 +112,13 @@ class DRMKeyPage(QWidget):
         self._runner = None
         self._last_output_dir = None
         self._setup_ui()
+        self._paths = MaskedPathFields(self.script_input, self.output_input)
         self._try_prefill_script()
 
     def _try_prefill_script(self):
         """Pre-fill the script path with the bundled script if it exists."""
         if os.path.isfile(_BUNDLED_SCRIPT):
-            self.script_input.setText(_BUNDLED_SCRIPT)
+            self._paths.set_value(self.script_input, _BUNDLED_SCRIPT)
 
     def _setup_ui(self):
         outer = QVBoxLayout(self)
@@ -131,13 +133,12 @@ class DRMKeyPage(QWidget):
         container = QWidget()
         scroll.setWidget(container)
         layout = QVBoxLayout(container)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
         # ── Header ────────────────────────────────────────────────────────────
         header = QLabel("DRM Key Creation")
-        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
-        header.setProperty("heading", True)
+        style_page_title(header)
         layout.addWidget(header)
 
         subtitle = QLabel(
@@ -246,25 +247,27 @@ class DRMKeyPage(QWidget):
             self, "Select Extraction Script", "", "Python Scripts (*.py)"
         )
         if path:
-            self.script_input.setText(path)
+            self._paths.set_value(self.script_input, path)
 
     def _browse_output(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if folder:
-            self.output_input.setText(folder)
+            self._paths.set_value(self.output_input, folder)
 
     def _on_generate(self):
-        script = self.script_input.text().strip()
+        script = self._paths.value(self.script_input)
         if not script:
             QMessageBox.warning(self, "Missing", "No extraction script path set.\n"
                                 "The bundled script was not found — please browse to drm_keydive.py.")
             return
         if not os.path.isfile(script):
-            QMessageBox.warning(self, "Not Found", f"Script not found:\n{script}")
+            QMessageBox.warning(
+                self, "Not Found", redact_log_message(f"Script not found:\n{script}")
+            )
             return
 
         # Use typed path or fall back to the script's own default
-        output_dir = self.output_input.text().strip()
+        output_dir = self._paths.value(self.output_input)
         if not output_dir:
             output_dir = os.path.normpath(os.path.expanduser("~/.config/ofscraper/device"))
 
@@ -273,7 +276,7 @@ class DRMKeyPage(QWidget):
 
         self.output_text.clear()
         start_msg = f"Starting DRM key extraction...\nOutput directory: {output_dir}\n"
-        self.output_text.appendPlainText(start_msg)
+        self.output_text.appendPlainText(redact_log_message(start_msg))
         for line in start_msg.rstrip().splitlines():
             try:
                 log.info("[DRM] %s", line)
@@ -288,7 +291,7 @@ class DRMKeyPage(QWidget):
         self._runner.start()
 
     def _on_line(self, line: str):
-        self.output_text.appendPlainText(line)
+        self.output_text.appendPlainText(redact_log_message(line))
         if line:
             try:
                 log.info("[DRM] %s", line)
@@ -334,20 +337,24 @@ class DRMKeyPage(QWidget):
             QMessageBox.warning(
                 self,
                 "Key Files Not Found",
-                "Extraction reported success but the key files were not found:\n"
-                + "\n".join(missing)
-                + "\n\nConfig was not updated.",
+                redact_log_message(
+                    "Extraction reported success but the key files were not found:\n"
+                    + "\n".join(missing)
+                    + "\n\nConfig was not updated."
+                ),
             )
             return
 
         reply = QMessageBox.question(
             self,
             "Update Configuration",
-            "Keys were saved successfully!\n\n"
-            f"  Client ID:   {client_id}\n"
-            f"  Private Key: {private_key}\n\n"
-            "Would you like to update config.json with these paths\n"
-            "and set Key Mode to manual?",
+            redact_log_message(
+                "Keys were saved successfully!\n\n"
+                f"  Client ID:   {client_id}\n"
+                f"  Private Key: {private_key}\n\n"
+                "Would you like to update config.json with these paths\n"
+                "and set Key Mode to manual?"
+            ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply != QMessageBox.StandardButton.Yes:
@@ -359,10 +366,12 @@ class DRMKeyPage(QWidget):
             QMessageBox.information(
                 self,
                 "Config Updated",
-                "config.json has been updated:\n"
-                "  • key-mode-default → manual\n"
-                f"  • client-id → {client_id}\n"
-                f"  • private-key → {private_key}",
+                redact_log_message(
+                    "config.json has been updated:\n"
+                    "  • key-mode-default → manual\n"
+                    f"  • client-id → {client_id}\n"
+                    f"  • private-key → {private_key}"
+                ),
             )
             app_signals.status_message.emit("Config updated with DRM keys")
         except Exception as e:
@@ -388,7 +397,9 @@ class DRMKeyPage(QWidget):
         if not present:
             return
 
-        lines = "\n".join(f"  • {path}\n    ({desc})" for path, desc in present)
+        lines = redact_log_message(
+            "\n".join(f"  • {path}\n    ({desc})" for path, desc in present)
+        )
         reply = QMessageBox.question(
             self,
             "Remove Extracted Files?",
@@ -433,7 +444,7 @@ class DRMKeyPage(QWidget):
             QMessageBox.warning(
                 self,
                 "Cleanup Incomplete",
-                "Some items could not be removed:\n\n" + "\n".join(errors),
+                redact_log_message("Some items could not be removed:\n\n" + "\n".join(errors)),
             )
         else:
             QMessageBox.information(

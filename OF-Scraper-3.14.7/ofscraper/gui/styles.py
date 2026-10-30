@@ -202,6 +202,14 @@ QPushButton#danger_button:hover, QPushButton[danger="true"]:hover {{
     background-color: #eba0ac;
 }}
 
+/* Primary / danger rules come after :disabled, so restate it for them. */
+QPushButton#primary_button:disabled, QPushButton[primary="true"]:disabled,
+QPushButton#danger_button:disabled, QPushButton[danger="true"]:disabled {{
+    background-color: #1e1e2e;
+    color: #7f849c;
+    border: 1px solid #313244;
+}}
+
 /* ==================== Nav Buttons ==================== */
 QPushButton.nav_button {{
     background-color: transparent;
@@ -292,6 +300,21 @@ QRadioButton::indicator:checked {{
 
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {{
     border-color: #89b4fa;
+}}
+
+/* Disabled boxes looked exactly like enabled ones. */
+QCheckBox:disabled, QRadioButton:disabled {{
+    color: #7f849c;
+}}
+
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
+    background-color: #1e1e2e;
+    border-color: #313244;
+}}
+
+QCheckBox::indicator:checked:disabled, QRadioButton::indicator:checked:disabled {{
+    background-color: #585b70;
+    border-color: #585b70;
 }}
 
 /* ==================== Tables ==================== */
@@ -614,6 +637,14 @@ QPushButton#danger_button:hover, QPushButton[danger="true"]:hover {{
     background-color: #e33e5a;
 }}
 
+/* Primary / danger rules come after :disabled, so restate it for them. */
+QPushButton#primary_button:disabled, QPushButton[primary="true"]:disabled,
+QPushButton#danger_button:disabled, QPushButton[danger="true"]:disabled {{
+    background-color: #eff1f5;
+    color: #acb0be;
+    border: 1px solid #ccd0da;
+}}
+
 /* ==================== Nav Buttons ==================== */
 QPushButton.nav_button {{
     background-color: transparent;
@@ -704,6 +735,21 @@ QRadioButton::indicator:checked {{
 
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {{
     border-color: #1e66f5;
+}}
+
+/* Disabled boxes looked exactly like enabled ones. */
+QCheckBox:disabled, QRadioButton:disabled {{
+    color: #8c8fa1;
+}}
+
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
+    background-color: #e6e9ef;
+    border-color: #ccd0da;
+}}
+
+QCheckBox::indicator:checked:disabled, QRadioButton::indicator:checked:disabled {{
+    background-color: #acb0be;
+    border-color: #acb0be;
 }}
 
 /* ==================== Tables ==================== */

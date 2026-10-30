@@ -20,7 +20,7 @@ _PHASE_LABELS = {
 }
 
 _PHASE_COLORS = {
-    "ready": "overlay1",
+    "ready": "muted",
     "running": "blue",
     "scraping": "blue",
     "cancelling": "peach",
@@ -69,7 +69,7 @@ class _HealthChipLabel(QLabel):
         self.setText(text)
         self._navigate = navigate or "config"
         self.setToolTip(detail or "")
-        accent = c(_HEALTH_LEVEL_COLORS.get(level, "overlay1"))
+        accent = c(_HEALTH_LEVEL_COLORS.get(level, "muted"))
         base = c("base")
         self.setStyleSheet(
             f"QLabel#statusHealthChip {{"
@@ -207,7 +207,7 @@ class StatusStrip(QWidget):
             pass
 
     def _apply_phase_badge_style(self):
-        color_key = _PHASE_COLORS.get(self._phase, "overlay1")
+        color_key = _PHASE_COLORS.get(self._phase, "muted")
         accent = c(color_key)
         base = c("base")
         self.phase_badge.setStyleSheet(

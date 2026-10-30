@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
-from ofscraper.gui.utils.ui_scale import apply_font
+from ofscraper.gui.utils.ui_scale import apply_font, style_page_title
 from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 import ofscraper.utils.paths.common as common_paths
@@ -127,8 +127,7 @@ class ConfigPage(QWidget):
 
         # Header
         header = QLabel("Configuration")
-        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
-        header.setProperty("heading", True)
+        style_page_title(header)
         layout.addWidget(header)
 
         subtitle = QLabel("Edit application settings. Changes are saved to config.json.")

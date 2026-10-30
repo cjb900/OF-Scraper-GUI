@@ -209,6 +209,60 @@ def gui_action(kind: str, detail: str = "") -> None:
     _write_line(f"ui_{kind}", detail)
 
 
+def _short_stack(skip: int = 1, depth: int = 8) -> str:
+    frames = traceback.extract_stack()[: -(skip + 1)][-depth:]
+    return " <- ".join(f"{Path(f.filename).name}:{f.name}:{f.lineno}" for f in reversed(frames))
+
+
+def install_exit_tracing(app) -> None:
+    """Breadcrumbs for every way the GUI can end, so the next crash log says which.
+
+    Records: the Qt event loop quitting (aboutToQuit), the last window closing,
+    Python exiting (atexit, with the threads still running) and any
+    sys.exit()/exit()/quit() call with where it came from.
+    """
+    import atexit
+    import builtins
+    import threading
+
+    try:
+        app.aboutToQuit.connect(lambda: _write_line("ui_app_about_to_quit"))
+        app.lastWindowClosed.connect(lambda: _write_line("ui_last_window_closed"))
+    except Exception:
+        pass
+
+    def _traced(name, original):
+        def _exit(*args):
+            try:
+                _write_line(
+                    "exit_call",
+                    f"{name}({', '.join(repr(a) for a in args)}) "
+                    f"thread={threading.current_thread().name} from {_short_stack()}",
+                )
+            except Exception:
+                pass
+            return original(*args)
+
+        _exit.__wrapped__ = original
+        return _exit
+
+    if not hasattr(sys.exit, "__wrapped__"):
+        sys.exit = _traced("sys.exit", sys.exit)
+        for name in ("exit", "quit"):
+            original = getattr(builtins, name, None)
+            if original is not None:
+                setattr(builtins, name, _traced(name, original))
+
+    def _at_python_exit():
+        try:
+            names = sorted(t.name for t in threading.enumerate())
+            _write_line("python_exit", f"threads={names}")
+        except Exception:
+            pass
+
+    atexit.register(_at_python_exit)
+
+
 def install_crash_diagnostics() -> None:
     """Install once at GUI startup. Safe to call repeatedly."""
     global _installed, _fault_fp

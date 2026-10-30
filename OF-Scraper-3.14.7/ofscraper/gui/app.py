@@ -37,6 +37,7 @@ _WEBENGINE_FLAGS = webengine_flags()
 if "QTWEBENGINE_CHROMIUM_FLAGS" not in os.environ:
     os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = _WEBENGINE_FLAGS
 
+import atexit
 import logging
 import subprocess
 import sys
@@ -526,4 +527,93 @@ def launch_gui(manager=None):
     except Exception:
         _patch_ver = "unknown"
     log.info(f"OF-Scraper {_of_ver} GUI {_patch_ver} started")
+
+    # Python can also exit without app.exec() returning (e.g. SystemExit in a
+    # Qt callback); PyQt's own exit cleanup then walks a live app. atexit runs
+    # newest first: this runs before PyQt's cleanup, and after the
+    # python_exit breadcrumb registered just below.
+    atexit.register(shutdown_gui, app, window, 1000)
+    try:
+        from ofscraper.gui.utils.crash_diagnostics import install_exit_tracing
+
+        install_exit_tracing(app)
+    except Exception as e:
+        log.debug(f"[GUI] exit tracing not installed: {e}")
+
     app.exec()
+    try:
+        from ofscraper.gui.utils.crash_diagnostics import gui_action
+
+        gui_action("event_loop_exited")
+    except Exception:
+        pass
+    shutdown_gui(app, window)
+
+
+def shutdown_gui(app, window, worker_wait_ms: int = 5000) -> None:
+    """Take the GUI down in a fixed order before QApplication is destroyed.
+
+    PyQt's QApplication destructor walks sip's table of every wrapper and deletes
+    the Python-owned QObjects (the main window and its whole widget tree),
+    releasing the GIL for each delete. Python that runs meanwhile (the app-wide
+    event filters see every widget being destroyed; worker threads keep going)
+    adds and removes wrappers, sip rebuilds the table, and the walk reads freed
+    memory: a Windows access violation in sip.cp311-win_amd64.pyd
+    (sip_api_visit_wrappers) when the GUI closes. So: unload plugins, drop the
+    Python event filters, let pool workers finish, and delete the window here,
+    leaving that walk almost nothing to do. Safe to call twice (it also runs
+    from atexit).
+    """
+    if getattr(app, "_ofs_gui_shut_down", False):
+        return
+    try:
+        app._ofs_gui_shut_down = True
+    except Exception:
+        pass
+    try:
+        from ofscraper.gui.utils.crash_diagnostics import gui_action
+
+        gui_action("shutdown_start")
+    except Exception:
+        gui_action = None
+
+    # Plugins never got on_unload at exit (only via Plugins → Unload now), so
+    # e.g. a running live capture was never told to save.
+    try:
+        from ofscraper.plugins.manager import plugin_manager
+
+        plugin_manager.dispatch_event("on_ui_teardown", window)
+        plugin_manager.dispatch_event("on_unload")
+    except Exception as e:
+        log.debug(f"[GUI] plugin shutdown failed: {e}")
+
+    for attr in ("_gui_event_logger", "_legacy_model_loading_popup_filter"):
+        flt = getattr(app, attr, None)
+        if flt is not None:
+            try:
+                app.removeEventFilter(flt)
+            except Exception:
+                pass
+
+    try:
+        from PyQt6.QtCore import QThreadPool
+
+        if not QThreadPool.globalInstance().waitForDone(int(worker_wait_ms)):
+            log.debug("[GUI] background workers still running at exit")
+    except Exception:
+        pass
+
+    try:
+        from PyQt6 import sip
+
+        if window is not None and not sip.isdeleted(window):
+            sip.delete(window)
+        app.sendPostedEvents(None, QEvent.Type.DeferredDelete.value)
+    except Exception as e:
+        log.debug(f"[GUI] window teardown failed: {e}")
+
+    if gui_action is not None:
+        try:
+            gui_action("shutdown_done")
+        except Exception:
+            pass

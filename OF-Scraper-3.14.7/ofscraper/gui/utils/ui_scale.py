@@ -18,6 +18,10 @@ log = logging.getLogger("shared")
 DESIGN_BASE = 13
 ALLOWED_SIZES = (12, 13, 14, 16, 18, 20)
 _PROP = "_gui_font_design"
+# Page titles get their own px size (a widget stylesheet beats the app QSS on
+# every page; plain setFont lost to it on some pages and won on others).
+_TITLE_PROP = "_gui_title_px"
+PAGE_TITLE_PX = 26
 
 _current = DESIGN_BASE
 
@@ -166,6 +170,11 @@ def refresh_scaled_fonts(root: QWidget | None = None) -> int:
             if wid in seen:
                 continue
             seen.add(wid)
+            title_px = w.property(_TITLE_PROP)
+            if title_px:
+                _set_title_style(w, float(title_px))
+                updated += 1
+                continue
             design = w.property(_PROP)
             if not design:
                 continue
@@ -175,6 +184,17 @@ def refresh_scaled_fonts(root: QWidget | None = None) -> int:
         except Exception:
             continue
     return updated
+
+
+def _set_title_style(label, design_px: float) -> None:
+    label.setStyleSheet(f"font-size: {scale_px(design_px)}px; font-weight: bold;")
+
+
+def style_page_title(label, design_px: float = PAGE_TITLE_PX) -> None:
+    """Same title size on every page; rescaled by refresh_scaled_fonts."""
+    label.setProperty("heading", True)
+    label.setProperty(_TITLE_PROP, float(design_px))
+    _set_title_style(label, design_px)
 
 
 def apply_application_font() -> None:

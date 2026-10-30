@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
-from ofscraper.gui.utils.ui_scale import apply_font
+from ofscraper.gui.utils.ui_scale import apply_font, style_page_title
 from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 
@@ -127,15 +127,14 @@ class ActionPage(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
         scroll.setWidget(content)
         outer.addWidget(scroll)
 
         # Header
         header = QLabel("Select Action")
-        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
-        header.setProperty("heading", True)
+        style_page_title(header)
         layout.addWidget(header)
 
         subtitle = QLabel("Choose what you want to do with the selected models.")
@@ -156,7 +155,7 @@ class ActionPage(QWidget):
         self._paid_all_widget = self._build_paid_all_widget()
 
         for i, (label, actions) in enumerate(ACTION_CHOICES):
-            radio = QRadioButton(label)
+            radio = QRadioButton(label.replace("&", "&&"))
             apply_font(radio, "Segoe UI", 13)
             radio.setStyleSheet("QRadioButton { padding: 8px 4px; }")
             radio.setProperty("actions", actions)
@@ -186,7 +185,7 @@ class ActionPage(QWidget):
         self._msg_filter_widget = self._build_msg_filter_widget()
 
         for i, (label, actions) in enumerate(CHECK_CHOICES):
-            radio = QRadioButton(label)
+            radio = QRadioButton(label.replace("&", "&&"))
             apply_font(radio, "Segoe UI", 13)
             radio.setStyleSheet("QRadioButton { padding: 8px 4px; }")
             radio.setProperty("actions", actions)

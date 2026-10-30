@@ -49,7 +49,7 @@ class UrlInputPage(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
         title = QLabel("Scrape by Post URL / ID")
@@ -78,7 +78,7 @@ class UrlInputPage(QWidget):
 
         self.count_label = QLabel("0 entries")
         try:
-            self.count_label.setStyleSheet(f"color: {c('subtext0')};")
+            self.count_label.setStyleSheet(f"color: {c('subtext')};")
         except Exception:
             self.count_label.setStyleSheet("color: gray;")
         layout.addWidget(self.count_label)

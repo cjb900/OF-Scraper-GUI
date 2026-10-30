@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
-from ofscraper.gui.utils.ui_scale import apply_font, scale_px
+from ofscraper.gui.utils.ui_scale import apply_font, scale_px, style_page_title
 from ofscraper.gui.styles import c
 from ofscraper.gui.utils.thread_worker import Worker
 from ofscraper.gui.widgets.styled_button import StyledButton
@@ -137,8 +137,7 @@ class ModelSelectorPage(QWidget):
 
         # Header
         header = QLabel("Select Models")
-        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
-        header.setProperty("heading", True)
+        style_page_title(header)
         layout.addWidget(header)
 
         subtitle = QLabel(

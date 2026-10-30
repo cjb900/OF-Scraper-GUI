@@ -39,6 +39,11 @@ log = logging.getLogger("shared")
 _CHECK_MODES = {"post_check", "msg_check", "paid_check", "story_check"}
 # Default console pane height (matches initial splitter sizes / old fixed panel).
 _DEFAULT_CONSOLE_HEIGHT = 180
+# Filters panel width (px). The minimum follows what its rows need (so nothing
+# is cut off); the default is that minimum, leaving the rest to the table. The
+# width the user drags to is saved in gui_settings.json.
+_FILTERS_MIN_WIDTH = 300
+_FILTERS_MAX_WIDTH = 640
 
 def _help_btn_qss():
     return (
@@ -306,10 +311,9 @@ class TablePage(QWidget):
 
         # Sidebar
         self.sidebar = FilterSidebar()
-        # Give the sidebar enough width to show controls by default.
-        # Users can still resize via the splitter handle.
-        self.sidebar.setMinimumWidth(400)
-        self.sidebar.setMaximumWidth(640)
+        # Users can resize via the splitter handle; the width is remembered.
+        self.sidebar.setMinimumWidth(_FILTERS_MIN_WIDTH)
+        self.sidebar.setMaximumWidth(_FILTERS_MAX_WIDTH)
         content_splitter.addWidget(self.sidebar)
 
         # Right side: table + bottom tabs
@@ -346,9 +350,16 @@ class TablePage(QWidget):
         guide_layout = QVBoxLayout(self._empty_guide_wrap)
         guide_layout.setContentsMargins(24, 24, 24, 24)
         guide_layout.addStretch(1)
-        guide_layout.addWidget(
-            self._empty_guide, 0, Qt.AlignmentFlag.AlignHCenter
+        # Centre with stretches, not an alignment flag: with a flag, Qt sizes a
+        # word-wrapped label from its unwrapped hint and clips the last lines.
+        guide_row = QHBoxLayout()
+        guide_row.addStretch(1)
+        self._empty_guide.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
         )
+        guide_row.addWidget(self._empty_guide)
+        guide_row.addStretch(1)
+        guide_layout.addLayout(guide_row)
         guide_layout.addStretch(1)
         table_host_layout.addWidget(self._empty_guide_wrap, 0, 0)
 
@@ -391,8 +402,13 @@ class TablePage(QWidget):
         content_splitter.addWidget(right_widget)
         content_splitter.setStretchFactor(0, 0)
         content_splitter.setStretchFactor(1, 1)
-        # Default widths: sidebar fully visible without dragging.
-        content_splitter.setSizes([520, 880])
+        content_splitter.setSizes([self._filters_min_width(), 1040])
+        content_splitter.splitterMoved.connect(self._on_filters_splitter_moved)
+        self._filters_save_timer = QTimer(self)
+        self._filters_save_timer.setSingleShot(True)
+        self._filters_save_timer.setInterval(1000)
+        self._filters_save_timer.timeout.connect(self._persist_filters_width)
+        self._pending_filters_width = None
 
         layout.addWidget(content_splitter)
 
@@ -522,14 +538,17 @@ class TablePage(QWidget):
             f"QPushButton {{ background-color: {c('surface1')}; color: {c('text')};"
             f" border: none; border-radius: 6px; padding: 6px 12px; }}"
             f" QPushButton:hover {{ background-color: {c('surface2')}; }}"
-            f" QPushButton:!checked {{ background-color: {c('surface0')}; color: {c('overlay1')};"
+            f" QPushButton:!checked {{ background-color: {c('surface0')}; color: {c('muted')};"
             f" border: 1px solid {c('surface2')}; }}"
         )
-        self.filter_btn.setStyleSheet(
-            f"QPushButton {{ background-color: {c('blue')}; color: {base};"
+        # Color only for the main action (Start / Send) and for stopping
+        # (Cancel / Stop daemon); everything else uses the same plain style.
+        plain = (
+            f"QPushButton {{ background-color: {c('surface1')}; color: {c('text')};"
             f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
-            f" QPushButton:hover {{ background-color: {c('sky')}; }}"
+            f" QPushButton:hover {{ background-color: {c('surface2')}; }}"
         )
+        self.filter_btn.setStyleSheet(plain)
         self.start_scraping_btn.setStyleSheet(
             f"QPushButton {{ background-color: {c('green')}; color: {base};"
             f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 20px; }}"
@@ -542,26 +561,11 @@ class TablePage(QWidget):
             f" QPushButton:hover {{ background-color: {c('peach')}; }}"
             f" QPushButton:disabled {{ background-color: {c('surface1')}; color: {c('muted')}; }}"
         )
-        self.new_scrape_btn.setStyleSheet(
-            f"QPushButton {{ background-color: {c('mauve')}; color: {base};"
-            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
-            f" QPushButton:hover {{ background-color: {c('lavender')}; }}"
-        )
-        self.open_folder_btn.setStyleSheet(
-            f"QPushButton {{ background-color: {c('surface1')}; color: {c('text')};"
-            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
-            f" QPushButton:hover {{ background-color: {c('surface2')}; }}"
-        )
-        self.history_btn.setStyleSheet(
-            f"QPushButton {{ background-color: {c('surface1')}; color: {c('text')};"
-            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
-            f" QPushButton:hover {{ background-color: {c('surface2')}; }}"
-        )
-        self.export_csv_btn.setStyleSheet(
-            f"QPushButton {{ background-color: {c('surface1')}; color: {c('text')};"
-            f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
-            f" QPushButton:hover {{ background-color: {c('surface2')}; }}"
-        )
+        for btn in (
+            self.reset_btn, self.new_scrape_btn, self.open_folder_btn,
+            self.history_btn, self.export_csv_btn,
+        ):
+            btn.setStyleSheet(plain)
         self.stop_daemon_btn.setStyleSheet(
             f"QPushButton {{ background-color: {c('red')}; color: {base};"
             f" font-weight: bold; border: none; border-radius: 6px; padding: 6px 16px; }}"
@@ -651,12 +655,80 @@ class TablePage(QWidget):
     def hideEvent(self, event):
         # Don't lose a drag that hasn't hit the debounce yet.
         self._flush_console_height_save()
+        try:
+            self._filters_save_timer.stop()
+        except Exception:
+            pass
+        self._persist_filters_width()
         self._console_restore_scheduled = False
         super().hideEvent(event)
 
     def _restore_console_splitter_after_show(self):
         self._restore_console_splitter()
+        self._restore_filters_width()
         self._console_restore_scheduled = False
+
+    def _filters_min_width(self) -> int:
+        """Narrowest Filters panel that still shows every row in full."""
+        need = _FILTERS_MIN_WIDTH
+        try:
+            from PyQt6.QtWidgets import QScrollArea
+
+            scroll = self.sidebar.findChild(QScrollArea)
+            inner = scroll.widget() if scroll is not None else None
+            if inner is not None:
+                need = (
+                    inner.minimumSizeHint().width()
+                    + scroll.verticalScrollBar().sizeHint().width()
+                    + 2 * scroll.frameWidth()
+                    + 4
+                )
+        except Exception:
+            pass
+        width = max(_FILTERS_MIN_WIDTH, min(need, _FILTERS_MAX_WIDTH))
+        self.sidebar.setMinimumWidth(width)
+        return width
+
+    def _restore_filters_width(self):
+        """Apply the saved Filters panel width once the page has a real size."""
+        if not self.sidebar.isVisible():
+            return
+        min_width = self._filters_min_width()  # styles are applied by now
+        try:
+            from ofscraper.gui.utils.gui_settings import load_gui_settings
+
+            saved = int(load_gui_settings().get("filters_width") or 0)
+        except Exception:
+            saved = 0
+        total = int(self._content_splitter.width() or 0)
+        if total < 600:
+            return  # layout not ready yet
+        width = saved or min_width
+        # Leave the table at least ~360 px, but never cut off the filters.
+        width = max(min_width, min(width, _FILTERS_MAX_WIDTH, total - 360))
+        self._content_splitter.setSizes([width, total - width])
+
+    def _on_filters_splitter_moved(self, _pos: int = 0, _index: int = 0):
+        sizes = self._content_splitter.sizes()
+        if sizes and sizes[0] >= self.sidebar.minimumWidth() and self.sidebar.isVisible():
+            self._pending_filters_width = int(sizes[0])
+            self._filters_save_timer.start()
+
+    def _persist_filters_width(self):
+        width = getattr(self, "_pending_filters_width", None)
+        self._pending_filters_width = None
+        if width is None:
+            return
+        try:
+            from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
+
+            s = load_gui_settings()
+            if int(s.get("filters_width") or 0) == width:
+                return
+            s["filters_width"] = width
+            save_gui_settings(s, quiet=True)
+        except Exception:
+            pass
 
     def _connect_signals(self):
         self.data_table.cart_count_changed.connect(self._on_cart_count_changed)
@@ -820,7 +892,7 @@ class TablePage(QWidget):
     def _toggle_sidebar(self, checked):
         if checked:
             self.sidebar.setVisible(True)
-            saved = getattr(self, "_sidebar_last_width", 520)
+            saved = getattr(self, "_sidebar_last_width", None) or self._filters_min_width()
             total = self._content_splitter.width()
             self._content_splitter.setSizes([saved, max(0, total - saved)])
             self.toggle_sidebar_btn.setText("◀  Filters")

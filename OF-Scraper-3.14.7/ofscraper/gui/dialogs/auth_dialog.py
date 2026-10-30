@@ -33,7 +33,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
-from ofscraper.gui.utils.ui_scale import apply_font, scale_px
+from ofscraper.gui.utils.ui_scale import apply_font, scale_px, style_page_title
 from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 import ofscraper.utils.paths.common as common_paths
@@ -4628,7 +4628,7 @@ class AuthPage(QWidget):
         small screens do not crush the form; Save/Test stay pinned below.
         """
         root = QVBoxLayout(self)
-        root.setContentsMargins(24, 16, 24, 12)
+        root.setContentsMargins(24, 24, 24, 12)
         root.setSpacing(8)
 
         scroll = QScrollArea()
@@ -4645,8 +4645,7 @@ class AuthPage(QWidget):
 
         # Header
         header = QLabel("Authentication")
-        apply_font(header, "Segoe UI", 20, QFont.Weight.Bold)
-        header.setProperty("heading", True)
+        style_page_title(header)
         layout.addWidget(header)
 
         subtitle = QLabel(

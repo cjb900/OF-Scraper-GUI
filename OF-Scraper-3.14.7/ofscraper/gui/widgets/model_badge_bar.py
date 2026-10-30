@@ -27,7 +27,7 @@ _STATUS_MARK = {
 }
 
 _STATUS_COLOR = {
-    _STATUS_PENDING: "overlay1",
+    _STATUS_PENDING: "muted",
     _STATUS_RUNNING: "blue",
     _STATUS_OK: "green",
     _STATUS_FAIL: "red",
@@ -214,7 +214,7 @@ class ModelBadgeBar(QWidget):
             return
         status = self._status.get(name, _STATUS_PENDING)
         mark = _STATUS_MARK.get(status, "○")
-        color_key = _STATUS_COLOR.get(status, "overlay1")
+        color_key = _STATUS_COLOR.get(status, "muted")
         accent = c(color_key)
         base = c("base")
         surface = c("surface0")

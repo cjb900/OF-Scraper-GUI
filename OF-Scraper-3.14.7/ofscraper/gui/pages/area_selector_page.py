@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
-from ofscraper.gui.utils.ui_scale import apply_font
+from ofscraper.gui.utils.ui_scale import apply_font, style_page_title
 from ofscraper.gui.styles import c
 from ofscraper.gui.utils.group_layout import compact_group, tune_group_layout
 from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
@@ -130,8 +130,7 @@ class AreaSelectorPage(QWidget):
 
         # Header
         header = QLabel("Select Content Areas & Filters")
-        apply_font(header, "Segoe UI", 20, QFont.Weight.Bold)
-        header.setProperty("heading", True)
+        style_page_title(header)
         layout.addWidget(header)
 
         subtitle = QLabel(
@@ -564,7 +563,7 @@ class AreaSelectorPage(QWidget):
         back_btn.clicked.connect(self._on_back)
         nav_layout.addWidget(back_btn)
 
-        nav_layout.addSpacing(24)
+        nav_layout.addSpacing(12)
 
         self.next_btn = StyledButton("Next: Select Models  >>", primary=True)
         self.next_btn.setFixedWidth(240)
@@ -605,19 +604,8 @@ class AreaSelectorPage(QWidget):
         self.reload_models_btn.clicked.connect(self._on_reload_models)
         self.reload_models_btn.hide()
 
-        nav_layout.addWidget(self.model_loading_bar)
-        nav_layout.addSpacing(8)
-        nav_layout.addWidget(self.model_loading_label)
-        nav_layout.addSpacing(4)
-        nav_layout.addWidget(self.retry_models_btn)
-        nav_layout.addSpacing(4)
-        nav_layout.addWidget(self.reload_models_btn)
-        nav_layout.addSpacing(12)
-        nav_layout.addWidget(self.next_btn)
-
-        nav_layout.addStretch()
-
-        # Save / Reset settings buttons (right side of nav bar)
+        # Save / Reset settings sit next to Back; Next is bottom-right like
+        # the other pages, with the model-loading status just before it.
         self.save_settings_btn = StyledButton("Save Settings")
         self.save_settings_btn.setToolTip(
             "Save the current Content Areas & Filters selections to gui_settings.json\n"
@@ -635,6 +623,18 @@ class AreaSelectorPage(QWidget):
         )
         self.reset_settings_btn.clicked.connect(self._on_reset_settings)
         nav_layout.addWidget(self.reset_settings_btn)
+
+        nav_layout.addStretch()
+
+        nav_layout.addWidget(self.model_loading_bar)
+        nav_layout.addSpacing(8)
+        nav_layout.addWidget(self.model_loading_label)
+        nav_layout.addSpacing(4)
+        nav_layout.addWidget(self.retry_models_btn)
+        nav_layout.addSpacing(4)
+        nav_layout.addWidget(self.reload_models_btn)
+        nav_layout.addSpacing(12)
+        nav_layout.addWidget(self.next_btn)
 
         outer.addWidget(nav_bar)
 

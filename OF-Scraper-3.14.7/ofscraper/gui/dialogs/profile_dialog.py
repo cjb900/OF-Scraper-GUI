@@ -3,7 +3,7 @@ import pathlib
 import shutil
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QInputDialog,
@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.signals import app_signals
-from ofscraper.gui.utils.ui_scale import apply_font
+from ofscraper.gui.utils.ui_scale import apply_font, style_page_title
 from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 
@@ -34,13 +34,12 @@ class ProfilePage(QWidget):
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
 
         # Header
         header = QLabel("Profile Manager")
-        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
-        header.setProperty("heading", True)
+        style_page_title(header)
         layout.addWidget(header)
 
         subtitle = QLabel(
@@ -67,6 +66,7 @@ class ProfilePage(QWidget):
         self.profile_list = QListWidget()
         self.profile_list.setAlternatingRowColors(True)
         self.profile_list.setMinimumWidth(300)
+        self.profile_list.currentItemChanged.connect(lambda *_: self._update_buttons())
         content_layout.addWidget(self.profile_list, stretch=2)
 
         # Action buttons
@@ -98,6 +98,8 @@ class ProfilePage(QWidget):
         content_layout.addLayout(btn_layout, stretch=0)
         layout.addLayout(content_layout)
         layout.addStretch()
+        # Active-profile highlight uses a theme color: reload to recolor.
+        app_signals.theme_changed.connect(lambda _: self._load_profiles())
 
     def _load_profiles(self):
         """Load profile list from disk."""
@@ -113,26 +115,53 @@ class ProfilePage(QWidget):
 
             for name in profiles:
                 item = QListWidgetItem(name)
+                item.setData(Qt.ItemDataRole.UserRole, name)
                 if name == active:
                     apply_font(item, "Segoe UI", 12, QFont.Weight.Bold)
-                    item.setForeground(Qt.GlobalColor.cyan)
+                    item.setForeground(QColor(c("blue")))
                     item.setText(f"{name} (active)")
                 else:
                     apply_font(item, "Segoe UI", 12)
                 self.profile_list.addItem(item)
+            if not profiles:
+                empty = QListWidgetItem("No profiles found yet. Click Create Profile to add one.")
+                empty.setFlags(Qt.ItemFlag.NoItemFlags)
+                empty.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                empty.setForeground(QColor(c("muted")))
+                self.profile_list.addItem(empty)
 
             app_signals.status_message.emit(f"Found {len(profiles)} profiles")
         except Exception as e:
             log.error(f"Failed to load profiles: {e}")
             app_signals.status_message.emit(f"Failed to load profiles: {e}")
+        self._update_buttons()
+
+    def _active_profile(self):
+        try:
+            from ofscraper.utils.profiles.data import get_active_profile
+
+            return get_active_profile()
+        except Exception:
+            return None
+
+    def _update_buttons(self):
+        """Enable only what makes sense for the selected profile."""
+        name = self._get_selected_profile()
+        is_active = bool(name) and name == self._active_profile()
+        self.set_default_btn.setEnabled(bool(name) and not is_active)
+        # Renaming or deleting the profile in use would break the config.
+        self.rename_btn.setEnabled(bool(name) and not is_active)
+        self.delete_btn.setEnabled(bool(name) and not is_active)
+        tip = "Switch to another profile first." if is_active else ""
+        self.rename_btn.setToolTip(tip)
+        self.delete_btn.setToolTip(tip)
 
     def _get_selected_profile(self):
         """Get the selected profile name (strip active marker)."""
         item = self.profile_list.currentItem()
         if not item:
             return None
-        name = item.text().replace(" (active)", "")
-        return name
+        return item.data(Qt.ItemDataRole.UserRole) or None
 
     def _set_default(self):
         """Set selected profile as the default."""

@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QUrl
 
 from ofscraper.gui.signals import app_signals
-from ofscraper.gui.utils.ui_scale import apply_font
+from ofscraper.gui.utils.ui_scale import apply_font, style_page_title
 from ofscraper.gui.styles import c
 
 log = logging.getLogger("shared")
@@ -413,8 +413,7 @@ class HelpPage(QWidget):
         layout.setSpacing(12)
 
         header = QLabel("Help / README")
-        apply_font(header, "Segoe UI", 22, QFont.Weight.Bold)
-        header.setProperty("heading", True)
+        style_page_title(header)
         layout.addWidget(header)
 
         subtitle = QLabel(

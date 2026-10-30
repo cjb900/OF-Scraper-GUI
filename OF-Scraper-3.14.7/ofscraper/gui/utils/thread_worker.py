@@ -114,14 +114,26 @@ class Worker(QRunnable):
                 _safe_emit(self.signals.error, str(e))
             self.done = True
         except BaseException as e:
-            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+            # SystemExit here (e.g. "OnlyFans Maintenance detected.") would end
+            # the whole GUI from a pool thread; report it like any error.
+            if isinstance(e, KeyboardInterrupt):
                 raise
+            _note_worker_exit(e)
             self.result = None
             self.error_msg = f"{type(e).__name__}: {e}"
             log.debug(traceback.format_exc())
             if self.emit_signals:
                 _safe_emit(self.signals.error, self.error_msg)
             self.done = True
+
+
+def _note_worker_exit(e: BaseException) -> None:
+    try:
+        from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+
+        breadcrumb("worker_base_exception", f"{type(e).__name__}: {e}")
+    except Exception:
+        pass
 
 
 class AsyncWorker(QRunnable):
@@ -165,8 +177,11 @@ class AsyncWorker(QRunnable):
             log.debug(traceback.format_exc())
             _safe_emit(self.signals.error, str(e))
         except BaseException as e:
-            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+            # SystemExit here (e.g. "OnlyFans Maintenance detected.") would end
+            # the whole GUI from a pool thread; report it like any error.
+            if isinstance(e, KeyboardInterrupt):
                 raise
+            _note_worker_exit(e)
             self.error_msg = f"{type(e).__name__}: {e}"
             self.done = True
             log.debug(traceback.format_exc())
@@ -198,7 +213,10 @@ class LongRunningWorker(QThread):
             log.debug(traceback.format_exc())
             _safe_emit(self.error_signal, str(e))
         except BaseException as e:
-            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+            # SystemExit here (e.g. "OnlyFans Maintenance detected.") would end
+            # the whole GUI from a pool thread; report it like any error.
+            if isinstance(e, KeyboardInterrupt):
                 raise
+            _note_worker_exit(e)
             log.debug(traceback.format_exc())
             _safe_emit(self.error_signal, f"{type(e).__name__}: {e}")

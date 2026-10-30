@@ -652,6 +652,54 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
+        # The scrape table has its own status strip with the same messages.
+        self.stack.currentChanged.connect(lambda _i: self._sync_status_bar())
+        self.scraper_stack.currentChanged.connect(lambda _i: self._sync_status_bar())
+        self._sync_status_bar()
+
+    def _note_page_for_crash_log(self):
+        """Keep page=… in crash breadcrumbs current (sidebar and Scraper steps)."""
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import set_last_page
+
+            current = self.stack.currentWidget()
+            page = next((k for k, w in self._pages.items() if w is current), "?")
+            if page == "scraper":
+                step = self.scraper_stack.currentWidget()
+                page = f"scraper/{type(step).__name__}" if step is not None else page
+            set_last_page(page)
+        except Exception:
+            pass
+
+    def closeEvent(self, event):
+        # spontaneous: from the window system (✕, Alt+F4, the OS); otherwise
+        # close() was called in code — record where from.
+        try:
+            from ofscraper.gui.utils.crash_diagnostics import gui_action
+
+            detail = f"spontaneous={event.spontaneous()}"
+            if not event.spontaneous():
+                import traceback
+
+                detail += " from " + " <- ".join(
+                    f"{f.name}:{f.lineno}" for f in reversed(traceback.extract_stack()[-8:-1])
+                )
+            gui_action("main_window_close", detail)
+        except Exception:
+            pass
+        super().closeEvent(event)
+
+    def _sync_status_bar(self):
+        """Hide the window status bar while the scrape table (own strip) shows."""
+        self._note_page_for_crash_log()
+        try:
+            on_table = (
+                self.stack.currentWidget() is self._pages.get("scraper")
+                and self.scraper_stack.currentWidget() is self.table_page
+            )
+            self.status_bar.setVisible(not on_table)
+        except Exception:
+            pass
 
     def _toggle_theme(self):
         """Switch between dark and light themes, then offer to save as default.

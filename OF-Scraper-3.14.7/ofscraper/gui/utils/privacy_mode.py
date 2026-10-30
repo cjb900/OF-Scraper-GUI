@@ -225,3 +225,40 @@ def redact_log_message(message: str) -> str:
         except Exception:
             pass
     return out
+
+
+class MaskedPathFields:
+    """Hide path QLineEdits in Privacy mode while keeping the real values.
+
+    Read paths with ``value(edit)`` and set them with ``set_value(edit, path)``;
+    a masked field is read-only so the placeholder can't be edited by mistake.
+    """
+
+    def __init__(self, *edits):
+        self._edits = list(edits)
+        self._actual = {}
+        try:
+            from ofscraper.gui.signals import app_signals
+
+            app_signals.privacy_mode_changed.connect(self.apply)
+        except Exception:
+            pass
+        self.apply()
+
+    def apply(self, _enabled=None) -> None:
+        on = is_privacy_mode()
+        for edit in self._edits:
+            shown = edit.text()
+            if not is_privacy_placeholder(shown):
+                self._actual[edit] = shown
+            actual = self._actual.get(edit, "")
+            edit.setText(display_or_mask(actual) if on else actual)
+            edit.setReadOnly(on and bool(actual.strip()))
+
+    def value(self, edit) -> str:
+        return resolve_saved_value(edit.text(), self._actual.get(edit, "")).strip()
+
+    def set_value(self, edit, path: str) -> None:
+        self._actual[edit] = path or ""
+        edit.setText(display_or_mask(path))
+        edit.setReadOnly(is_privacy_mode() and bool((path or "").strip()))
