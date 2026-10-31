@@ -225,6 +225,12 @@ def _playwright_user_agent(auth_ua: str | None) -> str | None:
 _LIVE_CHECK_SECONDS = 60
 _NOT_LIVE_CHECKS_TO_STOP = 2
 _NO_DATA_STOP_SECONDS = 300
+# The poller stops a recording after this many polls in a row in which
+# OnlyFans no longer lists the creator as live (hasStream), once it has seen
+# them live during that session. This is the signal that starts captures, so
+# it is the dependable one: after a stream ends the recorder keeps producing
+# data from the frozen video, so the no-data and no-video stops don't fire.
+_NOT_LIVE_POLLS_TO_STOP = 2
 
 
 def _stream_still_live(username: str):
@@ -242,12 +248,14 @@ def _stream_still_live(username: str):
 class _StreamEndWatch:
     """Decides when a recording should stop because the stream is over."""
 
-    def __init__(self, username: str, check=None, clock=time.monotonic):
+    def __init__(self, username: str, check=None, clock=time.monotonic, log=None):
         self.username = username
         self._check = check or _stream_still_live
         self._clock = clock
+        self._log = log
         self._last_check = self._last_data = clock()
         self._not_live = 0
+        self._failed_logged = False
 
     def got_data(self) -> None:
         self._last_data = self._clock()
@@ -258,7 +266,15 @@ class _StreamEndWatch:
         if now - self._last_check >= _LIVE_CHECK_SECONDS:
             self._last_check = now
             live = self._check(self.username)
-            # A failed check (None) doesn't count either way.
+            # A failed check (None) doesn't count either way. Say so once, so
+            # a check that never works doesn't go unnoticed.
+            if live is None and self._log and not self._failed_logged:
+                self._failed_logged = True
+                self._log(
+                    f"[Playwright] Couldn't ask OnlyFans whether {self.username} "
+                    "is still live; the monitor's polls will stop the recording "
+                    "when the stream ends."
+                )
             self._not_live = self._not_live + 1 if live is False else 0
             if self._not_live >= _NOT_LIVE_CHECKS_TO_STOP:
                 return f"OnlyFans says {self.username}'s stream has ended"
@@ -967,6 +983,9 @@ class LiveMonitorWorker(QThread):
         self.last_poll_at = None
         self.last_poll_ok = None
         self.next_poll_at = None
+        # {username: {"seen_live": bool, "misses": int}} for creators with a
+        # session; see _stop_ended_recording.
+        self._live_watch = {}
 
     def run(self):
         self.log_msg.emit("[System] Monitoring worker thread active.")
@@ -1001,6 +1020,9 @@ class LiveMonitorWorker(QThread):
                         status = "Connecting 🟡"
                     elif is_live:
                         status = "Live 🟢"
+
+                    # The row keeps its Recording status until the file is saved.
+                    self._stop_ended_recording(username, kind, is_live)
 
                     # File counts are read here, not on the GUI thread.
                     count, tooltip = self.plugin.stream_files_summary(
@@ -1043,7 +1065,8 @@ class LiveMonitorWorker(QThread):
                                 model_statuses[username]["status"] = "Probing 🔬"
                             else:
                                 self.log_msg.emit(f"[Live] {username} is live! Starting auto-capture...")
-                                self.plugin.start_recording(username, self.save_location)
+                                if self.plugin.start_recording(username, self.save_location):
+                                    self._live_watch[username] = {"seen_live": True, "misses": 0}
                                 model_statuses[username]["status"] = "Connecting 🟡"
                 
                 # Emit update to refresh GUI table
@@ -1079,6 +1102,37 @@ class LiveMonitorWorker(QThread):
                 time.sleep(1)
 
         self.log_msg.emit("[System] Monitoring worker thread terminated.")
+
+    def _stop_ended_recording(self, username: str, kind, is_live: bool) -> bool:
+        """Stop *username*'s recording once OnlyFans stops listing them as live.
+
+        Called for every creator on every successful poll; *kind* is the
+        session kind ("recording", "connecting", "probing" or None). Returns
+        True when it asked the recording to stop.
+
+        Only after the creator was seen live during this session (a manual
+        capture of someone OnlyFans never listed as live isn't stopped), and
+        only after _NOT_LIVE_POLLS_TO_STOP polls in a row, to ride out a blip.
+        """
+        if kind is None:
+            self._live_watch.pop(username, None)
+            return False
+        watch = self._live_watch.setdefault(username, {"seen_live": False, "misses": 0})
+        if is_live:
+            watch["seen_live"] = True
+            watch["misses"] = 0
+            return False
+        if kind != "recording" or not watch["seen_live"]:
+            return False
+        watch["misses"] += 1
+        if watch["misses"] < _NOT_LIVE_POLLS_TO_STOP:
+            return False
+        self.log_msg.emit(
+            f"[Monitor] {username} is no longer live on OnlyFans "
+            f"({watch['misses']} checks in a row) — stopping and saving the recording."
+        )
+        self._live_watch.pop(username, None)
+        return bool(self.plugin.stop_capture(username))
 
     def fetch_models(self, refresh_auth: bool = False):
         """Fetch subscriptions via the same API path as Areas / Select Models.
@@ -3114,7 +3168,7 @@ class Plugin(BasePlugin):
                 offline_counter = 0
                 max_offline = 360  # 360 × 5 s = 30 min fallback for hung sessions
                 diag_tick = 0      # re-run audio diagnostic every 12 polls (60 s)
-                end_watch = _StreamEndWatch(username)
+                end_watch = _StreamEndWatch(username, log=self._emit_log)
 
                 while not stop_event.is_set():
                     stop_event.wait(5)

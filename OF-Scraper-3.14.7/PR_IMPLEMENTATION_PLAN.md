@@ -2586,6 +2586,16 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.8: the poller stops ended streams (2026-10-31)
+
+Reported on v1.3.7: captures still kept recording after the creator was no longer live. Two of 1.3.7's stops can't fire in that case: the recorder keeps producing chunks from the frozen "playing" video, so neither the 5-minute no-data stop nor the 30-minute no-video fallback triggers; and the `/streams/active` check counts a failed request as "unknown" without logging, so if it never works nothing shows it. (The 1.3.7 notes said it used "the same check the poller uses"; the poller actually uses `hasStream` from the subscription list.)
+
+- `LiveMonitorWorker._stop_ended_recording`: on every successful poll, a creator with a **recording** session that the poller has seen live during that session (or that it auto-started) is stopped through `Plugin.stop_capture` (same stop-and-save path as the Stop button) after `_NOT_LIVE_POLLS_TO_STOP` = 2 polls in a row without `hasStream`. A live poll resets the count; connecting/probing sessions and captures never seen live are left alone; the watch is dropped when the session ends. The row keeps showing Recording until the file is saved (the page's timer shows that text for recording sessions anyway); console: "… is no longer live on OnlyFans (2 checks in a row) — stopping and saving the recording."
+- `_StreamEndWatch` takes `log=`; the first failed `/streams/active` check of a recording is logged once.
+- `metadata.json` 1.3.8; `docs/plugins.md` highlights; repo zip rebuilt (same file list).
+
+Tests: +7 in `test_live_stream_monitor.py` (2 polls stop, a one-poll blip doesn't, never-seen-live and connecting sessions untouched, reset after the session ends, one end-to-end run through `run()`, failed check logged once); the source test follows the new `_StreamEndWatch(..., log=...)` call. All fail on 1.3.7.
+
 ### Patch script `--force` (patch `v409`, 2026-10-31)
 
 Asked for: a way to repair a corrupt or broken install. `docs/install.md` and `docs/troubleshooting.md` already listed `--force` / `--force --skip-deps` and an automatic broken-install check, but those only existed in the 3.12.9 script; the 3.14.x scripts had neither.

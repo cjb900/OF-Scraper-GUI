@@ -841,7 +841,109 @@ def test_the_recording_loop_feeds_and_asks_the_end_watch():
     import inspect
 
     src = inspect.getsource(lsm.Plugin.record_stream)
-    assert "end_watch = _StreamEndWatch(username)" in src
+    assert "end_watch = _StreamEndWatch(username, log=self._emit_log)" in src
     # new chunks reset the no-data timer; every loop pass asks whether to stop
     flush = src.index("_chunk_file.flush()")
     assert src.index("end_watch.got_data()", flush) < src.index("end_watch.reason()")
+
+
+def test_a_failed_live_check_is_logged_once():
+    logs = []
+    clock = _Clock()
+    w = lsm._StreamEndWatch("creator", check=lambda u: None, clock=clock, log=logs.append)
+    for i in range(1, 4):
+        clock.t = 61 * i; w.got_data()
+        assert w.reason() is None
+    assert len(logs) == 1 and "Couldn't ask OnlyFans" in logs[0]
+
+
+# ── The poller stops recordings whose stream has ended ───────────────────────
+
+class _Model:
+    def __init__(self, name, live):
+        self.active = True
+        self.name = name
+        self.model = {"hasStream": live}
+        self.expired_string = "2036-01-01"
+
+
+@pytest.fixture
+def recording(plugin, monkeypatch):
+    """*plugin* with one recording session for "creator"; records stop calls."""
+    stops = []
+    session = {"creator": ("recording", 1.0)}
+    monkeypatch.setattr(plugin, "session_snapshot", lambda: dict(session))
+    monkeypatch.setattr(plugin, "stop_capture", lambda u: stops.append(u) or True)
+    monkeypatch.setattr(plugin, "start_recording", lambda *a, **k: True)
+    monkeypatch.setattr(plugin, "stream_files_summary", lambda *a, **k: (0, ""))
+    return stops, session
+
+
+def _watch(worker, answers, kind="recording"):
+    return [worker._stop_ended_recording("creator", kind, live) for live in answers]
+
+
+def test_a_recording_stops_after_two_not_live_polls(plugin, recording):
+    stops, _ = recording
+    worker = lsm.LiveMonitorWorker(plugin, 0, None)
+    assert _watch(worker, [True, False, False]) == [False, False, True]
+    assert stops == ["creator"]
+
+
+def test_one_not_live_poll_is_a_blip(plugin, recording):
+    stops, _ = recording
+    worker = lsm.LiveMonitorWorker(plugin, 0, None)
+    assert _watch(worker, [True, False, True, False, True]) == [False] * 5
+    assert stops == []
+
+
+def test_a_capture_never_seen_live_is_not_stopped(plugin, recording):
+    stops, _ = recording
+    worker = lsm.LiveMonitorWorker(plugin, 0, None)
+    assert _watch(worker, [False, False, False]) == [False] * 3
+    assert stops == []
+
+
+def test_connecting_sessions_are_left_alone(plugin, recording):
+    stops, _ = recording
+    worker = lsm.LiveMonitorWorker(plugin, 0, None)
+    assert _watch(worker, [True, False, False, False], kind="connecting") == [False] * 4
+    assert stops == []
+
+
+def test_the_watch_resets_when_the_session_ends(plugin, recording):
+    stops, _ = recording
+    worker = lsm.LiveMonitorWorker(plugin, 0, None)
+    _watch(worker, [True, False])
+    worker._stop_ended_recording("creator", None, False)  # session over
+    assert _watch(worker, [False, False]) == [False, False]  # new manual capture
+    assert stops == []
+
+
+def test_polls_stop_a_recording_after_the_stream_ends(plugin, poll_env, recording, monkeypatch):
+    """End to end through the poll loop: live, then two polls without hasStream."""
+    _calls, models = poll_env
+    stops, _ = recording
+    answers = iter([True, False, False])
+    seen = []
+    worker = lsm.LiveMonitorWorker(plugin, 0, None)
+
+    async def get_models(all_main_models=False):
+        return [_Model("creator", next(answers))]
+
+    import ofscraper.data.models.utils.retriver as retriver
+    monkeypatch.setattr(retriver, "get_models", get_models)
+
+    def on_status(statuses):
+        seen.append(statuses["creator"]["status"])
+        if len(seen) >= 3:
+            worker.running = False
+
+    worker.status_updated.connect(on_status)
+    deadline = time.monotonic() + 5
+    worker.log_msg.connect(
+        lambda _m: setattr(worker, "running", worker.running and time.monotonic() < deadline)
+    )
+    worker.run()
+    assert stops == ["creator"]
+    assert seen == ["Recording 🔴"] * 3  # until the capture thread has saved
