@@ -98,6 +98,7 @@ More detail: [Prerequisites](docs/install.md#prerequisites).
    python patch_ofscraper_3.14.7_gui.py
    ```
 <img src="https://github.com/user-attachments/assets/d29886fd-59e8-4093-882e-4c2ee7c43b05" width="600" alt="Terminal Install">
+
 3. Start the GUI:
 
    ```bash
