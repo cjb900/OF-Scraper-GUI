@@ -104,6 +104,8 @@ Config and auth are stored on the config volume, so they survive rebuilds and re
 
 ## Accessing the GUI
 
+> 📸 **Screenshot needed:** the GUI open in a web browser through noVNC at `http://localhost:6699/`, with the browser's address bar visible.
+
 | Method | Address | Notes |
 |---|---|---|
 | **Browser (noVNC)** | `http://localhost:6699/` | Easiest. From another computer: `http://<host-ip>:6699/` (check your firewall) |

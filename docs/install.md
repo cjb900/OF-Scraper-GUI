@@ -82,6 +82,8 @@ The same flags apply to `patch_ofscraper_3.14.5_gui.py`, `patch_ofscraper_3.14.3
 
 ## After patching
 
+> 📸 **Screenshot needed:** the terminal at the end of a successful patch run ("Patch applied successfully" and the offer to launch the GUI).
+
 Launch the GUI with:
 
 ```bash
@@ -127,6 +129,8 @@ Enter choice (1-5):
 - You can also use `--target /path/to/ofscraper` to skip detection entirely
 
 ## OF-Scraper Tools
+
+> 📸 **Screenshot needed:** the main menu of `ofscraper_tools.py` with its uninstall and data management options.
 
 A standalone maintenance and removal tool (`ofscraper_tools.py`) is included. It detects your install method automatically (uv / pipx / pip) and presents two groups of options.
 

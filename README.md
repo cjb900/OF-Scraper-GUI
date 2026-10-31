@@ -40,6 +40,8 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   <img src="https://github.com/user-attachments/assets/0d04b396-9ae2-40db-a29e-c40bf6f55f7a" width="600" alt="Scraping page — media table">
 </p>
 
+> 📸 **Screenshot to check:** the first picture (Select Action) may be older than the **Update metadata** and **Download all purchased content** actions (patches v391 / v392). Retake it if those two actions are missing. The same picture is in the [GUI guide](docs/gui-guide.md#select-action).
+
 ## Contents
 
 - [What it adds](#what-it-adds)
@@ -59,6 +61,8 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 - **DRM key creation**, profiles, database merging, daemon mode, Discord notifications, scrape history, CSV export and more
 - **Plugins** (experimental): AI image tagging, an AI assistant, live stream capture and trial-link scanning
 - **Docker** support: run the GUI on a server and open it in your browser
+
+> 📸 **Screenshot needed:** a small row of pictures for this list, e.g. a Check Mode table, the Authentication page and the Plugins page. The GUI guide already has pictures of these that could be reused; the Live Monitor page still needs one ([Plugins](docs/plugins.md#live-stream-monitor-live_stream_monitor)). Turn on Privacy mode first so no usernames or paths show.
 
 The [GUI guide](docs/gui-guide.md) walks through every page.
 
@@ -102,6 +106,8 @@ More detail: [Prerequisites](docs/install.md#prerequisites).
 
 4. In the GUI: **Authentication** → log in or import cookies; **Configuration** → set your Save Location and FFmpeg path; then **Scraper** → pick an action and go.
 
+> 📸 **Screenshot needed:** the terminal at the end of a successful patch run ("Patch applied successfully" and the offer to launch the GUI). The same picture is wanted in [Install](docs/install.md#after-patching).
+
 To update later, download the newer patch script and run it again. To undo the patch: `python patch_ofscraper_3.14.7_gui.py --restore /path/to/backup`. All options: [Install](docs/install.md).
 
 ## Docker
@@ -113,6 +119,8 @@ Run the GUI on a machine without a desktop and open it at `http://<host>:6699/` 
 docker compose build ofscraper-gui
 docker compose up -d ofscraper-gui
 ```
+
+> 📸 **Screenshot needed:** the GUI open in a web browser through noVNC at `http://localhost:6699/`, with the address bar visible. The same picture is wanted in [Docker](docs/docker.md#accessing-the-gui).
 
 `docker-compose.yml` uses host networking, which only works on Linux. **On Docker Desktop (Windows / macOS) you must change it first.** Setup, volumes, CDM keys, `GUI_ARGS`, `MODE=cli` and troubleshooting: [Docker](docs/docker.md).
 

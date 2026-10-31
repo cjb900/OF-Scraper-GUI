@@ -15,6 +15,9 @@ Every **?** button in the app opens the matching part of the built-in **Help / R
 - On Windows, the correct AppUserModelID is registered so the taskbar groups and identifies the app as OF-Scraper rather than Python
 
 ### Theme
+
+> 📸 **Screenshot needed:** the main window in **Light** mode next to the same page in **Dark** mode, with the Theme button at the bottom of the sidebar visible. Take it on patch v408 or later, which changed the light-mode colors.
+
 - Toggle between **Dark** and **Light** mode using the button at the bottom of the left sidebar
 - Theme preference is saved to `gui_settings.json` in your ofscraper config directory
 - Left-nav pages use **colored icons** next to each label (Scraper, Authentication, Configuration, …); plugin pages get their own sidebar entry when loaded
@@ -186,6 +189,9 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 > **Window flashing:** on Windows and Linux the GUI turns on Qt's newer widget renderer (`QT_WIDGETS_RHI=1`) so opening the App Browser doesn't make the whole window flash. If you see drawing problems, start the GUI with `QT_WIDGETS_RHI=0` to turn it off. Docker is not affected.
 
 ### Auth failure handling
+
+> 📸 **Screenshot needed:** the dialog shown when the model list can't be loaded, with the **Retry**, **Go to Authentication**, **Dynamic Mode (Config)**, **SSL Verify (Config)** and **Help / README** buttons.
+
 - When the model list cannot be loaded (auth error), a dialog appears offering:
   - **Retry** — re-fetch models without leaving the page
   - **Go to Authentication** — jump directly to the auth page
@@ -387,6 +393,8 @@ The usual flow is **Select Action → Select Content Areas & Filters → Select 
 
 </details>
 
+> 📸 **Screenshot to check:** the Select Action screenshots may be older than the **Update metadata** and **Download all purchased content** actions (patches v391 / v392). Retake them if those two actions are missing from the list. The first one is also used in the README.
+
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
 - **Download** — download media files from your subscribed creators
@@ -401,6 +409,8 @@ After selecting an action, click **Next** to move on. After models load, a **Rel
 
 #### Update metadata (no downloads)
 
+> 📸 **Screenshot needed:** the Select Action page with **Update metadata** chosen, showing the Mode choices (Update / Check / Complete), **Mark unmatched media as locked** and **Check file hashes this run**.
+
 Updates the database for the chosen models and areas **without downloading anything**. Use it after moving or restoring your download folder, or when files you already have show as not downloaded. Equivalent to `ofscraper metadata`.
 
 - **Mode**
@@ -413,6 +423,8 @@ Updates the database for the chosen models and areas **without downloading anyth
 Pick areas and models as usual. The run happens once (no daemon); when it finishes, the table reloads so the Downloaded column shows the new status.
 
 #### Download all purchased content (all creators)
+
+> 📸 **Screenshot needed:** the Select Action page with **Download all purchased content** chosen (Exclude creators box, **Pick…** button, media types), plus the **Pick…** list of creators. Turn on Privacy mode first so no usernames or paths show.
 
 Downloads everything you have bought (PPV messages and paid posts) from **every** creator, including expired subscriptions and deleted accounts that can't be picked on the Models page.
 
@@ -463,6 +475,8 @@ A dedicated action for downloading specific posts without going through model or
 <img src="https://github.com/user-attachments/assets/bd4c6ed1-7b4a-44f9-a81e-7b14168d64c4" width="600" alt="Select Content Areas & Filters">
 
 </details>
+
+> 📸 **Screenshot to check:** since patch v403, **Next** sits in the bottom-right corner of this page. Retake the screenshot if it shows Next anywhere else.
 
 Choose which types of posts to scrape and apply filters before the scrape begins:
 
@@ -601,6 +615,8 @@ The main scrape workspace after models are selected. Until you press **Start Scr
 - After a run, a **Download failures** dialog lists failed items (filter table / add to cart in check mode)
 - Console panel **height is remembered** across relaunch / returning to the scrape page
 
+> 📸 **Screenshot needed:** the **Download failures** dialog shown after a run with failed items. Turn on Privacy mode first so no usernames or paths show.
+
 ### Confirm scrape (pre-start review)
 
 <details><summary>Screenshot</summary>
@@ -641,6 +657,8 @@ Related prompts on the same page: **disk space** check against Save Location bef
 
 #### Safer cancel and confirms
 
+> 📸 **Screenshot needed:** the **disk space** warning before a scrape, the **Confirm downloads** dialog (check-mode cart with 25+ items) and the toolbar showing **Cancelling…** after Cancel.
+
 - **Cancel** shows a Cancelling… state and cooperatively stops API pagination, mid-file chunk downloads, and between models — not only between queued media items
 - **Confirm downloads** when the check-mode cart has 25+ items
 - **Disk space check** before scrape / Send Downloads against Save Location
@@ -671,6 +689,9 @@ Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**)
 ## Automation and notifications
 
 ### Daemon mode (auto-repeat scraping)
+
+> 📸 **Screenshot needed:** the table toolbar between daemon runs, with the countdown timer, the last-run chip and the **Stop Daemon** button, plus the **Daemon Mode** options on the Areas page.
+
 - Enable from **Select Content Areas & Filters → Daemon Mode**
 - Sets an interval (1–1440 minutes) for repeated scraping runs
 - While waiting between runs, a **countdown timer** is shown in the table toolbar with wall-clock ETA
