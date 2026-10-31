@@ -64,6 +64,8 @@ volumes:
   - /home/YOU/Photos/OnlyFans:/home/YOU/Photos/OnlyFans
 ```
 
+- **Volume 1 must end in `/root/.config/ofscraper`.** Inside the container OF-Scraper runs as `root`, so its home folder is `/root`. It always reads `config.json`, auth, the databases and the `plugins/` folder from `/root/.config/ofscraper`, whatever path you mount elsewhere.
+- **Volume 2 doesn't replace volume 1.** It only makes absolute paths saved in `config.json` (like CDM key paths) work. If you mount your config folder **only** at `/home/YOU/.config/ofscraper`, the file browser will show your files there, but the GUI will use an empty `/root/.config/ofscraper`: no plugins on the Plugins page, default settings, no auth, and anything you save is lost when the container is recreated.
 - Create the host folders first. If a folder doesn't exist, Docker creates it owned by `root`.
 - The download folder uses the **same path on both sides**, so the Save Location in your `config.json` works both on the desktop and in the container. If you mount it somewhere else in the container, set **Configuration → File Options → Save Location** to the **container** path.
 - On Windows (Docker Desktop) the left side is a Windows path, e.g. `C:/Users/you/.config/ofscraper:/root/.config/ofscraper`. The right side must then be a Linux path such as `/data/OnlyFans`, and Save Location must be set to that path.
@@ -246,6 +248,9 @@ In GUI mode, the GUI's own output goes to `logging/gui-docker.log` in the config
 | Linux: can't open noVNC | Check that nothing else uses port 6699 and your firewall allows it; try `http://127.0.0.1:6699/` |
 | Container keeps restarting with `exec /entrypoint.sh: no such file or directory` | `docker/entrypoint.sh` has Windows line endings (copied or edited on Windows). Run `sed -i 's/\r$//' docker/entrypoint.sh`, then `docker compose build ofscraper-gui` and `docker compose up -d --force-recreate ofscraper-gui` |
 | GUI doesn't fill the browser; black space around it | The image predates the TigerVNC change: copy the new `docker/Dockerfile` and `docker/entrypoint.sh`, rebuild and recreate the container, then reload the noVNC tab. Use the default address (`http://<host>:6699/`), which includes `resize=remote` |
+| Plugins page is empty and shows `Plugins folder: /root/.config/ofscraper/plugins`, but the file browser shows your plugins under `/home/YOU/.config/ofscraper/plugins` | Your config folder isn't mounted at `/root/.config/ofscraper`. Add `- /home/YOU/.config/ofscraper:/root/.config/ofscraper` to `volumes:` (see [Volumes](#1-volumes-required)), then `docker compose up -d --force-recreate ofscraper-gui`. No rebuild needed |
+| Settings or auth gone after recreating the container | Same cause: without the `/root/.config/ofscraper` mount the GUI saves inside the container, and that is thrown away on recreate |
+| **Open plugins folder**: `No such file or directory: 'xdg-open'` | Expected: the container has no file manager. Manage the plugin folder from the host, in your mounted config folder's `plugins/` |
 | Black or empty noVNC screen | Wait a few seconds for the display and GUI to start; check `logging/gui-docker.log` |
 | GUI keeps restarting | It crashed; see `logging/gui-docker.log` and `gui_crash_logs/` in the config folder |
 | Auth works on the desktop but not in Docker | Copy the desktop `auth.json` into the config folder; Dynamic Mode / SSL Verify must match |

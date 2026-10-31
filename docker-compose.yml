@@ -50,7 +50,9 @@ services:
       #
       # 1) REQUIRED — ofscraper config (auth.json, config.json, SQLite DBs,
       #    logging/, gui_crash_logs/, device/ for CDM keys).
-      #    Mounted at /root/.config/ofscraper so ofscraper (running as root) finds it.
+      #    The right side MUST be /root/.config/ofscraper: ofscraper runs as root
+      #    and only reads ~/.config/ofscraper (config, auth, DBs, plugins/).
+      #    Mount 2 below does NOT replace this one.
       #    Put Widevine CDM keys here for the container-native path:
       #      …/device/client_id.bin
       #      …/device/private_key.pem
@@ -60,6 +62,8 @@ services:
       #    host home (e.g. CDM keys at /home/YOU/.config/ofscraper/client_id.bin).
       #    Keep left and right identical so those paths resolve without rewriting
       #    config.json. Comment out if you only use the /root/.config mount above.
+      #    This is an extra mount, not a replacement for mount 1: ofscraper never
+      #    looks here on its own, only at paths config.json points to.
       - /home/YOU/.config/ofscraper:/home/YOU/.config/ofscraper
       #
       # 3) REQUIRED — download / Save Location folder. The container path (right)

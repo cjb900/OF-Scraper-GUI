@@ -11,6 +11,7 @@ OF-Scraper GUI includes an extensible plugin system. Plugins are placed in your 
 **Plugin directory:**
 - **Windows:** `C:\Users\<YourUser>\.config\ofscraper\plugins\`
 - **Linux / macOS:** `~/.config/ofscraper/plugins/`
+- **Docker:** always `/root/.config/ofscraper/plugins/` inside the container. Put the plugins in your host config folder and make sure it is mounted at `/root/.config/ofscraper` ([Docker → Volumes](docker.md#1-volumes-required)). Mounting it only at `/home/YOU/.config/ofscraper` isn't enough: the Plugins page will be empty
 
 ## Getting the plugins
 
