@@ -80,6 +80,13 @@ More detail: [Install](docs/install.md).
 
 ## Quick start
 
+**Prerequisites:** you need one of these:
+
+- **OF-Scraper already installed** ([OF-Scraper on GitHub](https://github.com/datawhores/OF-Scraper)), or
+- **If OF-Scraper is not installed:** **Python** and one of **pip**, **pipx** or **uv**, so the patch script can install OF-Scraper for you.
+
+More detail: [Prerequisites](docs/install.md#prerequisites).
+
 1. Download the patch script for your OF-Scraper version from this repository, e.g. `patch_ofscraper_3.14.7_gui.py`.
 2. Run it. It finds your OF-Scraper install (or offers to install it), backs up the files it changes, installs PyQt6, and applies the patch:
 

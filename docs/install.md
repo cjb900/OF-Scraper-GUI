@@ -4,6 +4,13 @@
 
 # Install and patch
 
+## Prerequisites
+
+You need one of these before running the patch script:
+
+- **OF-Scraper is already installed.** Install it from [OF-Scraper on GitHub](https://github.com/datawhores/OF-Scraper) if you don't have it. The patch script finds your install and patches it.
+- **If OF-Scraper is not installed:** you need **Python** ([supported versions](#python-version)) and one of **pip**, **pipx** or **uv**. The patch script uses it to install OF-Scraper for you ([see below](#if-of-scraper-is-not-detected)).
+
 ## Supported platforms and install methods
 
 Check this **before** installing or patching. Unsupported or untested platforms may fail in ways that are hard to diagnose.
