@@ -78,7 +78,20 @@ python patch_ofscraper_3.14.7_gui.py --skip-pyqt6
 python patch_ofscraper_3.14.7_gui.py --restore /path/to/backup
 ```
 
-The same flags apply to `patch_ofscraper_3.14.5_gui.py`, `patch_ofscraper_3.14.3_gui.py`, and `patch_ofscraper_3.12.9_gui.py`. Those three patches have not been updated and may not work properly; only the 3.14.7 patch is maintained (see [Versions](versions.md)).
+The same flags apply to `patch_ofscraper_3.14.5_gui.py`, `patch_ofscraper_3.14.3_gui.py`, and `patch_ofscraper_3.12.9_gui.py`, except `--force`, which only the 3.14.7 patch has (from `v409`). Those three patches have not been updated and may not work properly; only the 3.14.7 patch is maintained (see [Versions](versions.md)).
+
+### Repairing a broken install (`--force`)
+
+If OF-Scraper or the GUI won't start after an interrupted or failed install, or after patching, `--force` rebuilds it from scratch and then patches it:
+
+- **ofscraper 3.14.7** is reinstalled with all of its dependencies, using the same method it was installed with:
+  - **uv:** `uv tool install --force --reinstall`, with the GUI packages listed so they are not dropped
+  - **pipx:** `pipx uninstall ofscraper`, then a fresh `pipx install`, so the whole venv is new
+  - **pip:** `pip install --upgrade --force-reinstall`
+- **GUI dependencies** (PyQt6, PyQt6-WebEngine, browser_cookie3, secretstorage, pycryptodome) are all reinstalled, even the ones that are already there
+- **The GUI patch** is then applied as usual, with a new backup
+
+With `--skip-deps`, only ofscraper is reinstalled and the GUI packages you already have are kept (pipx: reinstalled inside the existing venv). `--force --dry-run` only prints what it would reinstall. Your config, auth and downloads are not touched.
 
 ## After patching
 
@@ -105,7 +118,9 @@ The script automatically detects how OF-Scraper was installed by checking (in or
 
 ### Broken installation detection
 
-The patch script also checks for broken ofscraper installations before patching, for example when a previous pip install was interrupted mid-way and left behind a corrupt `~fscraper` artifact in site-packages. When a broken installation is detected, the script automatically runs `pip install ofscraper==<version> --force-reinstall` to repair it before applying the GUI patch.
+The **3.12.9** patch script checks for broken ofscraper installations before patching, for example when a previous pip install was interrupted mid-way and left behind a corrupt `~fscraper` artifact in site-packages. When it finds one, it runs `pip install ofscraper==3.12.9 --force-reinstall` to repair it before applying the GUI patch.
+
+The **3.14.7** patch script doesn't detect broken installs on its own. Run it with `--force` to rebuild the install ([see above](#repairing-a-broken-install---force)).
 
 ## If OF-Scraper is not detected
 

@@ -81,6 +81,7 @@ python3 rebuild_patch_zip.py --patch-id <YYYYMMDD>_gui_3_14_7_v<next number> --s
 | `20261029_gui_3_14_7_v406` | 2026-10-29 | The GUI wasn't closed before those crashes, so: the safe shutdown also runs from `atexit` (any way Python exits); pool workers report `SystemExit` as an error instead of ending the GUI; crash breadcrumbs record what ended the app (exit calls with their caller, event loop quit, last window closed, main window close, Python exit with running threads) and the current page. |
 | `20261029_gui_3_14_7_v407` | 2026-10-29 | Disabled checkboxes and radio buttons now look disabled (grey text, dim box, grey tick); before, a disabled box looked exactly like an enabled one. |
 | `20261030_gui_3_14_7_v408` | 2026-10-30 | Easier-to-read text in both themes: the light-mode sidebar logo, selected sidebar item, blue/green/orange/red/purple text, greyed-out text and empty-field hints are darker; dark-mode grey hint text is lighter; a few dialogs that used dark-mode colors in light mode now follow the theme. |
+| `20261031_gui_3_14_7_v409` | 2026-10-31 | Installer only (same 156 files): new `--force` option reinstalls ofscraper 3.14.7 and all GUI dependencies from scratch, then patches, to repair a broken or corrupt install. `--force --skip-deps` reinstalls only ofscraper. The install docs already listed `--force` but no 3.14.x script had it. |
 
 ## Status
 
@@ -2584,3 +2585,17 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Patch script `--force` (patch `v409`, 2026-10-31)
+
+Asked for: a way to repair a corrupt or broken install. `docs/install.md` and `docs/troubleshooting.md` already listed `--force` / `--force --skip-deps` and an automatic broken-install check, but those only existed in the 3.12.9 script; the 3.14.x scripts had neither.
+
+- `--force` (not with `--restore`): skips the version/upgrade prompts and calls `_install_ofscraper(method, force=True)`, then `_install_gui_deps(method, force=True)` (every GUI package, even ones already importable), then patches as usual.
+  - **uv:** `uv tool install --force --reinstall ofscraper==3.14.7 --with <each GUI dep>`; the GUI packages must be listed because `uv tool install` replaces the tool env. The separate GUI-deps step is skipped (already done).
+  - **pipx:** `pipx uninstall ofscraper` first (a failure, e.g. nothing installed, is ignored) so `pipx install --force` builds a new venv; then `pipx inject --force` for each GUI dep (venv-pip fallback uses `--force-reinstall`).
+  - **pip:** `pip install --upgrade --force-reinstall ofscraper==3.14.7`, then `pip install --force-reinstall <GUI deps>`.
+- `--force --skip-deps`: only ofscraper is reinstalled and the GUI packages are kept: uv `--reinstall-package ofscraper` (still lists the GUI deps so they aren't dropped), pipx `pipx runpip ofscraper install --upgrade --force-reinstall` inside the existing venv.
+- `--force --dry-run`: prints what it would reinstall; nothing is installed.
+- If ofscraper wasn't detected and is installed from the menu, that fresh install isn't repeated; GUI deps are still force-reinstalled.
+- Docs: new "Repairing a broken install (`--force`)" section in `docs/install.md`; the "Broken installation detection" text now says it's the 3.12.9 script only; troubleshooting points to `--force`.
+
+Tests: new `test_patch_script_force.py` (20: commands for each method with and without `--force` / `--skip-deps`, GUI deps forced even when present, `main()` order, uv deps not reinstalled twice, dry run installs nothing, failed reinstall stops before patching, `--force` + `--restore` is an error). 7 mutations, each caught. Full suite 709 passed, 8 skipped. Patch `v409`: 156 files, payload identical, root copy in sync, applied to a scratch copy of the installed package and restored byte-for-byte; real install untouched. Not run for real: an actual `--force` reinstall with uv / pipx / pip (needs network and would replace a real install).
