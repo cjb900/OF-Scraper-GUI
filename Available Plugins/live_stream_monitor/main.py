@@ -225,6 +225,18 @@ def _playwright_user_agent(auth_ua: str | None) -> str | None:
 _LIVE_CHECK_SECONDS = 60
 _NOT_LIVE_CHECKS_TO_STOP = 2
 _NO_DATA_STOP_SECONDS = 300
+# When the page shows OnlyFans' "Live video has ended" message, ask the API
+# right away (then at most this often while it stays up) and stop on "not
+# live". If the API can't be asked, stop once the message has been up this
+# long. If the API still says live, keep going: the words could be in chat.
+_PAGE_ENDED_CHECK_SECONDS = 10
+_PAGE_ENDED_STOP_SECONDS = 30
+# True when the page shows OnlyFans' end-of-stream message. innerText includes
+# CSS text-transform, so the on-screen "LIVE VIDEO HAS ENDED" matches too.
+_PAGE_ENDED_JS = (
+    "() => /\\blive\\s+(video|stream)\\s+has\\s+ended\\b/i"
+    ".test((document.body && document.body.innerText) || '')"
+)
 # The poller stops a recording after this many polls in a row in which
 # OnlyFans no longer lists the creator as live (hasStream), once it has seen
 # them live during that session. This is the signal that starts captures, so
@@ -299,14 +311,58 @@ def _stream_still_live(username: str):
 class _StreamEndWatch:
     """Decides when a recording should stop because the stream is over."""
 
-    def __init__(self, username: str, check=None, clock=time.monotonic, log=None):
+    def __init__(self, username: str, check=None, clock=time.monotonic, log=None, debug=None):
         self.username = username
         self._check = check or _stream_still_live
         self._clock = clock
         self._log = log
+        self._debug = debug  # plugin log file only (not the console)
         self._last_check = self._last_data = clock()
         self._not_live = 0
         self._failed_logged = False
+        self._page_ended_since = None
+        self._last_page_check = None
+        self._page_check_answer = None
+
+    def page_shows_ended(self, shown: bool) -> None:
+        """Report whether the page shows the "live video has ended" message."""
+        if not shown:
+            if self._page_ended_since is not None and self._debug:
+                self._debug(f"[EndWatch] {self.username}: end message gone from the page")
+            self._page_ended_since = None
+            self._last_page_check = None
+            self._page_check_answer = None
+            return
+        if self._page_ended_since is None:
+            self._page_ended_since = self._clock()
+            if self._debug:
+                self._debug(f"[EndWatch] {self.username}: page shows the end message")
+
+    def _page_reason(self, now):
+        if self._page_ended_since is None:
+            return None
+        if self._last_page_check is None or now - self._last_page_check >= _PAGE_ENDED_CHECK_SECONDS:
+            self._last_page_check = now
+            self._page_check_answer = self._check(self.username)
+            if self._debug:
+                self._debug(
+                    f"[EndWatch] {self.username}: end message on page, OnlyFans live="
+                    f"{self._page_check_answer}"
+                )
+            if self._page_check_answer is False:
+                return (
+                    f"The page says {self.username}'s live video has ended "
+                    "and OnlyFans confirms it"
+                )
+        if (
+            self._page_check_answer is None
+            and now - self._page_ended_since >= _PAGE_ENDED_STOP_SECONDS
+        ):
+            return (
+                f"The page has said {self.username}'s live video has ended for "
+                f"{_PAGE_ENDED_STOP_SECONDS} s (OnlyFans couldn't be asked)"
+            )
+        return None
 
     def got_data(self) -> None:
         self._last_data = self._clock()
@@ -314,9 +370,14 @@ class _StreamEndWatch:
     def reason(self):
         """A message to stop with, or None to keep recording."""
         now = self._clock()
+        page_reason = self._page_reason(now)
+        if page_reason:
+            return page_reason
         if now - self._last_check >= _LIVE_CHECK_SECONDS:
             self._last_check = now
             live = self._check(self.username)
+            if self._debug:
+                self._debug(f"[EndWatch] {self.username}: minute check, OnlyFans live={live}")
             # A failed check (None) doesn't count either way. Say so once, so
             # a check that never works doesn't go unnoticed.
             if live is None and self._log and not self._failed_logged:
@@ -1129,6 +1190,14 @@ class LiveMonitorWorker(QThread):
                                 model_statuses[username]["status"] = "Connecting 🟡"
                 
                 self._was_live = live_now
+                try:
+                    self.plugin.log.debug(
+                        f"[Monitor] poll ok: {len(model_statuses)} creators, live: "
+                        f"{', '.join(sorted(live_now)) or 'none'}; sessions: "
+                        + (", ".join(f"{u}={k}" for u, (k, _s) in sorted(sessions.items())) or "none")
+                    )
+                except Exception:
+                    pass
                 # Emit update to refresh GUI table
                 poll_ok = True
                 self.status_updated.emit(model_statuses)
@@ -1795,7 +1864,8 @@ class Plugin(BasePlugin):
         self.no_window = True
         self._load_settings()
 
-        self.log = logging.getLogger("ofscraper_plugins")
+        # self.log is BasePlugin's "ofscraper_plugin.<name>" logger: the plugin
+        # manager gives it the plugin's own log file (logging/.../plugins/).
         self._log_bridge = _LogBridge()
 
     def on_load(self):
@@ -3266,7 +3336,11 @@ class Plugin(BasePlugin):
                 offline_counter = 0
                 max_offline = 360  # 360 × 5 s = 30 min fallback for hung sessions
                 diag_tick = 0      # re-run audio diagnostic every 12 polls (60 s)
-                end_watch = _StreamEndWatch(username, log=self._emit_log)
+                end_watch = _StreamEndWatch(
+                    username, log=self._emit_log, debug=self.log.debug
+                )
+                minute_bytes = 0
+                minute_chunks = 0
 
                 while not stop_event.is_set():
                     stop_event.wait(5)
@@ -3280,13 +3354,16 @@ class Plugin(BasePlugin):
                                 "window._lsm_chunks = []; return c; }"
                             )
                             for c in chunks:
-                                _chunk_file.write(base64.b64decode(c))
+                                data = base64.b64decode(c)
+                                _chunk_file.write(data)
+                                minute_bytes += len(data)
+                            minute_chunks += len(chunks)
                             if chunks:
                                 _chunk_file.flush()
                                 last_chunk_time = datetime.datetime.now()
                                 end_watch.got_data()
-                        except Exception:
-                            pass
+                        except Exception as ce:
+                            self.log.debug(f"[Recording] {username}: chunk drain failed: {ce}")
 
                     if rec_page.is_closed():
                         self._emit_log(f"[Playwright] Page closed for {username}.")
@@ -3325,6 +3402,21 @@ class Plugin(BasePlugin):
                             f"[Playwright] Left /live page ({rec_page.url}) — stream ended."
                         )
                         break
+
+                    # OnlyFans shows "Live video has ended" on the page as soon as
+                    # the stream stops: the quickest sign (confirmed via the API).
+                    try:
+                        page_ended = bool(rec_page.evaluate(_PAGE_ENDED_JS))
+                    except Exception:
+                        page_ended = False
+                    end_watch.page_shows_ended(page_ended)
+
+                    if diag_tick % 12 == 0:
+                        self.log.debug(
+                            f"[Recording] {username}: last 60 s {minute_chunks} chunks, "
+                            f"{minute_bytes // 1024} KB; end message on page={page_ended}"
+                        )
+                        minute_bytes = minute_chunks = 0
 
                     # After a stream ends the page can stay on /live with a frozen
                     # "playing" video, so ask OnlyFans (twice, to ride out a blip).

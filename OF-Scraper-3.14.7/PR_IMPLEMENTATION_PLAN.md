@@ -2586,6 +2586,16 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.11: stop within seconds, and a real plugin log (2026-10-31)
+
+Reported on v1.3.10 (user's log `ofscraper_main_profile_2026-10-31_18.38.51.log`): ronnieblaze's recording started 18:39:50, its last data was at ~19:00:01 (duration 1211.7 s), the page showed "LIVE VIDEO HAS ENDED" (screenshot 19:00:43), and the capture stopped at 19:01:31: ~90 s late. Both stops fired that same second (poller: 2 polls without `hasStream`; capture: 2 `/streams/active` "not live" a minute apart), so the API check does work; it is just slow by design. Also: the plugin log file only had "loaded".
+
+- **Page end message:** each 5 s loop pass evaluates `_PAGE_ENDED_JS` (`/\blive\s+(video|stream)\s+has\s+ended\b/i` on `document.body.innerText`; innerText applies CSS text-transform and skips hidden elements; checked in QtWebEngine). While it is shown, `_StreamEndWatch._page_reason` asks `/streams/active` at once and then at most every `_PAGE_ENDED_CHECK_SECONDS` = 10 s: "not live" stops at once; a failed check stops after `_PAGE_ENDED_STOP_SECONDS` = 30 s of the message; "live" never stops (the words could be in chat). The message going away resets it. The minute check and the poller stay as backups.
+- **Plugin log:** `Plugin.__init__` no longer replaces BasePlugin's `ofscraper_plugin.<name>` logger (the one the plugin manager gives a file) with `ofscraper_plugins`; `LiveMonitorTab.append_log` writes every console line to it at INFO; debug lines for each poll (creators, who's live, sessions), each end check (page message, OnlyFans answer), each failed chunk drain, and a per-minute recording summary (chunks, KB, end message seen).
+- Exact on-page wording is only known from the screenshot; the regex also accepts "live stream has ended".
+
+Tests: +9 in `test_live_stream_monitor.py` (confirmed end stops at once with one API call, page text with OnlyFans still live never stops and is rate-limited, no answer stops after 30 s, reset when the message goes away, loop wiring, plugin logger name, console lines to the plugin log, per-poll debug line); the source test follows the new constructor call. All fail on 1.3.10.
+
 ### Live Stream Monitor plugin v1.3.10: warn when no Discord webhook is set (2026-10-31)
 
 Asked for: a popup when Discord @here alerts are on but `config.json` has no Discord webhook (1.3.9 only said so in the console, at the first alert).

@@ -841,7 +841,7 @@ def test_the_recording_loop_feeds_and_asks_the_end_watch():
     import inspect
 
     src = inspect.getsource(lsm.Plugin.record_stream)
-    assert "end_watch = _StreamEndWatch(username, log=self._emit_log)" in src
+    assert "end_watch = _StreamEndWatch(\n                    username, log=self._emit_log, debug=self.log.debug" in src
     # new chunks reset the no-data timer; every loop pass asks whether to stop
     flush = src.index("_chunk_file.flush()")
     assert src.index("end_watch.got_data()", flush) < src.index("end_watch.reason()")
@@ -1144,3 +1144,99 @@ def test_the_warning_is_checked_on_tick_and_on_monitor_start():
     gui = _load("gui")
     assert "_warn_if_no_discord_webhook()" in inspect.getsource(gui.LiveMonitorTab._on_discord_ping_toggled)
     assert "_warn_if_no_discord_webhook()" in inspect.getsource(gui.LiveMonitorTab._start_monitor_now)
+
+
+# ── The page's "Live video has ended" message stops a recording quickly ──────
+
+def _page_watch(answers):
+    calls = []
+    answers = list(answers)
+
+    def check(u):
+        calls.append(u)
+        return answers.pop(0) if answers else answers_last[0]
+
+    answers_last = [answers[-1] if answers else None]
+    clock = _Clock()
+    debug = []
+    w = lsm._StreamEndWatch("creator", check=check, clock=clock, debug=debug.append)
+    return w, clock, calls, debug
+
+
+def test_end_message_confirmed_by_onlyfans_stops_at_once():
+    w, clock, calls, debug = _page_watch([False])
+    clock.t = 5; w.got_data(); w.page_shows_ended(True)
+    assert "has ended and OnlyFans confirms it" in w.reason()
+    assert calls == ["creator"]  # one API call, right away
+    assert any("end message on page, OnlyFans live=False" in d for d in debug)
+
+
+def test_end_message_while_onlyfans_says_live_keeps_recording():
+    """The words could be in chat: never stop on the page text alone."""
+    w, clock, calls, _ = _page_watch([True])
+    for t in range(5, 125, 5):
+        clock.t = t; w.got_data(); w.page_shows_ended(True)
+        assert w.reason() is None
+    # asked at most every 10 s while the message is up (+ the minute checks)
+    assert len(calls) <= 12 + 2
+
+
+def test_end_message_without_an_answer_stops_after_30_s():
+    w, clock, _calls, _ = _page_watch([None])
+    for t in (5, 10, 20, 30):
+        clock.t = t; w.got_data(); w.page_shows_ended(True)
+        assert w.reason() is None
+    clock.t = 35; w.got_data(); w.page_shows_ended(True)
+    assert "for 30 s (OnlyFans couldn't be asked)" in w.reason()
+
+
+def test_end_message_going_away_resets():
+    w, clock, _calls, debug = _page_watch([None])
+    clock.t = 5; w.page_shows_ended(True); w.reason()
+    clock.t = 20; w.page_shows_ended(False); w.got_data()
+    clock.t = 40; w.page_shows_ended(True); w.got_data()
+    assert w.reason() is None  # the 30 s start again
+    assert any("end message gone" in d for d in debug)
+
+
+def test_the_recording_loop_checks_the_page_each_pass():
+    import inspect
+
+    src = inspect.getsource(lsm.Plugin.record_stream)
+    assert src.index("end_watch.page_shows_ended(page_ended)") < src.index("end_watch.reason()")
+    assert "rec_page.evaluate(_PAGE_ENDED_JS)" in src
+
+
+# ── Plugin log file ──────────────────────────────────────────────────────────
+
+def test_the_plugin_logs_to_its_own_log_file_logger(plugin):
+    # BasePlugin's logger is the one the plugin manager gives a log file.
+    assert plugin.log.name == "ofscraper_plugin.Live Stream Monitor"
+
+
+def test_console_lines_go_to_the_plugin_log(plugin, monkeypatch):
+    gui = _load("gui")
+    from types import SimpleNamespace
+
+    written = []
+    monkeypatch.setattr(plugin.log, "info", written.append)
+    sb = SimpleNamespace(value=lambda: 0, maximum=lambda: 0, setValue=lambda v: None)
+    out = SimpleNamespace(verticalScrollBar=lambda: sb, appendPlainText=lambda t: None)
+    tab = SimpleNamespace(plugin=plugin, log_output=out)
+    gui.LiveMonitorTab.append_log(tab, "[Monitor] Polling subscriptions status...\n")
+    assert written == ["[Monitor] Polling subscriptions status..."]
+
+
+def test_each_poll_writes_a_debug_line(plugin, poll_env, monkeypatch):
+    lines = []
+    monkeypatch.setattr(plugin.log, "debug", lines.append)
+    monkeypatch.setattr(plugin, "start_recording", lambda *a, **k: False)
+    monkeypatch.setattr(plugin, "stream_files_summary", lambda *a, **k: (0, ""))
+
+    async def get_models(all_main_models=False):
+        return [_Model("creator", True), _Model("other", False)]
+
+    import ofscraper.data.models.utils.retriver as retriver
+    monkeypatch.setattr(retriver, "get_models", get_models)
+    _run_polls(plugin, 1)
+    assert any(l.startswith("[Monitor] poll ok: 2 creators, live: creator;") for l in lines)

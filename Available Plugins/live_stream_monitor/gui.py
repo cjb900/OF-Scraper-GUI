@@ -719,6 +719,12 @@ class LiveMonitorTab(QWidget):
         if at_bottom:
             sb.setValue(sb.maximum())
         log.debug(f"[Live Monitor Console] {str(text).strip()}")
+        # Every console line also goes to the plugin's own log file
+        # (logging/<profile>_<day>/plugins/plugin-live_stream_monitor_*.log).
+        try:
+            self.plugin.log.info(str(text).strip())
+        except Exception:
+            pass
 
     def update_status_table(self, model_statuses):
         """Show a poll result. Rows are updated in place; the table is only

@@ -237,13 +237,13 @@ The plugin handles its own setup on first enable:
 
 ### Live Stream Monitor (`live_stream_monitor`)
 
-> 📸 **Screenshot needed:** the **📺 Live Monitor** page (plugin v1.3.10) showing the creator list and the **No window (headless browser)**, **Hide capture window** and **Desktop notifications** options. A second one with a capture running would help too. Turn on Privacy mode first so no usernames or paths show.
+> 📸 **Screenshot needed:** the **📺 Live Monitor** page (plugin v1.3.11) showing the creator list and the **No window (headless browser)**, **Hide capture window** and **Desktop notifications** options. A second one with a capture running would help too. Turn on Privacy mode first so no usernames or paths show.
 
 Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects when a creator goes live, and captures the stream with Playwright Chromium into `{username}/Live_Streams/`.
 
 This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
 
-**Highlights (plugin v1.3.10)**
+**Highlights (plugin v1.3.11)**
 
 The version shows on the Plugins page and next to the Live Monitor page title.
 
@@ -266,12 +266,14 @@ The version shows on the Plugins page and next to the Live Monitor page title.
 - The console keeps the last 2,000 lines, and stays where you scrolled until you go back to the bottom
 - Capture cooldown so Auto-Capture does not immediately re-spawn the same creator: 30 s after **Stop**, 2 min after any start that didn't reach recording, 10 min after a login timeout
 - **Stop** takes effect within a few seconds, even while the browser is waiting for a login or for the player
-- A recording stops by itself when the stream ends. Each monitor poll checks whether OnlyFans still lists the creator as live (the same check that starts captures); two polls in a row without it stop and save the recording, so it ends within about two poll intervals (2–3 min at the default 60 s). The console says why. Since v1.3.8; before, the page could stay on /live with a frozen video that kept the recorder producing data, and the capture ran on
+- A recording stops by itself when the stream ends, usually within about 5–10 seconds (since v1.3.11): when the capture page shows OnlyFans' **"Live video has ended"** message, the plugin asks OnlyFans right away and stops and saves the recording if OnlyFans agrees. The page text alone never stops it (the words could be in chat); if OnlyFans can't be asked, it stops once the message has been up for 30 seconds
+- As a backup, each monitor poll checks whether OnlyFans still lists the creator as live (the same check that starts captures); two polls in a row without it stop and save the recording, so it ends within about two poll intervals (2–3 min at the default 60 s). The console says why. Since v1.3.8; before, the page could stay on /live with a frozen video that kept the recorder producing data, and the capture ran on
   - This only applies to captures of creators the monitor has seen live; a manual **Capture selected** of someone OnlyFans doesn't list as live isn't stopped this way
   - Backups: the capture also asks OnlyFans directly once a minute (and says once in the console if it can't), and stops after 5 minutes without new data
 - The capture browser runs with Chrome's **sandbox on**. It's turned off only as root or in a container (where Chrome can't use it), or if Chrome reports it can't start one; the console then says so
 - When a stream ends, the recording's length is fixed with the **FFmpeg from Configuration → Download** (or a built-in fallback). Long recordings are processed without loading them into memory
 - **Clear saved browser logins** (Playwright Setup → Manage…) deletes the capture browser's saved OnlyFans logins. There is one per creator under `<config>/playwright_profiles/`, readable only by you
+- **Plugin log file:** everything shown in the Live Monitor console, plus debug lines (each poll's result, every "is it still live?" check, and a once-a-minute recording summary), is written to `logging/<profile>_<date>/plugins/plugin-live_stream_monitor_<time>.log` in the config folder (since v1.3.11; before, it only had the "loaded" line). Attach it when reporting a problem
 - **Show diagnostics** (off by default) reveals optional tools and the detailed audio/player log lines during captures:
   - *Diagnostics probe only* / **Probe selected…** — join live ~45s, redacted HLS/WebRTC/API evidence under `live_probe_reports/` (no WebM)
   - **Fetch live API dump…** — redacted `/streams/active` + `/streams/active/url` JSON under `live_api_dumps/`
