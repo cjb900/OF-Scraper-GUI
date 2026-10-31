@@ -95,6 +95,7 @@ With `--skip-deps`, only ofscraper is reinstalled and the GUI packages you alrea
 
 ## After patching
 <img src="https://github.com/user-attachments/assets/d29886fd-59e8-4093-882e-4c2ee7c43b05" width="600" alt="Terminal Install">
+
 > 📸 **Screenshot needed:** the terminal at the end of a successful patch run ("Patch applied successfully" and the offer to launch the GUI).
 
 Launch the GUI with:
