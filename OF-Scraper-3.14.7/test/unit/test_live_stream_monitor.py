@@ -1240,3 +1240,61 @@ def test_each_poll_writes_a_debug_line(plugin, poll_env, monkeypatch):
     monkeypatch.setattr(retriver, "get_models", get_models)
     _run_polls(plugin, 1)
     assert any(l.startswith("[Monitor] poll ok: 2 creators, live: creator;") for l in lines)
+
+
+# ── Startup waits poll instead of sleeping ───────────────────────────────────
+
+class _StopAt:
+    """stop_event stand-in: advances the fake clock on wait(); set after *n* waits."""
+    def __init__(self, clock, stop_after=None):
+        self.clock, self.waits, self.stop_after = clock, 0, stop_after
+
+    def wait(self, seconds):
+        self.clock.t += seconds
+        self.waits += 1
+        return self.stop_after is not None and self.waits >= self.stop_after
+
+
+def test_poll_returns_as_soon_as_it_is_ready():
+    clock = _Clock()
+    answers = iter(["", "", "non-dom-audio-play"])
+    value, waited, stopped = lsm._poll_until(lambda: next(answers), bool, 8, 0.5, _StopAt(clock), clock)
+    assert (value, waited, stopped) == ("non-dom-audio-play", 1.0, False)
+
+
+def test_poll_gives_up_at_the_limit():
+    clock = _Clock()
+    value, waited, stopped = lsm._poll_until(lambda: "", bool, 8, 0.5, _StopAt(clock), clock)
+    assert value == "" and waited == 8 and not stopped
+
+
+def test_poll_stops_when_the_user_stops():
+    clock = _Clock()
+    value, waited, stopped = lsm._poll_until(lambda: "", bool, 8, 0.5, _StopAt(clock, stop_after=2), clock)
+    assert stopped and waited == 1.0
+
+
+def test_poll_treats_probe_errors_as_not_ready():
+    clock = _Clock()
+    calls = []
+
+    def probe():
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("Execution context was destroyed")
+        return 2
+
+    value, _w, _s = lsm._poll_until(probe, lambda s: s == 2, 60, 1, _StopAt(clock), clock)
+    assert value == 2 and len(calls) == 2
+
+
+def test_no_fixed_startup_sleeps_are_left():
+    import inspect
+
+    src = inspect.getsource(lsm.Plugin.record_stream)
+    assert "Waiting 8 s" not in src and "range(12)" not in src
+    assert "_PLAYER_STATE_JS" in src and "_AUDIO_SOURCE_JS" in src
+    # audio is waited for after the player, before the recorder starts
+    assert src.index("_PLAYER_STATE_JS") < src.index("_AUDIO_SOURCE_JS") < src.index("new MediaRecorder")
+    after_join = src[src.index("join_btn.first.click()"):src.index("Joined the live stream")]
+    assert "wait_for_timeout(1000)" in after_join  # was a fixed 3 s

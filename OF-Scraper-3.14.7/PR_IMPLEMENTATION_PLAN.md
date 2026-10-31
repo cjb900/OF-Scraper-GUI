@@ -2586,6 +2586,19 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.12: start recording without fixed waits (2026-10-31)
+
+Asked: why "Waiting 8 s for audio graph" and "up to 60 s" for the stream player, and can they be cut. From the 1.3.11 plugin log (19:18:59 joined → 19:19:04 player → 19:19:12 recording): 13 s from JOIN to recording, 8 of them a fixed sleep.
+
+- **Player:** "up to 60 s" was only the limit, but the `<video>` was checked every 5 s, so even an instant player cost 5 s. Now `_PLAYER_STATE_JS` every 1 s (0 no video, 1 video without a live picture, 2 playing: a live MediaStream video track or `readyState >= 2`); a redirect off /live still aborts. A `<video>` that never plays is accepted after `_PLAYER_NOT_PLAYING_SECONDS` = 10 s (the old check accepted any `<video>`). Limit still 60 s.
+- **Audio:** the 8 s sleep was written for the Web Audio lazy tap (3rd choice in the recorder), but captures use Agora's non-DOM `Audio()` MediaStream (2nd choice, `audio-src: non-dom-audio-play`; the log also showed `audio tap ready: False` after the 8 s). Now `_AUDIO_SOURCE_JS` every 0.5 s mirrors the recorder's order (video track, `<audio>`/tracked `Audio()` MediaStream, lazy tap) and starts as soon as any is there; still at most 8 s, then records anyway with a console note that it may be silent.
+- **JOIN:** the fixed 3 s after the click is 1 s; the player poll does the waiting.
+- `_poll_until(probe, done, timeout, interval, stop_event)` does both waits (Stop still works mid-wait; probe errors count as not ready). Console: "Stream player playing after X s", "Audio ready after X s (source)".
+- Both JS checks run in QtWebEngine against a canvas-fed `<video>` and an off-DOM `Audio()` playing an oscillator MediaStream through the plugin's play() patch: 0/1/2 and ''/'non-dom-audio-play' as expected.
+- Not changed: the fixed 5 s after loading /live before the login check ("Auth check URL").
+
+Tests: +5 in `test_live_stream_monitor.py` (`_poll_until` returns when ready / gives up at the limit / honours Stop / treats probe errors as not ready; no fixed startup sleeps left and the order player → audio → recorder).
+
 ### Live Stream Monitor plugin v1.3.11: stop within seconds, and a real plugin log (2026-10-31)
 
 Reported on v1.3.10 (user's log `ofscraper_main_profile_2026-10-31_18.38.51.log`): ronnieblaze's recording started 18:39:50, its last data was at ~19:00:01 (duration 1211.7 s), the page showed "LIVE VIDEO HAS ENDED" (screenshot 19:00:43), and the capture stopped at 19:01:31: ~90 s late. Both stops fired that same second (poller: 2 polls without `hasStream`; capture: 2 `/streams/active` "not live" a minute apart), so the API check does work; it is just slow by design. Also: the plugin log file only had "loaded".

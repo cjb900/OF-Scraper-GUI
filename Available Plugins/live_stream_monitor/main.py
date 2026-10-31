@@ -245,6 +245,61 @@ _PAGE_ENDED_JS = (
 _NOT_LIVE_POLLS_TO_STOP = 2
 
 
+# Startup waits: poll instead of sleeping a fixed time, so recording starts as
+# soon as the stream is ready. The limits are the old fixed/maximum waits.
+_PLAYER_WAIT_SECONDS = 60       # give up if no <video> appears
+_PLAYER_POLL_SECONDS = 1.0
+_PLAYER_NOT_PLAYING_SECONDS = 10  # a <video> that never plays: go on anyway (old behavior)
+_AUDIO_WAIT_SECONDS = 8         # was a fixed 8 s sleep
+_AUDIO_POLL_SECONDS = 0.5
+
+# 0 = no <video>, 1 = <video> but no live picture yet, 2 = playing.
+_PLAYER_STATE_JS = """() => {
+    const v = document.querySelector('video');
+    if (!v) return 0;
+    if (v.srcObject instanceof MediaStream
+        && v.srcObject.getVideoTracks().some(t => t.readyState === 'live')) return 2;
+    return v.readyState >= 2 ? 2 : 1;
+}"""
+
+# Which audio source the recorder would use right now ('' = none yet). Same
+# order as the recorder: the video's own track, an <audio>/Audio() playing a
+# MediaStream (Agora's usual route), then the Web Audio lazy tap.
+_AUDIO_SOURCE_JS = """() => {
+    const live = s => s instanceof MediaStream
+        && s.getAudioTracks().some(t => t.readyState !== 'ended');
+    const v = document.querySelector('video');
+    if (v && live(v.srcObject)) return 'video.srcObject';
+    const els = [...document.querySelectorAll('audio'), ...(window._lsm_audio_plays || [])];
+    for (const el of els) {
+        if (live(el.srcObject)) return el.isConnected ? 'audio-element.srcObject' : 'non-dom-audio-play';
+    }
+    if (typeof window._lsm_get_audio_track === 'function' && window._lsm_get_audio_track())
+        return 'web-audio-lazy-tap';
+    return '';
+}"""
+
+
+def _poll_until(probe, done, timeout, interval, stop_event, clock=time.monotonic):
+    """Call *probe* every *interval* s until ``done(value)`` or *timeout* s pass.
+
+    Returns ``(value, seconds_waited, stopped)``; *stopped* is True when
+    *stop_event* was set (the user pressed Stop). *probe* errors count as None.
+    """
+    start = clock()
+    value = None
+    while True:
+        try:
+            value = probe()
+        except Exception:
+            value = None
+        waited = clock() - start
+        if done(value) or waited >= timeout:
+            return value, waited, False
+        if stop_event.wait(interval):
+            return value, clock() - start, True
+
+
 def _discord_webhook_url() -> str:
     """The Discord Webhook URL from Configuration → General ("" if unset)."""
     try:
@@ -3053,58 +3108,86 @@ class Plugin(BasePlugin):
                     if join_btn.count() > 0:
                         self._emit_log("[Playwright] Clicking 'JOIN LIVE STREAM'...")
                         join_btn.first.click()
-                        rec_page.wait_for_timeout(3000)
+                        # The player wait below polls; this only lets the click land.
+                        rec_page.wait_for_timeout(1000)
                         self._emit_log("[Playwright] Joined the live stream.")
                 except Exception as e:
                     self._emit_log(f"[Playwright] Join button error: {e}")
 
-                # Wait for the <video> element before starting the poll loop.
-                # WebRTC takes several seconds to establish. We poll every 5 s so we
-                # can also detect if the page redirects away from /live early (which
-                # OnlyFans does when the stream ends), rather than blocking for the
-                # full 60 s with wait_for_selector before noticing the redirect.
-                self._emit_log("[Playwright] Waiting for stream player (up to 60 s)...")
-                stream_ready = False
-                for _ in range(12):  # 12 × 5 s = 60 s
-                    if stop_event.wait(5):
-                        self._emit_log("[Playwright] Stopped while waiting for the player.")
-                        rec_ctx.close()
-                        return
-                    if not _url_is_live_stream(rec_page.url, username):
-                        self._emit_log(
-                            f"[Playwright] Live page redirected to {rec_page.url} — "
-                            f"stream ended or could not load. Aborting."
-                        )
-                        rec_ctx.close()
-                        return
-                    try:
-                        stream_ready = rec_page.evaluate(
-                            "() => document.querySelector('video') !== null"
-                        )
-                    except Exception:
-                        pass
-                    if stream_ready:
-                        break
+                # Wait for the stream's <video> to play. Checked every second (it
+                # is usually ready in 1-3 s); 60 s is only the limit. Each check
+                # also notices a redirect away from /live (stream ended).
+                self._emit_log(
+                    f"[Playwright] Waiting for the stream player (up to {_PLAYER_WAIT_SECONDS} s)..."
+                )
+                player = {"seen_at": None}
 
-                if not stream_ready:
+                def _player_probe():
+                    if not _url_is_live_stream(rec_page.url, username):
+                        return "left"
+                    state = rec_page.evaluate(_PLAYER_STATE_JS)
+                    if state and player["seen_at"] is None:
+                        player["seen_at"] = time.monotonic()
+                    return state
+
+                def _player_done(state):
+                    if state in ("left", 2):
+                        return True
+                    # A <video> that never shows a live picture: go on after a
+                    # while, as the old check (any <video>) did.
+                    return (
+                        state == 1
+                        and time.monotonic() - player["seen_at"] >= _PLAYER_NOT_PLAYING_SECONDS
+                    )
+
+                state, waited, stopped = _poll_until(
+                    _player_probe, _player_done, _PLAYER_WAIT_SECONDS,
+                    _PLAYER_POLL_SECONDS, stop_event,
+                )
+                if stopped:
+                    self._emit_log("[Playwright] Stopped while waiting for the player.")
+                    rec_ctx.close()
+                    return
+                if state == "left":
                     self._emit_log(
-                        f"[Playwright] No video element appeared in 60 s — stream not active for {username}."
+                        f"[Playwright] Live page redirected to {rec_page.url} — "
+                        f"stream ended or could not load. Aborting."
                     )
                     rec_ctx.close()
                     return
+                if not state:
+                    self._emit_log(
+                        f"[Playwright] No video element appeared in {_PLAYER_WAIT_SECONDS} s "
+                        f"— stream not active for {username}."
+                    )
+                    rec_ctx.close()
+                    return
+                self._emit_log(
+                    f"[Playwright] Stream player "
+                    f"{'playing' if state == 2 else 'found (no live picture yet)'} "
+                    f"after {waited:.1f} s."
+                )
 
-                # Give Agora's audio graph time to fully initialize before we start
-                # the recorder. The lazy-tap fires on AudioNode.connect(destination),
-                # which Agora typically calls 3-7 s after the video element loads.
-                # Without this wait, _lsm_get_audio_track() returns null and the
-                # recorder falls through to the media-element-src fallback (which
-                # crashes Chromium for WebRTC video elements).
-                self._emit_log("[Playwright] Waiting 8 s for audio graph to initialize...")
-                for _ in range(8):
-                    if stop_event.is_set():
-                        rec_ctx.close()
-                        return
-                    time.sleep(1)
+                # Wait until the recorder has an audio source, checked every
+                # 0.5 s. Usually Agora's Audio() element is already playing (no
+                # wait); the Web Audio lazy tap can take 3-7 s, so 8 s (the old
+                # fixed sleep) is the limit. Starting without audio would record
+                # a silent file.
+                audio_src, waited, stopped = _poll_until(
+                    lambda: rec_page.evaluate(_AUDIO_SOURCE_JS), bool,
+                    _AUDIO_WAIT_SECONDS, _AUDIO_POLL_SECONDS, stop_event,
+                )
+                if stopped:
+                    self._emit_log("[Playwright] Stopped while waiting for audio.")
+                    rec_ctx.close()
+                    return
+                if audio_src:
+                    self._emit_log(f"[Playwright] Audio ready after {waited:.1f} s ({audio_src}).")
+                else:
+                    self._emit_log(
+                        f"[Playwright] No audio source after {_AUDIO_WAIT_SECONDS} s — "
+                        "recording anyway (the file may have no sound)."
+                    )
 
                 # ── Audio architecture diagnostic ─────────────────────────────────
                 # Runs once when the stream is confirmed live. Output appears in
