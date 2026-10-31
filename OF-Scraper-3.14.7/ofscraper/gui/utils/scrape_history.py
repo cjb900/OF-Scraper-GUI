@@ -307,11 +307,11 @@ def format_details_html(entry: dict) -> str:
         flags.append(f"Manual URLs: {entry['manual_url_count']}")
 
     status = str(entry.get("status") or "ok")
-    status_color = {
-        "ok": "#a6e3a1",
-        "cancelled": "#f9e2af",
-        "error": "#f38ba8",
-    }.get(status, "#cdd6f4")
+    from ofscraper.gui.styles import c
+
+    status_color = c(
+        {"ok": "green", "cancelled": "yellow", "error": "red"}.get(status, "text")
+    )
 
     dur = format_duration(duration_seconds(entry))
     start = _short_ts(entry.get("ts_start"))

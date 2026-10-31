@@ -324,3 +324,54 @@ def test_disabled_checkboxes_look_disabled(qapp, theme, kind):
     # Same checked box, enabled vs disabled: the pictures must differ.
     assert on.grab().toImage() != off.grab().toImage()
     host.close()
+
+
+def _contrast(fg, bg):
+    def lum(hex_color):
+        h = hex_color.lstrip("#")
+        chans = [int(h[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+        lin = [ch / 12.92 if ch <= 0.03928 else ((ch + 0.055) / 1.055) ** 2.4 for ch in chans]
+        return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+
+    hi, lo = sorted((lum(fg), lum(bg)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+_TEXT_TOKENS = [
+    "text", "subtext", "muted", "blue", "sky", "teal", "green",
+    "yellow", "peach", "red", "mauve", "lavender", "warning",
+]
+
+
+@pytest.mark.parametrize("theme", ["dark", "light"])
+@pytest.mark.parametrize("token", _TEXT_TOKENS)
+def test_text_colors_are_readable_on_page_backgrounds(theme, token):
+    pal = styles.COLORS[theme]
+    for bg in ("base", "mantle"):
+        assert _contrast(pal[token], pal[bg]) >= 4.5, (theme, token, bg)
+
+
+@pytest.mark.parametrize(
+    "fg, bg",
+    [
+        (styles.LIGHT_LOGO_COLOR, styles.LIGHT_SIDEBAR_BG),
+        (styles.DARK_LOGO_COLOR, styles.DARK_SIDEBAR_BG),
+    ],
+)
+def test_sidebar_logo_color_is_strong(fg, bg):
+    # The logo is drawn at 5pt, so thin strokes lose color; keep a wide margin.
+    assert _contrast(fg, bg) >= 7
+
+
+def test_light_theme_greyed_out_text_is_still_readable():
+    qss = styles.get_light_theme_qss()
+    for sel in ("QCheckBox:disabled, QRadioButton:disabled {", "QPushButton:disabled {"):
+        body = qss.split(sel, 1)[1].split("}", 1)[0]
+        fg = re.search(r"(?<!-)color:\s*(#[0-9a-fA-F]{6})", body).group(1)
+        assert _contrast(fg, styles.COLORS["light"]["base"]) >= 4, sel
+
+
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_input_placeholders_have_their_own_color(theme):
+    qss = styles.get_dark_theme_qss() if theme == "dark" else styles.get_light_theme_qss()
+    assert qss.count("placeholder-text-color:") >= 2

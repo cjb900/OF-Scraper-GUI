@@ -515,7 +515,7 @@ class MainWindow(QMainWindow):
         ]
         _logo_html = (
             f"<pre style='color:#89b4fa; font-family:Consolas,monospace; "
-            f"font-size:{_LOGO_PT}pt; margin:0; line-height:1;'>"
+            f"font-size:{_LOGO_PT}pt; font-weight:bold; margin:0; line-height:1;'>"
             + "\n".join(_html.escape(l) for l in _logo_lines)
             + "</pre>"
         )
@@ -956,7 +956,7 @@ class MainWindow(QMainWindow):
         # stretch/squash monospace art (and QLabel may not shrink after grow).
         _logo_html = (
             f"<pre style='color:{logo_color}; font-family:Consolas,monospace; "
-            f"font-size:{_LOGO_PT}pt; margin:0; line-height:1;'>"
+            f"font-size:{_LOGO_PT}pt; font-weight:bold; margin:0; line-height:1;'>"
             + "\n".join(_html.escape(l) for l in _logo_lines)
             + "</pre>"
         )

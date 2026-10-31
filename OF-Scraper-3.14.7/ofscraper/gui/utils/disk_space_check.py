@@ -14,6 +14,8 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QCheckBox, QMessageBox, QWidget
 
+from ofscraper.gui.styles import c
+
 log = logging.getLogger("shared")
 
 # Always warn when free space is below this (download-writing jobs).
@@ -314,7 +316,7 @@ def format_report_html(report: DiskSpaceReport) -> str:
         )
     if report.reason == "critical":
         lines.append(
-            "<p><b style='color:#f38ba8'>Free space is critically low.</b> "
+            f"<p><b style='color:{c('red')}'>Free space is critically low.</b> "
             "Downloads may fail or corrupt mid-write.</p>"
         )
     elif report.reason == "estimate":

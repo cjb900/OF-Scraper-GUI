@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QCheckBox, QMessageBox, QWidget
 
+from ofscraper.gui.styles import c
+
 log = logging.getLogger("shared")
 
 # Session-only skip for typical jobs (not destructive).
@@ -167,9 +169,9 @@ def format_summary_html(summary: ScrapeJobSummary) -> str:
     if summary.rescrape_all:
         flags.append("<b>Rescrape everything</b>")
     if summary.delete_db:
-        flags.append("<b style='color:#f38ba8'>Delete model DB</b>")
+        flags.append(f"<b style='color:{c('red')}'>Delete model DB</b>")
     if summary.delete_downloads:
-        flags.append("<b style='color:#f38ba8'>Delete downloaded files</b>")
+        flags.append(f"<b style='color:{c('red')}'>Delete downloaded files</b>")
     if summary.daemon_enabled:
         flags.append(f"Daemon every {summary.daemon_interval_min:g} min")
     if summary.manual_url_count:

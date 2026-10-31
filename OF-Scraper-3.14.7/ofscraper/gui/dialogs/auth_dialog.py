@@ -4078,7 +4078,7 @@ class BrowserLoginDialog(QDialog):
         footer_layout.addWidget(self._login_status_lbl)
 
         sep = QLabel("|")
-        sep.setStyleSheet(f"color: #45475a; font-size: {scale_px(11)}px;")
+        sep.setStyleSheet(f"color: {c('surface2')}; font-size: {scale_px(11)}px;")
         footer_layout.addWidget(sep)
 
         for label_key, display in [
@@ -4088,7 +4088,7 @@ class BrowserLoginDialog(QDialog):
             ("user_agent", "user-agent"),
         ]:
             lbl = QLabel(f"{display}: —")
-            lbl.setStyleSheet(f"color: #6c7086; font-size: {scale_px(11)}px; font-family: monospace;")
+            lbl.setStyleSheet(f"color: {c('muted')}; font-size: {scale_px(11)}px; font-family: monospace;")
             self._status_labels[label_key] = lbl
             footer_layout.addWidget(lbl)
 
@@ -4316,7 +4316,7 @@ class BrowserLoginDialog(QDialog):
             lbl = self._status_labels.get("x-bc")
             if lbl:
                 lbl.setText("x-bc: —")
-                lbl.setStyleSheet(f"color: #6c7086; font-size: {scale_px(11)}px; font-family: monospace;")
+                lbl.setStyleSheet(f"color: {c('muted')}; font-size: {scale_px(11)}px; font-family: monospace;")
             self._refresh_import_btn()
 
     def _open_devtools(self):
@@ -4359,7 +4359,7 @@ class BrowserLoginDialog(QDialog):
         for key, lbl in self._status_labels.items():
             disp = "user-agent" if key == "user_agent" else key
             lbl.setText(f"{disp}: —")
-            lbl.setStyleSheet(f"color: #6c7086; font-size: {scale_px(11)}px; font-family: monospace;")
+            lbl.setStyleSheet(f"color: {c('muted')}; font-size: {scale_px(11)}px; font-family: monospace;")
         if hasattr(self, "_xbc_input"):
             self._xbc_input.blockSignals(True)
             self._xbc_input.clear()

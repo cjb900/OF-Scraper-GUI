@@ -35,8 +35,8 @@ DARK_SIDEBAR_BG = "#181825"
 LIGHT_SIDEBAR_BG = "#e6e9ef"
 DARK_SEP_COLOR = "#313244"
 LIGHT_SEP_COLOR = "#ccd0da"
-DARK_LOGO_COLOR = "#89b4fa"
-LIGHT_LOGO_COLOR = "#1e66f5"
+DARK_LOGO_COLOR = "#a6c8ff"
+LIGHT_LOGO_COLOR = "#1e3a8a"
 
 # Module-level theme state
 _is_dark = True
@@ -66,7 +66,7 @@ COLORS = {
         "surface2": "#585b70",
         "text": "#cdd6f4",
         "subtext": "#a6adc8",
-        "muted": "#6c7086",
+        "muted": "#9399b2",
         "blue": "#89b4fa",
         "sky": "#74c7ec",
         "teal": "#94e2d5",
@@ -87,17 +87,17 @@ COLORS = {
         "surface2": "#acb0be",
         "text": "#11111b",
         "subtext": "#3c3f58",
-        "muted": "#6c6f85",
-        "blue": "#1e66f5",
-        "sky": "#04a5e5",
-        "teal": "#179299",
-        "green": "#2d8a22",
+        "muted": "#5c5f77",
+        "blue": "#1d4ed8",
+        "sky": "#0369a1",
+        "teal": "#0e7068",
+        "green": "#1d7016",
         # Darker than Catppuccin Latte yellow so text stays readable on white.
-        "yellow": "#9a6700",
-        "peach": "#fe640b",
-        "red": "#d20f39",
-        "mauve": "#8839ef",
-        "lavender": "#7287fd",
+        "yellow": "#8a5c00",
+        "peach": "#b93d0b",
+        "red": "#b80d32",
+        "mauve": "#7a2fd6",
+        "lavender": "#4f5bd5",
         "sep": "#ccd0da",
         "warning": "#9a3412",
     },
@@ -105,7 +105,7 @@ COLORS = {
 
 
 def c(name):
-    """Get a named color for the current theme. E.g. c('blue') -> '#89b4fa' or '#1e66f5'."""
+    """Get a named color for the current theme. E.g. c('blue') -> '#89b4fa' or '#1d4ed8'."""
     palette = COLORS["dark"] if _is_dark else COLORS["light"]
     return palette.get(name, "#ff00ff")
 
@@ -177,7 +177,7 @@ QPushButton:pressed {{
 
 QPushButton:disabled {{
     background-color: #1e1e2e;
-    color: #7f849c;
+    color: #8a8fa8;
     border-color: #313244;
 }}
 
@@ -206,7 +206,7 @@ QPushButton#danger_button:hover, QPushButton[danger="true"]:hover {{
 QPushButton#primary_button:disabled, QPushButton[primary="true"]:disabled,
 QPushButton#danger_button:disabled, QPushButton[danger="true"]:disabled {{
     background-color: #1e1e2e;
-    color: #7f849c;
+    color: #8a8fa8;
     border: 1px solid #313244;
 }}
 
@@ -241,6 +241,7 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateEdit, QTimeEdit {{
     min-height: 24px;
     selection-background-color: #89b4fa;
     selection-color: #1e1e2e;
+    placeholder-text-color: #a6adc8;
 }}
 
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
@@ -250,7 +251,7 @@ QComboBox:focus, QDateEdit:focus, QTimeEdit:focus {{
 
 QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
     background-color: #1e1e2e;
-    color: #7f849c;
+    color: #8a8fa8;
 }}
 
 QComboBox::drop-down {{
@@ -304,7 +305,7 @@ QCheckBox::indicator:hover, QRadioButton::indicator:hover {{
 
 /* Disabled boxes looked exactly like enabled ones. */
 QCheckBox:disabled, QRadioButton:disabled {{
-    color: #7f849c;
+    color: #8a8fa8;
 }}
 
 QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
@@ -516,6 +517,7 @@ QDialog {{
 QPlainTextEdit, QTextEdit {{
     background-color: #181825;
     color: #a6e3a1;
+    placeholder-text-color: #9399b2;
     border: 1px solid #313244;
     border-radius: 4px;
     font-family: "Consolas", "Courier New", monospace;
@@ -603,7 +605,7 @@ QPushButton {{
 
 QPushButton:hover {{
     background-color: #bcc0cc;
-    border-color: #1e66f5;
+    border-color: #1d4ed8;
 }}
 
 QPushButton:pressed {{
@@ -612,23 +614,23 @@ QPushButton:pressed {{
 
 QPushButton:disabled {{
     background-color: #eff1f5;
-    color: #acb0be;
+    color: #6c6f85;
     border-color: #ccd0da;
 }}
 
 QPushButton#primary_button, QPushButton[primary="true"] {{
-    background-color: #1e66f5;
+    background-color: #1d4ed8;
     color: #eff1f5;
     border: none;
     font-weight: bold;
 }}
 
 QPushButton#primary_button:hover, QPushButton[primary="true"]:hover {{
-    background-color: #2070ff;
+    background-color: #2563eb;
 }}
 
 QPushButton#danger_button, QPushButton[danger="true"] {{
-    background-color: #d20f39;
+    background-color: #b80d32;
     color: #eff1f5;
     border: none;
 }}
@@ -641,7 +643,7 @@ QPushButton#danger_button:hover, QPushButton[danger="true"]:hover {{
 QPushButton#primary_button:disabled, QPushButton[primary="true"]:disabled,
 QPushButton#danger_button:disabled, QPushButton[danger="true"]:disabled {{
     background-color: #eff1f5;
-    color: #acb0be;
+    color: #6c6f85;
     border: 1px solid #ccd0da;
 }}
 
@@ -662,8 +664,8 @@ QPushButton.nav_button:hover {{
 
 QPushButton.nav_button:checked {{
     background-color: #ccd0da;
-    color: #1e66f5;
-    border-left: 3px solid #1e66f5;
+    color: #1e40af;
+    border-left: 3px solid #1d4ed8;
 }}
 
 /* ==================== Inputs ==================== */
@@ -674,13 +676,14 @@ QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QDateEdit, QTimeEdit {{
     border-radius: 4px;
     padding: 4px 8px;
     min-height: 24px;
-    selection-background-color: #1e66f5;
+    selection-background-color: #1d4ed8;
     selection-color: #eff1f5;
+    placeholder-text-color: #5c5f77;
 }}
 
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
 QComboBox:focus, QDateEdit:focus, QTimeEdit:focus {{
-    border-color: #1e66f5;
+    border-color: #1d4ed8;
 }}
 
 QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {{
@@ -696,7 +699,7 @@ QComboBox::drop-down {{
 QComboBox QAbstractItemView {{
     background-color: #dce0e8;
     border: 1px solid #bcc0cc;
-    selection-background-color: #1e66f5;
+    selection-background-color: #1d4ed8;
     selection-color: #eff1f5;
 }}
 
@@ -722,24 +725,24 @@ QRadioButton::indicator {{
 }}
 
 QCheckBox::indicator:checked {{
-    background-color: #1e66f5;
-    border-color: #1e66f5;
+    background-color: #1d4ed8;
+    border-color: #1d4ed8;
     image: url({check_svg});
 }}
 
 QRadioButton::indicator:checked {{
-    background-color: #1e66f5;
-    border-color: #1e66f5;
+    background-color: #1d4ed8;
+    border-color: #1d4ed8;
     image: url({radio_svg});
 }}
 
 QCheckBox::indicator:hover, QRadioButton::indicator:hover {{
-    border-color: #1e66f5;
+    border-color: #1d4ed8;
 }}
 
 /* Disabled boxes looked exactly like enabled ones. */
 QCheckBox:disabled, QRadioButton:disabled {{
-    color: #8c8fa1;
+    color: #6c6f85;
 }}
 
 QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {{
@@ -783,7 +786,7 @@ QHeaderView::section {{
 
 QHeaderView::section:hover {{
     background-color: #ccd0da;
-    color: #1e66f5;
+    color: #1d4ed8;
 }}
 
 /* ==================== Scroll Bars ==================== */
@@ -846,8 +849,8 @@ QTabBar::tab {{
 
 QTabBar::tab:selected {{
     background-color: #eff1f5;
-    color: #1e66f5;
-    border-bottom: 2px solid #1e66f5;
+    color: #1d4ed8;
+    border-bottom: 2px solid #1d4ed8;
 }}
 
 QTabBar::tab:hover:!selected {{
@@ -886,7 +889,7 @@ QProgressBar {{
 }}
 
 QProgressBar::chunk {{
-    background-color: #1e66f5;
+    background-color: #1d4ed8;
     border-radius: 4px;
 }}
 
@@ -896,7 +899,7 @@ QSplitter::handle {{
 }}
 
 QSplitter::handle:hover {{
-    background-color: #1e66f5;
+    background-color: #1d4ed8;
 }}
 
 QSplitter::handle:horizontal {{
@@ -951,11 +954,12 @@ QDialog {{
 QPlainTextEdit, QTextEdit {{
     background-color: #ffffff;
     color: #11111b;
+    placeholder-text-color: #5c5f77;
     border: 1px solid #ccd0da;
     border-radius: 4px;
     font-family: "Consolas", "Courier New", monospace;
     font-size: {font_12}px;
-    selection-background-color: #1e66f5;
+    selection-background-color: #1d4ed8;
     selection-color: #eff1f5;
 }}
 

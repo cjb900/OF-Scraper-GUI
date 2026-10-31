@@ -80,6 +80,7 @@ python3 rebuild_patch_zip.py --patch-id <YYYYMMDD>_gui_3_14_7_v<next number> --s
 | `20261029_gui_3_14_7_v405` | 2026-10-29 | Fixes the Windows crash when the GUI closes (access violation in `sip.cp311-win_amd64.pyd`): after the event loop ends, `shutdown_gui()` unloads plugins, removes the Python event filters, waits for pool workers and deletes the main window before `QApplication` is destroyed. Plugins now also get `on_unload` when the GUI closes. |
 | `20261029_gui_3_14_7_v406` | 2026-10-29 | The GUI wasn't closed before those crashes, so: the safe shutdown also runs from `atexit` (any way Python exits); pool workers report `SystemExit` as an error instead of ending the GUI; crash breadcrumbs record what ended the app (exit calls with their caller, event loop quit, last window closed, main window close, Python exit with running threads) and the current page. |
 | `20261029_gui_3_14_7_v407` | 2026-10-29 | Disabled checkboxes and radio buttons now look disabled (grey text, dim box, grey tick); before, a disabled box looked exactly like an enabled one. |
+| `20261030_gui_3_14_7_v408` | 2026-10-30 | Easier-to-read text in both themes: the light-mode sidebar logo, selected sidebar item, blue/green/orange/red/purple text, greyed-out text and empty-field hints are darker; dark-mode grey hint text is lighter; a few dialogs that used dark-mode colors in light mode now follow the theme. |
 
 ## Status
 
@@ -2562,6 +2563,20 @@ Tests: +5 in `test_live_stream_monitor.py` (headless kwargs, auth UA kept, x-bc 
 ### Disabled checkboxes (patch `v407`, 2026-10-29)
 
 Reported on the Live Monitor page: "Hide capture window" seemed to need both "No window" and "Desktop notifications" unticked before it could be clicked. An offscreen check of the real page showed the state was right (it's disabled only while No window is ticked, and clicking it works once No window is off, with notifications still on); the problem was that neither theme had a `:disabled` rule for `QCheckBox` / `QRadioButton`, so a disabled box was drawn exactly like an enabled one. Both themes now grey the text, the box and the tick (`::indicator:checked:disabled`), placed after the hover rule so a disabled box doesn't light up. Test: `test_disabled_checkboxes_look_disabled` (enabled vs disabled render differently, both themes, checkbox and radio); removing the rules fails it. Full suite 653 passed, 8 skipped. Patch `v407`: 156 files, payload identical, applied to and restored from a scratch copy.
+
+### Easier-to-read colors (patch `v408`, 2026-10-30)
+
+Reported: grey text on grey backgrounds in places, and the light-mode ASCII logo was light blue on a light background. Every text color in both themes was checked against its background with the WCAG contrast formula (4.5:1 is the usual target for normal text).
+
+- **Light theme palette** (`styles.COLORS["light"]`), each now at least 4.5:1 on both page backgrounds (`base` `#eff1f5`, `mantle` `#e6e9ef`): `blue` `#1e66f5`→`#1d4ed8`, `muted` `#6c6f85`→`#5c5f77`, `sky` `#04a5e5`→`#0369a1`, `teal` `#179299`→`#0e7068`, `green` `#2d8a22`→`#1d7016`, `yellow` `#9a6700`→`#8a5c00`, `peach` `#fe640b`→`#b93d0b`, `red` `#d20f39`→`#b80d32`, `mauve` `#8839ef`→`#7a2fd6`, `lavender` `#7287fd`→`#4f5bd5`. The light QSS uses the same new blue (buttons, checkboxes, tabs, selection) and red (danger button); primary hover is `#2563eb`.
+- **Dark theme:** `muted` `#6c7086` (3.4:1) → `#9399b2` (5.8:1); disabled text `#7f849c` → `#8a8fa8`.
+- **Greyed-out text (light):** disabled checkboxes/radios `#8c8fa1` (2.8:1) and disabled buttons `#acb0be` (1.9:1) → `#6c6f85` (4.4:1). Still clearly lighter than normal text (`#11111b`), so disabled items keep looking disabled (v407).
+- **Selected sidebar item (light):** text `#1e40af` on `#ccd0da` (was 3.2:1, now 5.7:1).
+- **Sidebar logo:** drawn at 5pt, so the thin strokes never reach full color. It is now bold, and the colors are stronger: light `#1e3a8a` (8.5:1), dark `#a6c8ff` (10.3:1).
+- **Empty-field hints:** `placeholder-text-color` on inputs and text boxes (light `#5c5f77`, dark `#a6adc8`/`#9399b2`); before, Qt drew them at half the text color (about 3:1 on the light input background).
+- **Dark-only colors used in light mode:** the model selector subtitle/count/header (`#a6adc8`, about 2:1 on light), the red warnings in the scrape confirmation and disk-space dialogs (`#f38ba8`), scrape-history status colors, the Filters panel `?` buttons, and the auth dialog status line now use `c(...)` theme colors.
+
+Tests in `test_gui_review_fixes.py`: every text token in both palettes is at least 4.5:1 on `base` and `mantle`; logo colors at least 7:1; light disabled checkbox and button text at least 4:1; both themes set a placeholder color. Full suite 689 passed, 8 skipped. Patch `v408`: 156 files, payload identical, applied to a scratch copy of the installed package (pipx, Python 3.12; the changed GUI modules import and both stylesheets load under PyQt6 offscreen) and restored byte-for-byte; real install untouched.
 
 ### Live Stream Monitor plugin v1.3.7: stop when the stream ends (2026-10-30)
 

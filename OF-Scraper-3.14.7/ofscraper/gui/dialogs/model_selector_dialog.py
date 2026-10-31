@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ofscraper.gui.utils.ui_scale import apply_font, scale_px
+from ofscraper.gui.styles import c
 from ofscraper.gui.widgets.styled_button import StyledButton
 
 log = logging.getLogger("shared")
@@ -62,7 +63,7 @@ class ModelSelectorDialog(QDialog):
         layout.addWidget(header)
 
         subtitle = QLabel("Search and select the creators you want to process.")
-        subtitle.setStyleSheet("color: #a6adc8;")
+        subtitle.setStyleSheet(f"color: {c('subtext')};")
         layout.addWidget(subtitle)
 
         # Main content: splitter with list on left, filters on right
@@ -127,7 +128,7 @@ class ModelSelectorDialog(QDialog):
         bulk_layout.addStretch()
 
         self.count_label = QLabel("0 / 0 selected")
-        self.count_label.setStyleSheet("color: #a6adc8;")
+        self.count_label.setStyleSheet(f"color: {c('subtext')};")
         bulk_layout.addWidget(self.count_label)
 
         layout.addLayout(bulk_layout)
@@ -144,7 +145,7 @@ class ModelSelectorDialog(QDialog):
         apply_font(self._model_list_header, "Consolas", 11, QFont.Weight.Bold)
         self._model_list_header.setStyleSheet(
             f'QLabel {{ font-family: Consolas, "Courier New", monospace; font-size: {scale_px(11)}pt;'
-            " color: #a6adc8; padding: 2px 4px 2px 28px; }"
+            f" color: {c('subtext')}; padding: 2px 4px 2px 28px; }}"
         )
         layout.addWidget(self._model_list_header)
         layout.addWidget(self.model_list)

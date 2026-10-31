@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
 )
 
+from ofscraper.gui.styles import c
 from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.signals import app_signals
 from ofscraper.gui.utils.group_layout import compact_group, tune_group_layout
@@ -41,18 +42,18 @@ def _make_help_btn(anchor: str) -> QToolButton:
     b.setAutoRaise(True)
     b.setFixedSize(18, 18)
     b.setStyleSheet(
-        """
-        QToolButton {
-            border: 1px solid #45475a;
+        f"""
+        QToolButton {{
+            border: 1px solid {c('surface1')};
             border-radius: 9px;
-            background-color: #313244;
-            color: #cdd6f4;
+            background-color: {c('surface0')};
+            color: {c('text')};
             font-weight: bold;
-        }
-        QToolButton:hover {
-            border-color: #89b4fa;
-            background-color: #45475a;
-        }
+        }}
+        QToolButton:hover {{
+            border-color: {c('blue')};
+            background-color: {c('surface1')};
+        }}
         """
     )
     b.clicked.connect(lambda: app_signals.help_anchor_requested.emit(anchor))
