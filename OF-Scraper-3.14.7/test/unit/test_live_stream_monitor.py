@@ -1298,3 +1298,13 @@ def test_no_fixed_startup_sleeps_are_left():
     assert src.index("_PLAYER_STATE_JS") < src.index("_AUDIO_SOURCE_JS") < src.index("new MediaRecorder")
     after_join = src[src.index("join_btn.first.click()"):src.index("Joined the live stream")]
     assert "wait_for_timeout(1000)" in after_join  # was a fixed 3 s
+
+
+def test_the_login_check_polls_instead_of_waiting_5_s():
+    import inspect
+
+    src = inspect.getsource(lsm.Plugin.record_stream)
+    before_check = src[src.index("rec_page.goto(live_url"):src.index("Auth check URL")]
+    assert "wait_for_timeout(5000)" not in before_check
+    assert "_LIVE_PAGE_STATE_JS" in before_check and "_poll_until(" in before_check
+    assert lsm._LIVE_PAGE_WAIT_SECONDS == 5  # the old fixed wait is the limit

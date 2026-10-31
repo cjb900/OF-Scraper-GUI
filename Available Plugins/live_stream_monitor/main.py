@@ -253,6 +253,20 @@ _PLAYER_NOT_PLAYING_SECONDS = 10  # a <video> that never plays: go on anyway (ol
 _AUDIO_WAIT_SECONDS = 8         # was a fixed 8 s sleep
 _AUDIO_POLL_SECONDS = 0.5
 
+# After opening /live, OnlyFans' page either sends a logged-out browser to the
+# login page (?return_to=...) or shows the live page. Poll for either instead
+# of the old fixed 5 s; 5 s stays the limit, after which it goes on as before.
+_LIVE_PAGE_WAIT_SECONDS = 5
+_LIVE_PAGE_POLL_SECONDS = 0.25
+_LIVE_PAGE_STATE_JS = """() => {
+    if (location.href.includes('return_to')) return 'login';
+    const join = [...document.querySelectorAll('button')]
+        .some(b => /join\\s+live\\s+stream/i.test(b.textContent || ''));
+    if (join) return 'join button';
+    if (document.querySelector('video')) return 'video';
+    return '';
+}"""
+
 # 0 = no <video>, 1 = <video> but no live picture yet, 2 = playing.
 _PLAYER_STATE_JS = """() => {
     const v = document.querySelector('video');
@@ -3025,9 +3039,27 @@ class Plugin(BasePlugin):
                 except Exception:
                     pass
 
-                rec_page.wait_for_timeout(5000)
+                # Wait until the page shows the login redirect or the live page
+                # (or leaves /live), at most 5 s (the old fixed wait).
+                def _live_page_probe():
+                    if not _url_is_live_stream(rec_page.url, username) and "return_to" not in rec_page.url:
+                        return "left"
+                    return rec_page.evaluate(_LIVE_PAGE_STATE_JS)
+
+                page_state, waited, stopped = _poll_until(
+                    _live_page_probe, bool, _LIVE_PAGE_WAIT_SECONDS,
+                    _LIVE_PAGE_POLL_SECONDS, stop_event,
+                )
+                if stopped:
+                    self._emit_log("[Playwright] Stopped while the live page was loading.")
+                    rec_ctx.close()
+                    return
+                self.log.debug(
+                    f"[Playwright] {username}: live page state "
+                    f"{page_state or 'undecided'} after {waited:.1f} s"
+                )
                 current_url = rec_page.url
-                self._emit_log(f"[Playwright] Auth check URL: {current_url}")
+                self._emit_log(f"[Playwright] Auth check URL: {current_url} ({waited:.1f} s)")
 
                 if "return_to" in current_url and no_window:
                     login_timed_out = True

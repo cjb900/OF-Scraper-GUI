@@ -2586,6 +2586,18 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.13: no fixed 5 s before the login check (2026-10-31)
+
+User confirmed 1.3.12 starts much faster and still records sound; asked to cut the remaining fixed 5 s after opening /live ("Auth check URL").
+
+- That wait let OnlyFans' page either redirect a logged-out browser to the login page (`?return_to=`) or render the live page. `record_stream` now polls `_LIVE_PAGE_STATE_JS` every 0.25 s via `_poll_until`: `'login'` (URL has `return_to`), `'join button'` (a `<button>` whose textContent matches `/join\s+live\s+stream/i`), `'video'`, or `'left'` (no longer on /live and not a login redirect); 5 s (`_LIVE_PAGE_WAIT_SECONDS`) is the limit, after which it goes on with the URL as before. Stop works during the wait. The rest of the login handling is unchanged.
+- Console "Auth check URL: … (X s)"; the plugin log gets the state that ended the wait.
+- Checked in QtWebEngine: join button with nested, CSS-uppercased text → 'join button'; bare video → 'video'; loading page and an unrelated button → ''; a `?return_to=` URL → 'login'.
+- Not changed: the 5 s after a hand login in the capture window (rare) and the Diagnostics probe's 5 s.
+- Assumption: a logged-out browser never shows the JOIN button before redirecting. If it did, the redirect would be caught by the player wait ("redirected … Aborting") instead of the login message.
+
+Tests: +1 in `test_live_stream_monitor.py` (no fixed 5 s before the check; polls with the live-page state; 5 s limit).
+
 ### Live Stream Monitor plugin v1.3.12: start recording without fixed waits (2026-10-31)
 
 Asked: why "Waiting 8 s for audio graph" and "up to 60 s" for the stream player, and can they be cut. From the 1.3.11 plugin log (19:18:59 joined → 19:19:04 player → 19:19:12 recording): 13 s from JOIN to recording, 8 of them a fixed sleep.
