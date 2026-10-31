@@ -233,6 +233,57 @@ _NO_DATA_STOP_SECONDS = 300
 _NOT_LIVE_POLLS_TO_STOP = 2
 
 
+def _discord_webhook_url() -> str:
+    """The Discord Webhook URL from Configuration → General ("" if unset)."""
+    try:
+        from ofscraper.utils.config.data import get_discord
+
+        return str(get_discord() or "").strip()
+    except Exception:
+        return ""
+
+
+def _live_message(username: str) -> str:
+    """The @here alert. Discord would read "_" in a name as italics."""
+    shown = username.replace("_", "\\_")
+    return (
+        f"@here 🔴 **{shown}** is live on OnlyFans: "
+        f"<https://onlyfans.com/{username}/live>"
+    )
+
+
+def _post_discord(url: str, content: str, log=None, username: str = "") -> bool:
+    """POST *content* to a Discord webhook, letting @here ping.
+
+    Retries once after a 429 (rate limit). Never logs the URL: it is a secret.
+    """
+    import httpx
+
+    payload = {"content": content, "allowed_mentions": {"parse": ["everyone"]}}
+    for attempt in range(2):
+        try:
+            r = httpx.post(url, json=payload, timeout=15)
+        except Exception as e:
+            if log:
+                log(f"[Discord] Live alert for {username} failed: {type(e).__name__}")
+            return False
+        if r.status_code in (200, 204):
+            if log:
+                log(f"[Discord] Sent @here live alert for {username}.")
+            return True
+        if r.status_code == 429 and attempt == 0:
+            try:
+                wait = float(r.json().get("retry_after", 2))
+            except Exception:
+                wait = 2.0
+            time.sleep(min(max(wait, 0.5), 30))
+            continue
+        break
+    if log:
+        log(f"[Discord] Live alert for {username} failed: HTTP {r.status_code}")
+    return False
+
+
 def _stream_still_live(username: str):
     """True / False from OnlyFans' /streams/active; None if the check failed."""
     try:
@@ -986,6 +1037,9 @@ class LiveMonitorWorker(QThread):
         # {username: {"seen_live": bool, "misses": int}} for creators with a
         # session; see _stop_ended_recording.
         self._live_watch = {}
+        # Creators live on the previous successful poll (for Discord alerts:
+        # one per go-live, not one per poll).
+        self._was_live = set()
 
     def run(self):
         self.log_msg.emit("[System] Monitoring worker thread active.")
@@ -1002,6 +1056,7 @@ class LiveMonitorWorker(QThread):
                 # 2. Build current status dict
                 sessions = self.plugin.session_snapshot()
                 model_statuses = {}
+                live_now = set()
                 for m in models:
                     if not m.active:
                         continue
@@ -1009,6 +1064,10 @@ class LiveMonitorWorker(QThread):
                     username = m.name
                     is_live = m.model.get("hasStream", False)
                     expired_date = m.expired_string or "Active"
+                    if is_live:
+                        live_now.add(username)
+                        if username not in self._was_live and not self.plugin.is_ignored(username):
+                            self.plugin.announce_live(username)
 
                     status = "Offline"
                     kind = (sessions.get(username) or (None, None))[0]
@@ -1069,6 +1128,7 @@ class LiveMonitorWorker(QThread):
                                     self._live_watch[username] = {"seen_live": True, "misses": 0}
                                 model_statuses[username]["status"] = "Connecting 🟡"
                 
+                self._was_live = live_now
                 # Emit update to refresh GUI table
                 poll_ok = True
                 self.status_updated.emit(model_statuses)
@@ -1727,6 +1787,10 @@ class Plugin(BasePlugin):
         self.auto_capture = False
         # Desktop notification when a recording starts, is saved or fails.
         self.notify = True
+        # With notifications on: post "@here <creator> is live" to the Discord
+        # webhook from Configuration (for servers nobody is watching).
+        self.discord_live_ping = False
+        self._discord_missing_logged = False
         # Capture browser without any window (Chrome's new headless mode).
         self.no_window = True
         self._load_settings()
@@ -1807,6 +1871,8 @@ class Plugin(BasePlugin):
                     self.auto_capture = bool(data.get("auto_capture"))
                 if "notify" in data:
                     self.notify = bool(data.get("notify"))
+                if "discord_live_ping" in data:
+                    self.discord_live_ping = bool(data.get("discord_live_ping"))
                 if "no_window" in data:
                     self.no_window = bool(data.get("no_window"))
         except Exception:
@@ -1825,6 +1891,7 @@ class Plugin(BasePlugin):
                         "capture_dir": str(self.capture_dir or ""),
                         "auto_capture": bool(self.auto_capture),
                         "notify": bool(self.notify),
+                        "discord_live_ping": bool(self.discord_live_ping),
                         "no_window": bool(self.no_window),
                     },
                     indent=2,
@@ -1847,9 +1914,10 @@ class Plugin(BasePlugin):
         self._save_settings()
 
     def set_page_settings(self, **values):
-        """Save any of poll_interval / capture_dir / auto_capture / notify (only on change)."""
+        """Save any of the page settings below (only on change)."""
         changed = False
-        for key in ("poll_interval", "capture_dir", "auto_capture", "notify", "no_window"):
+        for key in ("poll_interval", "capture_dir", "auto_capture", "notify",
+                    "discord_live_ping", "no_window"):
             if key in values and getattr(self, key) != values[key]:
                 setattr(self, key, values[key])
                 changed = True
@@ -1984,6 +2052,32 @@ class Plugin(BasePlugin):
             app_signals.show_notification.emit(title, f"{name}{detail}")
         except Exception as e:
             self.log.debug(f"Live monitor notification failed: {e}")
+
+    def announce_live(self, username: str) -> bool:
+        """Post "@here <creator> is live" to the Discord webhook (any thread).
+
+        Only with Desktop notifications and its Discord option on. Sent from a
+        background thread so a slow webhook never holds up polling. Returns
+        True when a message was queued.
+        """
+        if not (self.notify and self.discord_live_ping):
+            return False
+        url = _discord_webhook_url()
+        if not url:
+            if not self._discord_missing_logged:
+                self._discord_missing_logged = True
+                self._emit_log(
+                    "[Discord] No webhook set: add one under Configuration → General → "
+                    "Discord Webhook URL to get @here live alerts."
+                )
+            return False
+        self._discord_missing_logged = False
+        threading.Thread(
+            target=_post_discord,
+            args=(url, _live_message(username), self._emit_log, username),
+            daemon=True,
+        ).start()
+        return True
 
     def check_chromium_installed(self) -> bool:
         """Verify Playwright and a Chromium browser are installed and launchable.

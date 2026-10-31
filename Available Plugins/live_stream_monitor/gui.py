@@ -284,6 +284,27 @@ class LiveMonitorTab(QWidget):
         )
         config_layout.addWidget(self.notify_check)
 
+        # Sub-option of Desktop notifications, indented under it.
+        self.discord_ping_check = QCheckBox("Discord @here when live")
+        self.discord_ping_check.setChecked(
+            bool(getattr(self.plugin, "discord_live_ping", False))
+        )
+        self.discord_ping_check.setToolTip(
+            "Also post \"@here <creator> is live\" to Discord, once each time a creator\n"
+            "goes live (ignored creators are skipped). Uses the Discord Webhook URL\n"
+            "from Configuration → General. For servers nobody is watching.\n"
+            "The real name is sent, even in Privacy mode."
+        )
+        self.discord_ping_check.toggled.connect(
+            lambda on: self.plugin.set_page_settings(discord_live_ping=bool(on))
+        )
+        self.discord_ping_check.setEnabled(self.notify_check.isChecked())
+        self.notify_check.toggled.connect(self.discord_ping_check.setEnabled)
+        discord_row = QHBoxLayout()
+        discord_row.setContentsMargins(22, 0, 0, 0)
+        discord_row.addWidget(self.discord_ping_check)
+        config_layout.addLayout(discord_row)
+
         # Capture / stop controls
         self.capture_selected_btn = StyledButton("Capture selected", primary=True)
         self.capture_selected_btn.setToolTip(

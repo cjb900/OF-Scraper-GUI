@@ -947,3 +947,121 @@ def test_polls_stop_a_recording_after_the_stream_ends(plugin, poll_env, recordin
     worker.run()
     assert stops == ["creator"]
     assert seen == ["Recording 🔴"] * 3  # until the capture thread has saved
+
+
+# ── Discord @here when a creator goes live ───────────────────────────────────
+
+@pytest.fixture
+def discord(plugin, monkeypatch):
+    """Webhook calls made by announce_live, collected synchronously."""
+    sent, logs = [], []
+    monkeypatch.setattr(plugin, "_emit_log", logs.append)
+    monkeypatch.setattr(lsm, "_discord_webhook_url", lambda: "https://discord.test/hook")
+
+    class _NowThread:
+        def __init__(self, target, args=(), daemon=None):
+            self._run = lambda: target(*args)
+
+        def start(self):
+            self._run()
+
+    monkeypatch.setattr(lsm.threading, "Thread", _NowThread)
+    monkeypatch.setattr(lsm, "_post_discord", lambda url, content, log, user: sent.append((url, content, user)))
+    return sent, logs
+
+
+def test_discord_alert_is_off_by_default_and_needs_notifications(plugin, discord):
+    sent, _ = discord
+    assert plugin.discord_live_ping is False
+    assert plugin.announce_live("creator") is False
+    plugin.discord_live_ping = True
+    plugin.notify = False
+    assert plugin.announce_live("creator") is False
+    plugin.notify = True
+    assert plugin.announce_live("creator") is True
+    assert sent == [("https://discord.test/hook", lsm._live_message("creator"), "creator")]
+
+
+def test_a_missing_webhook_is_said_once(plugin, discord, monkeypatch):
+    sent, logs = discord
+    monkeypatch.setattr(lsm, "_discord_webhook_url", lambda: "")
+    plugin.discord_live_ping = True
+    assert plugin.announce_live("a") is False and plugin.announce_live("b") is False
+    assert sent == [] and len(logs) == 1 and "Discord Webhook URL" in logs[0]
+
+
+def test_the_alert_names_the_creator_and_links_the_stream():
+    msg = lsm._live_message("katie_darling")
+    assert msg.startswith("@here ")
+    assert "**katie\\_darling**" in msg  # "_" would turn into italics
+    assert "<https://onlyfans.com/katie_darling/live>" in msg
+
+
+class _Resp:
+    def __init__(self, status, body=None):
+        self.status_code = status
+        self._body = body or {}
+
+    def json(self):
+        return self._body
+
+
+def _fake_post(monkeypatch, responses):
+    import httpx
+
+    calls = []
+
+    def post(url, json=None, timeout=None):
+        calls.append(json)
+        return responses.pop(0)
+
+    monkeypatch.setattr(httpx, "post", post)
+    monkeypatch.setattr(lsm.time, "sleep", lambda s: None)
+    return calls
+
+
+def test_webhook_post_lets_here_ping(monkeypatch):
+    calls = _fake_post(monkeypatch, [_Resp(204)])
+    logs = []
+    assert lsm._post_discord("https://discord.test/secret", "@here hi", logs.append, "creator")
+    assert calls == [{"content": "@here hi", "allowed_mentions": {"parse": ["everyone"]}}]
+    assert logs == ["[Discord] Sent @here live alert for creator."]
+
+
+def test_webhook_rate_limit_is_retried_once(monkeypatch):
+    calls = _fake_post(monkeypatch, [_Resp(429, {"retry_after": 1.5}), _Resp(204)])
+    assert lsm._post_discord("https://discord.test/secret", "x", None, "creator")
+    assert len(calls) == 2
+
+
+def test_webhook_failure_is_logged_without_the_url(monkeypatch):
+    _fake_post(monkeypatch, [_Resp(404)])
+    logs = []
+    assert not lsm._post_discord("https://discord.test/secret", "x", logs.append, "creator")
+    assert logs == ["[Discord] Live alert for creator failed: HTTP 404"]
+    assert "secret" not in " ".join(logs)
+
+
+def test_one_alert_per_go_live(plugin, poll_env, monkeypatch):
+    """live, live, offline, live → two alerts; an ignored creator gets none."""
+    announced = []
+    monkeypatch.setattr(plugin, "announce_live", announced.append)
+    monkeypatch.setattr(plugin, "start_recording", lambda *a, **k: False)
+    monkeypatch.setattr(plugin, "stream_files_summary", lambda *a, **k: (0, ""))
+    plugin.set_ignored("quiet", True)
+    answers = iter([True, True, False, True])
+
+    async def get_models(all_main_models=False):
+        live = next(answers)
+        return [_Model("creator", live), _Model("quiet", live)]
+
+    import ofscraper.data.models.utils.retriver as retriver
+    monkeypatch.setattr(retriver, "get_models", get_models)
+    _run_polls(plugin, 4)
+    assert announced == ["creator", "creator"]
+
+
+def test_the_discord_option_is_remembered(tmp_path):
+    p = lsm.Plugin({"name": "x"}, str(tmp_path))
+    p.set_page_settings(discord_live_ping=True)
+    assert lsm.Plugin({"name": "x"}, str(tmp_path)).discord_live_ping is True

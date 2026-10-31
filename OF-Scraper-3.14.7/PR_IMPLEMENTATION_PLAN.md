@@ -2586,6 +2586,19 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.9: Discord @here when a creator goes live (2026-10-31)
+
+Asked for: on a server nobody watches, a desktop notification goes unseen; send an @here to Discord (OF-Scraper already has a webhook setting) as a sub-option of Desktop notifications.
+
+- New page option **Discord @here when live**, indented under Desktop notifications and greyed out while that is off; saved as `discord_live_ping` (default off).
+- `LiveMonitorWorker` keeps the set of creators that were live on the previous successful poll; a creator newly live (and not ignored) calls `Plugin.announce_live`. One alert per go-live, regardless of capture start/cooldown. A failed poll doesn't reset the set.
+- `announce_live` needs both options on, reads the webhook with `data.get_discord()` (Configuration → General → Discord Webhook URL) and posts from a daemon thread so polling never waits. No webhook: said once in the console.
+- `_post_discord`: `httpx.post` with `allowed_mentions: {parse: [everyone]}` so @here pings; one retry after 429 using `retry_after` (capped at 30 s); console says sent / failed with the HTTP status. The webhook URL is never logged.
+- Message: `@here 🔴 **name** is live on OnlyFans: <https://onlyfans.com/name/live>` (`_` escaped in the bold name; `<>` suppresses the link preview). The real name is sent in Privacy mode (it's the user's own channel; the option's tooltip says so).
+- Label shortened to fit the narrow options column; checked offscreen with the real `LiveMonitorTab`.
+
+Tests: +8 in `test_live_stream_monitor.py` (gate on both options, missing webhook said once, message text, payload lets @here ping, 429 retried once, failure logged without the URL, one alert per go-live and none for ignored creators through `run()`, setting remembered).
+
 ### Live Stream Monitor plugin v1.3.8: the poller stops ended streams (2026-10-31)
 
 Reported on v1.3.7: captures still kept recording after the creator was no longer live. Two of 1.3.7's stops can't fire in that case: the recorder keeps producing chunks from the frozen "playing" video, so neither the 5-minute no-data stop nor the 30-minute no-video fallback triggers; and the `/streams/active` check counts a failed request as "unknown" without logging, so if it never works nothing shows it. (The 1.3.7 notes said it used "the same check the poller uses"; the poller actually uses `hasStream` from the subscription list.)
