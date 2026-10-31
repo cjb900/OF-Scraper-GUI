@@ -1065,3 +1065,82 @@ def test_the_discord_option_is_remembered(tmp_path):
     p = lsm.Plugin({"name": "x"}, str(tmp_path))
     p.set_page_settings(discord_live_ping=True)
     assert lsm.Plugin({"name": "x"}, str(tmp_path)).discord_live_ping is True
+
+
+def test_missing_webhook_only_matters_when_alerts_are_on(plugin, monkeypatch):
+    monkeypatch.setattr(lsm, "_discord_webhook_url", lambda: "")
+    assert not plugin.discord_alerts_missing_webhook()  # option off
+    plugin.discord_live_ping = True
+    assert plugin.discord_alerts_missing_webhook()
+    plugin.notify = False
+    assert not plugin.discord_alerts_missing_webhook()  # parent option off
+    plugin.notify = True
+    monkeypatch.setattr(lsm, "_discord_webhook_url", lambda: "https://discord.test/hook")
+    assert not plugin.discord_alerts_missing_webhook()
+
+
+class _FakeBox:
+    shown = []
+
+    class Icon:
+        Warning = "warning"
+
+    class StandardButton:
+        Ok = "ok"
+
+    def __init__(self, parent=None):
+        self.visible = False
+        self.texts = []
+        self.modal = None
+
+    def setIcon(self, _i): pass
+    def setWindowTitle(self, t): self.texts.append(t)
+    def setText(self, t): self.texts.append(t)
+    def setInformativeText(self, t): self.texts.append(t)
+    def setStandardButtons(self, _b): pass
+    def setModal(self, m): self.modal = m
+    def isVisible(self): return self.visible
+
+    def show(self):
+        self.visible = True
+        _FakeBox.shown.append(self)
+
+
+def _warning_tab(plugin, monkeypatch):
+    gui = _load("gui")
+    from types import SimpleNamespace
+
+    _FakeBox.shown = []
+    monkeypatch.setattr(gui, "QMessageBox", _FakeBox)
+    tab = SimpleNamespace(plugin=plugin, logs=[], _discord_warning=None)
+    tab.append_log = tab.logs.append
+    return tab, lambda: gui.LiveMonitorTab._warn_if_no_discord_webhook(tab)
+
+
+def test_no_webhook_pops_up_a_non_blocking_warning(plugin, monkeypatch):
+    monkeypatch.setattr(lsm, "_discord_webhook_url", lambda: "")
+    plugin.discord_live_ping = True
+    tab, warn = _warning_tab(plugin, monkeypatch)
+    assert warn() is True
+    (box,) = _FakeBox.shown
+    assert box.modal is False  # never holds up an unattended start
+    text = " ".join(box.texts)
+    assert "Configuration → General → Discord Webhook URL" in text
+    assert plugin.discord_live_ping is True  # the option stays on
+    assert any("No webhook set" in line for line in tab.logs)
+    assert warn() is True and len(_FakeBox.shown) == 1  # an open warning is reused
+
+
+def test_no_warning_once_a_webhook_is_set(plugin, monkeypatch):
+    monkeypatch.setattr(lsm, "_discord_webhook_url", lambda: "https://discord.test/hook")
+    plugin.discord_live_ping = True
+    tab, warn = _warning_tab(plugin, monkeypatch)
+    assert warn() is False and _FakeBox.shown == [] and tab.logs == []
+
+
+def test_the_warning_is_checked_on_tick_and_on_monitor_start():
+    import inspect
+
+    gui = _load("gui")
+    assert "_warn_if_no_discord_webhook()" in inspect.getsource(gui.LiveMonitorTab._on_discord_ping_toggled)
+    assert "_warn_if_no_discord_webhook()" in inspect.getsource(gui.LiveMonitorTab._start_monitor_now)

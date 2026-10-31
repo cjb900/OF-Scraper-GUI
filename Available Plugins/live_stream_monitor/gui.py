@@ -295,9 +295,8 @@ class LiveMonitorTab(QWidget):
             "from Configuration → General. For servers nobody is watching.\n"
             "The real name is sent, even in Privacy mode."
         )
-        self.discord_ping_check.toggled.connect(
-            lambda on: self.plugin.set_page_settings(discord_live_ping=bool(on))
-        )
+        self.discord_ping_check.toggled.connect(self._on_discord_ping_toggled)
+        self._discord_warning = None
         self.discord_ping_check.setEnabled(self.notify_check.isChecked())
         self.notify_check.toggled.connect(self.discord_ping_check.setEnabled)
         discord_row = QHBoxLayout()
@@ -1197,6 +1196,43 @@ class LiveMonitorTab(QWidget):
             self.plugin.stop_monitor()
             self._apply_privacy_to_save_field()
 
+    def _on_discord_ping_toggled(self, on: bool):
+        self.plugin.set_page_settings(discord_live_ping=bool(on))
+        if on:
+            self._warn_if_no_discord_webhook()
+
+    def _warn_if_no_discord_webhook(self) -> bool:
+        """Pop up a warning when Discord alerts are on without a webhook.
+
+        Non-blocking (the monitor can start by itself on an unattended server,
+        and nothing should wait on a click). The option stays on: alerts start
+        as soon as a webhook is added. Returns True when the warning was shown.
+        """
+        if not self.plugin.discord_alerts_missing_webhook():
+            return False
+        self.append_log(
+            "[Discord] No webhook set: @here live alerts won't be sent until one is "
+            "added under Configuration → General → Discord Webhook URL."
+        )
+        if self._discord_warning is not None and self._discord_warning.isVisible():
+            return True
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("No Discord webhook")
+        box.setText("Discord @here live alerts are on, but no Discord webhook is set.")
+        box.setInformativeText(
+            "No alerts will be sent until you add one:\n\n"
+            "1. In Discord: Server Settings → Integrations → Webhooks → "
+            "New Webhook, then Copy Webhook URL.\n"
+            "2. Here: Configuration → General → Discord Webhook URL, paste it, Save.\n\n"
+            "The option stays on, so alerts start as soon as the webhook is saved."
+        )
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.setModal(False)
+        box.show()
+        self._discord_warning = box
+        return True
+
     def _start_monitor_now(self):
         if self.plugin.worker is not None:
             return
@@ -1222,6 +1258,7 @@ class LiveMonitorTab(QWidget):
             save_location=self._capture_dir(),
         )
         self._update_monitor_status()
+        self._warn_if_no_discord_webhook()
 
     @pyqtSlot()
     def handle_auth_error(self):

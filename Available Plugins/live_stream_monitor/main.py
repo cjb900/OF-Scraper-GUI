@@ -2053,6 +2053,10 @@ class Plugin(BasePlugin):
         except Exception as e:
             self.log.debug(f"Live monitor notification failed: {e}")
 
+    def discord_alerts_missing_webhook(self) -> bool:
+        """True when Discord live alerts are switched on but no webhook is set."""
+        return bool(self.notify and self.discord_live_ping and not _discord_webhook_url())
+
     def announce_live(self, username: str) -> bool:
         """Post "@here <creator> is live" to the Discord webhook (any thread).
 

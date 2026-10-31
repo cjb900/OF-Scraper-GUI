@@ -2586,6 +2586,16 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.10: warn when no Discord webhook is set (2026-10-31)
+
+Asked for: a popup when Discord @here alerts are on but `config.json` has no Discord webhook (1.3.9 only said so in the console, at the first alert).
+
+- `Plugin.discord_alerts_missing_webhook()`: Desktop notifications and the Discord option on, `data.get_discord()` empty.
+- `LiveMonitorTab._warn_if_no_discord_webhook()` runs when the option is ticked and when the monitor starts (also its auto-start on page load). It logs a console line and shows a **non-modal** warning (`setModal(False)` + `show()`) with how to create a webhook in Discord and where to paste it (Configuration → General → Discord Webhook URL). Non-modal because the monitor can start by itself on an unattended server; an open warning is reused instead of stacking. The option stays on, so alerts start once a webhook is saved.
+- Checked offscreen with the real `LiveMonitorTab`: popup shown, not modal, not shown with a webhook set.
+
+Tests: +4 in `test_live_stream_monitor.py` (when a missing webhook matters, popup shown non-modal with the Configuration path and the option left on, none with a webhook, wired to the tick and to monitor start).
+
 ### Live Stream Monitor plugin v1.3.9: Discord @here when a creator goes live (2026-10-31)
 
 Asked for: on a server nobody watches, a desktop notification goes unseen; send an @here to Discord (OF-Scraper already has a webhook setting) as a sub-option of Desktop notifications.

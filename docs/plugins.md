@@ -237,13 +237,13 @@ The plugin handles its own setup on first enable:
 
 ### Live Stream Monitor (`live_stream_monitor`)
 
-> 📸 **Screenshot needed:** the **📺 Live Monitor** page (plugin v1.3.9) showing the creator list and the **No window (headless browser)**, **Hide capture window** and **Desktop notifications** options. A second one with a capture running would help too. Turn on Privacy mode first so no usernames or paths show.
+> 📸 **Screenshot needed:** the **📺 Live Monitor** page (plugin v1.3.10) showing the creator list and the **No window (headless browser)**, **Hide capture window** and **Desktop notifications** options. A second one with a capture running would help too. Turn on Privacy mode first so no usernames or paths show.
 
 Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects when a creator goes live, and captures the stream with Playwright Chromium into `{username}/Live_Streams/`.
 
 This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
 
-**Highlights (plugin v1.3.9)**
+**Highlights (plugin v1.3.10)**
 
 The version shows on the Plugins page and next to the Live Monitor page title.
 
@@ -258,7 +258,7 @@ The version shows on the Plugins page and next to the Live Monitor page title.
 - Ignored creators are greyed out and marked "ignored". **Only live** next to the filter box shows just the creators who are live or being captured
 - While recording, the Status column shows the time and file size so far, e.g. `Recording 🔴 (12:04 · 850 MB)`
 - **Desktop notifications** (on by default) when a recording starts, is saved, or a capture fails. Names are hidden in Privacy mode
-  - **Discord @here when live** (under Desktop notifications, off by default; since v1.3.9): posts `@here 🔴 <creator> is live on OnlyFans` with a link to the stream to the **Discord Webhook URL** from **Configuration → General**, once each time a creator goes live. Meant for servers (e.g. [Docker](docker.md)) that nobody is watching. Ignored creators are skipped; the real name is sent even in Privacy mode. The console shows whether each alert was sent, and says once if no webhook is set. Restarting the GUI or the monitor while someone is live sends their alert again
+  - **Discord @here when live** (under Desktop notifications, off by default; since v1.3.9): posts `@here 🔴 <creator> is live on OnlyFans` with a link to the stream to the **Discord Webhook URL** from **Configuration → General**, once each time a creator goes live. Meant for servers (e.g. [Docker](docker.md)) that nobody is watching. Ignored creators are skipped; the real name is sent even in Privacy mode. The console shows whether each alert was sent. If no webhook is set, a warning pops up when you tick the option and when the monitor starts (since v1.3.10); it doesn't block anything and the option stays on, so alerts start once a webhook is saved. Restarting the GUI or the monitor while someone is live sends their alert again
 - Once Chromium works, Playwright Setup shrinks to "🟢 Chromium ready"; **Manage…** shows Reinstall Chromium and Clear saved browser logins
 - The table updates rows in place between polls, so your scroll position and selection stay put
 - The top of the page shows whether the monitor is working: last check time, seconds until the next one, how many creators are live and recording
