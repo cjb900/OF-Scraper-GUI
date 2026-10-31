@@ -36,8 +36,8 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 > Only the **3.14.7** patch is being updated. The patches for **3.12.9**, **3.14.3** and **3.14.5** are still in the repository but have not been updated and may not work properly. Use OF-Scraper 3.14.7 with the 3.14.7 patch. See [Versions](docs/versions.md).
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/e7c590a6-3b05-4e93-9d8c-f35eb673aa46" width="600" alt="Main Window — Select Action">
-  <img src="https://github.com/user-attachments/assets/0d04b396-9ae2-40db-a29e-c40bf6f55f7a" width="600" alt="Scraping page — media table">
+  <img src="https://github.com/user-attachments/assets/f78abd65-1fa3-4596-8a76-fe541625722e" width="600" alt="Main Window — Select Action">
+  <img src="https://github.com/user-attachments/assets/52530179-6a13-43f6-a8ec-34220c184942" width="600" alt="Scraping page — media table">
 </p>
 
 > 📸 **Screenshot to check:** the first picture (Select Action) may be older than the **Update metadata** and **Download all purchased content** actions (patches v391 / v392). Retake it if those two actions are missing. The same picture is in the [GUI guide](docs/gui-guide.md#select-action).
