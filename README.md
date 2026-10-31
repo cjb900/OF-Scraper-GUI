@@ -121,6 +121,7 @@ Run the GUI on a machine without a desktop and open it at `http://<host>:6699/` 
 docker compose build ofscraper-gui
 docker compose up -d ofscraper-gui
 ```
+<img src="https://github.com/user-attachments/assets/8ab70762-3964-4de1-a471-34becf6d88bb" width="600" alt="Docker GUI">
 
 > 📸 **Screenshot needed:** the GUI open in a web browser through noVNC at `http://localhost:6699/`, with the address bar visible. The same picture is wanted in [Docker](docs/docker.md#accessing-the-gui).
 
