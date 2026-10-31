@@ -5148,39 +5148,12 @@ class AuthPage(QWidget):
             app_signals.status_message.emit(f"Credentials failed — {message}")
             QMessageBox.warning(self, "Credentials Invalid", message)
 
-    @staticmethod
-    def _is_docker() -> bool:
-        """Return True when running inside a Docker / OCI container."""
-        if os.path.exists("/.dockerenv"):
-            return True
-        try:
-            with open("/proc/1/cgroup", errors="ignore") as _f:
-                _c = _f.read()
-                return "docker" in _c or "containerd" in _c
-        except OSError:
-            pass
-        return False
-
     def _open_browser_login(self):
         """Open embedded browser login dialog and populate fields from captured credentials."""
-        # QtWebEngine (Chromium) cannot run reliably in Docker — no GPU and
-        # Docker's default 64 MB /dev/shm causes an immediate Chromium crash.
-        if self._is_docker():
-            QMessageBox.information(
-                self,
-                "Login in Browser — Not Supported in Docker",
-                "The embedded browser login is not available when running inside Docker.\n\n"
-                "To authenticate, copy your credentials manually from your browser:\n\n"
-                "1. Open OnlyFans in your regular browser and log in\n"
-                "2. Press F12 → Network tab → click any OnlyFans API request\n"
-                "3. Copy the following from the request headers:\n"
-                "     • cookie: sess=…  (the sess value)\n"
-                "     • cookie: auth_id=…  (the auth_id value)\n"
-                "     • user-agent\n"
-                "     • x-bc\n"
-                "4. Paste each value into the fields above",
-            )
-            return
+        # Works in Docker too: launch_gui() starts Chromium with --disable-gpu
+        # --no-sandbox --disable-dev-shm-usage there, so it needs no GPU and
+        # doesn't depend on /dev/shm size. It is the only browser login in the
+        # container (no desktop browser to import from or launch).
         try:
             dlg = BrowserLoginDialog(self)
         except ImportError as e:

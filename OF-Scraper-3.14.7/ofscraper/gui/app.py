@@ -312,7 +312,8 @@ def enable_rhi_widgets(platform: str = sys.platform, docker: bool = False) -> No
 
     The login browser (QWebEngineView) needs RHI drawing. Without this, Qt
     switches the windows over when the browser first opens, and the whole GUI
-    flashes. Docker has no GPU and no in-app login, so it is left alone.
+    flashes. Docker has no GPU, so it is left alone (the login browser runs
+    there with --disable-gpu instead).
     Set QT_WIDGETS_RHI=0 to turn it off.
     """
     if not docker and (platform == "win32" or platform.startswith("linux")):

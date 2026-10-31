@@ -141,12 +141,14 @@ The container can't see the browsers on your computer, so some login methods are
 
 | Method | In Docker? | Notes |
 |---|---|---|
-| Paste credentials manually | ✅ | Copy `sess` / `auth_id` / user agent / `x-bc` from DevTools in a desktop browser, paste into Authentication |
+| Login in App Browser | ✅ | Since patch v410. **Authentication → Login in App Browser…** opens OnlyFans in a browser window inside the GUI; log in and the credentials are filled in for you. Recommended in Docker |
+| Paste credentials manually | ✅ | Copy `sess` / `auth_id` / user agent / `x-bc` from DevTools in a desktop browser, paste into Authentication. All four must come from the **same browser and the same request**: e.g. a Firefox user agent with Chrome cookies fails with "Wrong user" (code 301) |
 | Import Cookies from a host browser | ❌ | The container can't see browser profiles on the host |
 | Login in System Browser | ❌ | No desktop browser inside the container |
-| Login in App Browser | ⚠️ | May work poorly under the virtual display |
 
-**Easiest:** log in with the desktop GUI first, then copy its `auth.json` into the mounted config folder before starting the container.
+The App Browser keeps its login in `/tmp`, which the compose file makes a RAM-only folder, so after a container restart it asks you to log in again. The credentials it captured are saved in `auth.json` and keep working.
+
+**Also possible:** log in with the desktop GUI, then copy its `auth.json` into the mounted config folder before starting the container.
 
 ## Auto-starting a scrape (`GUI_ARGS`)
 
@@ -253,6 +255,7 @@ In GUI mode, the GUI's own output goes to `logging/gui-docker.log` in the config
 | **Open plugins folder**: `No such file or directory: 'xdg-open'` | Expected: the container has no file manager. Manage the plugin folder from the host, in your mounted config folder's `plugins/` |
 | Black or empty noVNC screen | Wait a few seconds for the display and GUI to start; check `logging/gui-docker.log` |
 | GUI keeps restarting | It crashed; see `logging/gui-docker.log` and `gui_crash_logs/` in the config folder |
+| Patch older than v410: **Login in App Browser** says "Not Supported in Docker" | Update the patch (`GUI_PATCH_VERSION` / the root `patch_ofscraper_3.14.7_gui.py`) and rebuild the image |
 | Auth works on the desktop but not in Docker | Copy the desktop `auth.json` into the config folder; Dynamic Mode / SSL Verify must match |
 | Videos stuck as `.part` | Use the image's FFmpeg (remove any host ffmpeg mount); check the CDM key paths are valid **inside** the container |
 | DRM videos skipped with "CDM files can't be used" | The key paths in Configuration → CDM don't exist inside the container; see [CDM keys](#cdm-keys-and-ffmpeg) |
