@@ -77,25 +77,24 @@ if [ "${MODE:-gui}" = "cli" ]; then
     exit "${EXIT_CODE}"
 fi
 
-# ── Clean up stale Xvfb lock files from a previous container run ─────────────
+# ── Clean up stale X lock files from a previous container run ────────────────
 rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
 
-echo "[entrypoint] Starting virtual display ${SCREEN} on ${DISPLAY}"
-Xvfb "${DISPLAY}" -screen 0 "${SCREEN}" &
-XVFB_PID=$!
+# TigerVNC's Xvnc is the virtual display and the VNC server in one.
+# SCREEN_WIDTH x SCREEN_HEIGHT is only the starting size: noVNC (resize=remote)
+# and VNC viewers set to "resize remote session" change it to fit their window.
+# -localhost=0 keeps raw VNC reachable on VNC_PORT; there is no password, as before.
+echo "[entrypoint] Starting virtual display + VNC server ${SCREEN} on ${DISPLAY}, VNC port ${VNC_PORT}"
+Xtigervnc "${DISPLAY}" -geometry "${SCREEN_WIDTH:-1600}x${SCREEN_HEIGHT:-900}" \
+    -depth "${SCREEN_DEPTH:-24}" -rfbport "${VNC_PORT}" -localhost=0 \
+    -SecurityTypes None -AlwaysShared -AcceptSetDesktopSize=1 \
+    -desktop "OF-Scraper" &>/dev/null &
 
-# Give Xvfb a moment to start
+# Give the X server a moment to start
 sleep 2
 
 echo "[entrypoint] Starting window manager"
 DISPLAY=${DISPLAY} fluxbox &>/dev/null &
-
-echo "[entrypoint] Starting x11vnc on :${VNC_PORT}"
-# -noxdamage: skip XDamage extension which is unreliable in Xvfb and causes missed repaints
-# -wait 5:    poll every 5 ms instead of the 75 ms default for snappier input response
-# -defer 0:   send screen updates immediately rather than batching them
-x11vnc -display "${DISPLAY}" -nopw -forever -shared -rfbport "${VNC_PORT}" -xrandr \
-       -noxdamage -wait 5 -defer 0 &>/dev/null &
 
 echo "[entrypoint] Starting noVNC on port ${NOVNC_PORT}"
 websockify --web=/usr/share/novnc "${NOVNC_PORT}" "localhost:${VNC_PORT}" &>/dev/null &
@@ -139,12 +138,14 @@ while true; do
         kill -TERM "${GUI_PID}" 2>/dev/null || true
     fi
 
-    # Wait for the window to appear then maximize it to fill the virtual desktop.
+    # Wait for the window to appear, then maximize it. Fluxbox keeps a maximized
+    # window filling the screen when noVNC resizes the desktop.
     # In the background: --sync would block forever if the GUI exits first.
     (
         sleep 4
         DISPLAY=${DISPLAY} xdotool search --sync --onlyvisible --name "OF-Scraper" \
-            windowactivate --sync %@ windowmaximize %@ || true
+            windowactivate --sync %@ >/dev/null 2>&1 || true
+        DISPLAY=${DISPLAY} wmctrl -r "OF-Scraper" -b add,maximized_vert,maximized_horz || true
     ) &
 
     # A trapped signal interrupts `wait`; keep waiting while the GUI shuts down.

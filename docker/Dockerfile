@@ -23,12 +23,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-venv python3-dev \
     # PyQt6 from apt — uses Ubuntu's system Qt, correctly linked to xcb libs
     python3-pyqt6 python3-pyqt6.qtwebengine \
-    # Virtual display
-    xvfb \
+    # Virtual display + VNC server in one (TigerVNC Xvnc). Unlike Xvfb + x11vnc,
+    # it accepts screen-size requests from the viewer, so noVNC's resize=remote
+    # makes the desktop match the browser window. Also syncs the clipboard.
+    tigervnc-standalone-server \
     # Minimal window manager so Qt windows don't get orphaned
     fluxbox \
-    # VNC server
-    x11vnc \
     # noVNC dependencies
     novnc websockify \
     # Qt xcb platform dependencies
@@ -43,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # decryption to silently fail and leaving every video stuck as a .part file.
     ffmpeg \
     # Utilities
-    curl wget ca-certificates git xdotool \
+    curl wget ca-certificates git xdotool wmctrl \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python virtual environment ────────────────────────────────────────────────

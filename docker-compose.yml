@@ -12,6 +12,7 @@ services:
     environment:
       # Optional: set your timezone (examples: America/New_York, Europe/London, UTC)
       - TZ=UTC
+      # Starting screen size. noVNC resizes it to fit the browser window.
       - SCREEN_WIDTH=1920
       - SCREEN_HEIGHT=1080
       - NOVNC_PORT=6699

@@ -124,6 +124,10 @@ docker compose up -d ofscraper-gui
 
 > 📸 **Screenshot needed:** the GUI open in a web browser through noVNC at `http://localhost:6699/`, with the address bar visible. The same picture is wanted in [Docker](docs/docker.md#accessing-the-gui).
 
+The desktop resizes to fit your browser window, and the GUI stays maximized in it: resize the window or go full screen and the GUI follows. `SCREEN_WIDTH` / `SCREEN_HEIGHT` in `docker-compose.yml` are only the starting size.
+
+If the container keeps restarting with `exec /entrypoint.sh: no such file or directory`, `docker/entrypoint.sh` has Windows line endings (this happens when it was copied or edited on Windows). Fix it with `sed -i 's/\r$//' docker/entrypoint.sh`, then rebuild.
+
 `docker-compose.yml` uses host networking, which only works on Linux. **On Docker Desktop (Windows / macOS) you must change it first.** Setup, volumes, CDM keys, `GUI_ARGS`, `MODE=cli` and troubleshooting: [Docker](docs/docker.md).
 
 ## Documentation

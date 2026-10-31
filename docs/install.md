@@ -28,7 +28,7 @@ Check this **before** installing or patching. Unsupported or untested platforms 
 - **Windows**: Tested on **Windows 11** but should work on Windows 10 and other versions
 - **Linux**: Only **Debian-based** distributions are supported (Ubuntu, Debian, Linux Mint, KDE Neon, Pop!_OS, etc.). Other distributions (Arch, Fedora, etc.) have not been tested and may require additional setup
 - **Mac**: Mac OS has not been tested with this GUI patch
-- **Docker**: Runs on any host that supports Docker. The container uses Ubuntu 24.04 with Xvfb and noVNC — no display required on the host. See [Docker](docker.md)
+- **Docker**: Runs on any host that supports Docker. The container uses Ubuntu 24.04 with TigerVNC and noVNC — no display required on the host. See [Docker](docker.md)
 
 ### Python version
 

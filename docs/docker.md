@@ -9,13 +9,14 @@ Run the **patched GUI** on a machine without a desktop. You open the GUI from an
 | File | Role |
 |---|---|
 | `docker-compose.yml` | The `ofscraper-gui` service: build settings, environment, volumes, networking |
-| `docker/Dockerfile` | Ubuntu 24.04 + OF-Scraper + the GUI patch + FFmpeg + Xvfb / VNC / noVNC |
+| `docker/Dockerfile` | Ubuntu 24.04 + OF-Scraper + the GUI patch + FFmpeg + TigerVNC / noVNC |
 | `docker/entrypoint.sh` | Starts the virtual display, VNC and noVNC, then `ofscraper --gui` (restarted if it exits). With `MODE=cli`: only `ofscraper $CLI_ARGS` |
 
 ## What you get
 
 - OF-Scraper installed and patched with the GUI (default **3.14.7**)
-- A virtual display (`Xvfb`) and a small window manager
+- A virtual display with a built-in VNC server (TigerVNC) and a small window manager
+- **The desktop resizes to fit your browser window**, and the GUI stays maximized in it
 - **noVNC** on port **6699** (browser) and raw **VNC** on port **5900**, no password
 - **FFmpeg inside the image** (needed for DRM merges; don't mount a host copy)
 - If the GUI exits or crashes, it is started again after `GUI_RESTART_DELAY` seconds (default 5)
@@ -112,6 +113,8 @@ Config and auth are stored on the config volume, so they survive rebuilds and re
 | **VNC client** | `localhost:5900` | Any VNC viewer; no password |
 
 There is no password on VNC or noVNC. Don't expose these ports to the internet.
+
+The desktop follows the size of your browser window: resize the window or go full screen and the GUI grows or shrinks with it. `SCREEN_WIDTH` / `SCREEN_HEIGHT` are only the starting size. In a VNC client, turn on its "resize remote session" option (TigerVNC viewer, Remmina and RealVNC have one) to get the same behavior. If you'd rather have a fixed size scaled to fit, open `http://<host>:6699/vnc.html?autoconnect=true&resize=scale`.
 
 ## What's in the config volume
 
@@ -241,6 +244,8 @@ In GUI mode, the GUI's own output goes to `logging/gui-docker.log` in the config
 | Build fails at `COPY patch_ofscraper_…_gui.py` | The patch for `GUI_PATCH_VERSION` must be at the **repo root** (e.g. `patch_ofscraper_3.14.7_gui.py` next to `docker-compose.yml`) |
 | Docker Desktop: can't open noVNC | Remove `network_mode: host` and restore the `ports:` block (see [Networking](#2-networking-docker-desktop-users-must-change-this)) |
 | Linux: can't open noVNC | Check that nothing else uses port 6699 and your firewall allows it; try `http://127.0.0.1:6699/` |
+| Container keeps restarting with `exec /entrypoint.sh: no such file or directory` | `docker/entrypoint.sh` has Windows line endings (copied or edited on Windows). Run `sed -i 's/\r$//' docker/entrypoint.sh`, then `docker compose build ofscraper-gui` and `docker compose up -d --force-recreate ofscraper-gui` |
+| GUI doesn't fill the browser; black space around it | The image predates the TigerVNC change: copy the new `docker/Dockerfile` and `docker/entrypoint.sh`, rebuild and recreate the container, then reload the noVNC tab. Use the default address (`http://<host>:6699/`), which includes `resize=remote` |
 | Black or empty noVNC screen | Wait a few seconds for the display and GUI to start; check `logging/gui-docker.log` |
 | GUI keeps restarting | It crashed; see `logging/gui-docker.log` and `gui_crash_logs/` in the config folder |
 | Auth works on the desktop but not in Docker | Copy the desktop `auth.json` into the config folder; Dynamic Mode / SSL Verify must match |
