@@ -35,6 +35,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
     libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxkbcommon-x11-0 \
     libegl1 libgl1 libfontconfig1 libdbus-1-3 \
+    # Color emoji font (~11 MB). The base image has none, so the GUI's emoji
+    # icons (sidebar, buttons, plugin pages) showed as empty boxes.
+    fonts-noto-color-emoji \
     # Audio stub (prevents Qt from logging warnings)
     libasound2t64 \
     # ffmpeg — installed natively so all shared libraries (libavdevice etc.) are present.

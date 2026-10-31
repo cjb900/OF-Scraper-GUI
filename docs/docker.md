@@ -253,6 +253,7 @@ In GUI mode, the GUI's own output goes to `logging/gui-docker.log` in the config
 | Plugins page is empty and shows `Plugins folder: /root/.config/ofscraper/plugins`, but the file browser shows your plugins under `/home/YOU/.config/ofscraper/plugins` | Your config folder isn't mounted at `/root/.config/ofscraper`. Add `- /home/YOU/.config/ofscraper:/root/.config/ofscraper` to `volumes:` (see [Volumes](#1-volumes-required)), then `docker compose up -d --force-recreate ofscraper-gui`. No rebuild needed |
 | Settings or auth gone after recreating the container | Same cause: without the `/root/.config/ofscraper` mount the GUI saves inside the container, and that is thrown away on recreate |
 | **Open plugins folder**: `No such file or directory: 'xdg-open'` | Expected: the container has no file manager. Manage the plugin folder from the host, in your mounted config folder's `plugins/` |
+| Emoji show as empty boxes (sidebar, Live Monitor, buttons) | The image predates the emoji font: copy the new `docker/Dockerfile` and rebuild (`docker compose build ofscraper-gui`, then `docker compose up -d --force-recreate ofscraper-gui`) |
 | Black or empty noVNC screen | Wait a few seconds for the display and GUI to start; check `logging/gui-docker.log` |
 | GUI keeps restarting | It crashed; see `logging/gui-docker.log` and `gui_crash_logs/` in the config folder |
 | Patch older than v410: **Login in App Browser** says "Not Supported in Docker" | Update the patch (`GUI_PATCH_VERSION` / the root `patch_ofscraper_3.14.7_gui.py`) and rebuild the image |
