@@ -97,14 +97,14 @@ More detail: [Prerequisites](docs/install.md#prerequisites).
    ```bash
    python patch_ofscraper_3.14.7_gui.py
    ```
-<img src="https://github.com/user-attachments/assets/d29886fd-59e8-4093-882e-4c2ee7c43b05" width="600" alt="Terminal Install">
+  <img src="https://github.com/user-attachments/assets/d29886fd-59e8-4093-882e-4c2ee7c43b05" width="600" alt="Terminal Install">
 
 3. Start the GUI:
 
    ```bash
    ofscraper --gui
    ```
-<img src="https://github.com/user-attachments/assets/2713008a-8d0e-4d35-be65-4f42ad011dad" width="600" alt="Start GUI">
+  <img src="https://github.com/user-attachments/assets/2713008a-8d0e-4d35-be65-4f42ad011dad" width="600" alt="Start GUI">
 
 4. In the GUI: **Authentication** → log in or import cookies; **Configuration** → set your Save Location and FFmpeg path; then **Scraper** → pick an action and go.
 
