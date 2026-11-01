@@ -97,7 +97,7 @@ More detail: [Prerequisites](docs/install.md#prerequisites).
    ```bash
    python patch_ofscraper_3.14.7_gui.py
    ```
-  <img src="https://github.com/user-attachments/assets/d29886fd-59e8-4093-882e-4c2ee7c43b05" width="600" alt="Terminal Install">
+  <img src="docs/images/patch-success.png" width="700" alt="Patch script on Windows (pipx install): ofscraper 3.14.7 found, GUI dependencies already installed, &quot;Patch applied successfully.&quot; and the offer to launch the GUI">
 
 3. Start the GUI:
 
@@ -107,8 +107,6 @@ More detail: [Prerequisites](docs/install.md#prerequisites).
   <img src="https://github.com/user-attachments/assets/2713008a-8d0e-4d35-be65-4f42ad011dad" width="600" alt="Start GUI">
 
 4. In the GUI: **Authentication** → log in or import cookies; **Configuration** → set your Save Location and FFmpeg path; then **Scraper** → pick an action and go.
-
-> 📸 **Screenshot needed:** the terminal at the end of a successful patch run ("Patch applied successfully" and the offer to launch the GUI). The same picture is wanted in [Install](docs/install.md#after-patching).
 
 To update later, download the newer patch script and run it again. To undo the patch: `python patch_ofscraper_3.14.7_gui.py --restore /path/to/backup`. All options: [Install](docs/install.md).
 
