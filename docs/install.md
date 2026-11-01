@@ -144,9 +144,7 @@ Enter choice (1-5):
 
 ## OF-Scraper Tools
 
-> 📸 **Screenshot needed:** the main menu of `ofscraper_tools.py` with its uninstall and data management options.
-
-<img src="https://github.com/user-attachments/assets/6cf87127-6882-431a-b842-a51f1f5229be" width="600" alt="Tools">
+<img src="images/tools-menu.png" width="700" alt="OF-Scraper Tools main menu on Windows: detected install, config and download paths, Uninstall options 1-4, Data management options 5-7 and 0 to exit">
 
 A standalone maintenance and removal tool (`ofscraper_tools.py`) is included. It detects your install method automatically (uv / pipx / pip) and presents two groups of options.
 
