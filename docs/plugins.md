@@ -237,7 +237,7 @@ The plugin handles its own setup on first enable:
 
 ### Live Stream Monitor (`live_stream_monitor`)
 
-<img src="images/live-stream-monitor.png" width="800" alt="Live Monitor page (plugin v1.3.13, Privacy mode on): monitor options on the left, the subscriptions table with one creator recording, and the console">
+<img src="images/live-stream-monitor.png" width="800" alt="Live Monitor page (plugin v1.3.18, Privacy mode on): monitor options on the left with the Discord @here when live / when it ends options, the subscriptions table with one creator recording, and the console">
 
 Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects when a creator goes live, and captures the stream with Playwright Chromium into `{username}/Live_Streams/`.
 

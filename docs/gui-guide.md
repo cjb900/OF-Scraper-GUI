@@ -195,8 +195,6 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 
 ### Auth failure handling
 
-> 📸 **Screenshot needed:** the dialog shown when the model list can't be loaded, with the **Retry**, **Go to Authentication**, **Dynamic Mode (Config)**, **SSL Verify (Config)** and **Help / README** buttons.
-
 - When the model list cannot be loaded (auth error), a dialog appears offering:
   - **Retry** — re-fetch models without leaving the page
   - **Go to Authentication** — jump directly to the auth page
@@ -631,8 +629,6 @@ The main scrape workspace after models are selected. Until you press **Start Scr
 - After a run, a **Download failures** dialog lists failed items (filter table / add to cart in check mode)
 - Console panel **height is remembered** across relaunch / returning to the scrape page
 
-> 📸 **Screenshot needed:** the **Download failures** dialog shown after a run with failed items. Turn on Privacy mode first so no usernames or paths show.
-
 ### Confirm scrape (pre-start review)
 
 <details><summary>Screenshot</summary>
@@ -684,8 +680,6 @@ Related prompts on the same page: **disk space** check against Save Location bef
 <img src="images/cancelling.png" width="700" alt="Scraping page after Cancel: the toolbar buttons read Cancelling… and the status says Cancelling… finishing current work while the current download finishes">
 
 </details>
-
-> 📸 **Screenshot needed:** the **disk space** warning before a scrape.
 
 - **Cancel** shows a Cancelling… state and cooperatively stops API pagination, mid-file chunk downloads, and between models — not only between queued media items
 - **Confirm downloads** when the check-mode cart has 25+ items
