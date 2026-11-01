@@ -117,8 +117,9 @@ class TablePage(QWidget):
         self._cancelling = True
         self._scrape_active = True
         try:
+            # Only the Cancel button says "Cancelling..."; Start is just greyed out.
             self.start_scraping_btn.setEnabled(False)
-            self.start_scraping_btn.setText("Cancelling...")
+            self.start_scraping_btn.setText("Start Scraping >>")
         except Exception:
             pass
         try:

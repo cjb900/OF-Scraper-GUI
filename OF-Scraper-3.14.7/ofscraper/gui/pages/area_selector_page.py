@@ -531,6 +531,7 @@ class AreaSelectorPage(QWidget):
         self.daemon_discord_ping_check.toggled.connect(self._on_daemon_ping_toggled)
         row = QHBoxLayout()
         row.addWidget(self.daemon_discord_ping_check)
+        row.addWidget(_make_help_btn("sca-daemon-discord-ping"))
         row.addStretch()
         daemon_layout.addLayout(row)
 
