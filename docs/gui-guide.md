@@ -673,7 +673,13 @@ Related prompts on the same page: **disk space** check against Save Location bef
 
 #### Safer cancel and confirms
 
-> 📸 **Screenshot needed:** the **disk space** warning before a scrape, the **Confirm downloads** dialog (check-mode cart with 25+ items) and the toolbar showing **Cancelling…** after Cancel.
+<details><summary>Screenshot: Confirm downloads</summary>
+
+<img src="images/confirm-downloads.png" width="700" alt="Check mode with 786 items in the cart: the Confirm downloads dialog shows items in cart, models, counts by type and by model (masked in Privacy mode), a rough ETA, and a Don't ask again for large carts option">
+
+</details>
+
+> 📸 **Screenshot needed:** the **disk space** warning before a scrape and the toolbar showing **Cancelling…** after Cancel.
 
 - **Cancel** shows a Cancelling… state and cooperatively stops API pagination, mid-file chunk downloads, and between models — not only between queued media items
 - **Confirm downloads** when the check-mode cart has 25+ items
