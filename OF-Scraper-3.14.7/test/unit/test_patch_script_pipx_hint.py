@@ -6,12 +6,21 @@ from pathlib import Path
 
 import pytest
 
-_SCRIPT = Path(__file__).resolve().parents[2] / "patch_ofscraper_3.14.7_gui.py"
+_REPO = Path(__file__).resolve().parents[3]
+_SCRIPTS = [
+    Path(__file__).resolve().parents[2] / "patch_ofscraper_3.14.7_gui.py",
+    _REPO / "patch_ofscraper_3.14.7_gui.py",
+    _REPO / "patch_ofscraper_3.14.5_gui.py",
+    _REPO / "patch_ofscraper_3.14.3_gui.py",
+    _REPO / "patch_ofscraper_3.12.9_gui.py",
+]
 
 
-@pytest.fixture
-def patch_mod():
-    spec = importlib.util.spec_from_file_location("_patch_script_pipx_hint", _SCRIPT)
+@pytest.fixture(params=_SCRIPTS, ids=lambda p: f"{p.parent.name}/{p.name}")
+def patch_mod(request):
+    if not request.param.is_file():
+        pytest.skip(f"{request.param.name} not in this checkout")
+    spec = importlib.util.spec_from_file_location("_patch_script_pipx_hint", request.param)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

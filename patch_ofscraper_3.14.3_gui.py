@@ -320,7 +320,7 @@ def _install_pyqt6(method: str = "pip") -> bool:
         if method == "uv":
             print("ERROR: Could not find uv. Install it from: https://docs.astral.sh/uv/")
         elif method == "pipx":
-            print("ERROR: Could not find pipx. Install it with: sudo apt install pipx")
+            _print_pipx_missing()
         else:
             print("ERROR: Could not find pip. Make sure Python and pip are installed.")
         return False
@@ -537,6 +537,52 @@ def _get_installed_ofscraper_version(method: str | None = None) -> str | None:
     return None
 
 
+def _pipx_install_hint_lines() -> list:
+    """How to install pipx on this OS (never an apt command on Windows/macOS)."""
+    import importlib.util as _ilu
+    system = platform.system()
+    py = "python" if system == "Windows" else "python3"
+    try:
+        module_present = _ilu.find_spec("pipx") is not None
+    except Exception:
+        module_present = False
+    if module_present:
+        return [
+            "pipx is installed for this Python but is not on your PATH. Run:",
+            f"    {py} -m pipx ensurepath",
+            "then close this terminal, open a new one and run this script again.",
+        ]
+    if system == "Windows":
+        return [
+            "Install it with:",
+            "    python -m pip install --user pipx",
+            "    python -m pipx ensurepath",
+            "then close this terminal, open a new one and run this script again.",
+            "(Or choose uv instead, which also handles Python 3.13+.)",
+        ]
+    if system == "Darwin":
+        return [
+            "Install it with:",
+            "    brew install pipx",
+            "    pipx ensurepath",
+            "then open a new terminal and run this script again.",
+        ]
+    return [
+        "Install it with your package manager, e.g.:",
+        "    sudo apt install pipx      (Debian / Ubuntu)",
+        "    sudo dnf install pipx      (Fedora)",
+        "    sudo pacman -S python-pipx (Arch)",
+        "then run: pipx ensurepath, open a new terminal and run this script again.",
+        "More: https://pipx.pypa.io/stable/installation/",
+    ]
+
+
+def _print_pipx_missing() -> None:
+    print("ERROR: Could not find pipx.")
+    for line in _pipx_install_hint_lines():
+        print("       " + line)
+
+
 def _install_ofscraper(method: str) -> bool:
     """Install or upgrade ofscraper to exactly 3.14.3 via pip, pipx, or uv. Returns True on success."""
     pkg = f"ofscraper=={TARGET_OFSCRAPER_VERSION}"
@@ -612,7 +658,7 @@ def _install_ofscraper(method: str) -> bool:
         if method == "uv":
             print("ERROR: Could not find uv. Install it from: https://docs.astral.sh/uv/")
         elif method == "pipx":
-            print("ERROR: Could not find pipx. Install it with: sudo apt install pipx")
+            _print_pipx_missing()
         else:
             print("ERROR: Could not find pip. Make sure Python and pip are installed.")
         return False
@@ -644,7 +690,22 @@ def _prompt_install_method():
     while True:
         choice = input("Enter choice (1-5): ").strip()
         if choice in method_map:
-            return (method_map[choice], None)
+            picked = method_map[choice]
+            # Catch a missing tool here, before any install warnings, so the
+            # user can pick another option instead of the script exiting.
+            if picked == "pipx" and shutil.which("pipx") is None:
+                print()
+                _print_pipx_missing()
+                print()
+                print("Choose another option, or install pipx and run this script again.")
+                continue
+            if picked == "uv" and shutil.which("uv") is None:
+                print()
+                print("ERROR: Could not find uv. Install it from: https://docs.astral.sh/uv/")
+                print()
+                print("Choose another option, or install uv and run this script again.")
+                continue
+            return (picked, None)
         if choice == "5":
             return ("exit", None)
         if choice == "4":
