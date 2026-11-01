@@ -314,6 +314,68 @@ def _poll_until(probe, done, timeout, interval, stop_event, clock=time.monotonic
             return value, clock() - start, True
 
 
+async def _fetch_active_subscriptions() -> list:
+    """Your active subscriptions, whatever the Scraper page has selected.
+
+    ``retriver.get_models()`` follows the scrape's username selection: after
+    scraping one creator, the monitor polled only that creator until restart.
+    The monitor only watches active subscriptions, so it fetches just those.
+    """
+    import ofscraper.classes.of.models as of_models
+    import ofscraper.data.api.subscriptions.subscriptions as subscriptions
+    from ofscraper.data.models.utils import retriver
+
+    count = retriver.get_sub_count()
+    active = await subscriptions.get_subscriptions(count[0])
+    return [of_models.Model(x) for x in active]
+
+
+class _MonitorThreadLogFilter(logging.Filter):
+    """Keep OF-Scraper's own log lines from the monitor's threads out of the
+    Scraper console and main log, and put them in the plugin log instead.
+
+    Installed on the "shared" / "shared_other" loggers (the ones the GUI
+    console and the main log file listen to). Records logged from a thread in
+    ``idents`` (the poller, captures) are handed to the plugin logger and
+    dropped here; everything else passes untouched.
+    """
+
+    LOGGERS = ("shared", "shared_other")
+
+    def __init__(self, target: logging.Logger):
+        super().__init__()
+        self.target = target
+        self.idents = set()
+        self._lock = threading.Lock()
+
+    def add_current_thread(self) -> None:
+        with self._lock:
+            self.idents.add(threading.get_ident())
+
+    def remove_current_thread(self) -> None:
+        with self._lock:
+            self.idents.discard(threading.get_ident())
+
+    def filter(self, record) -> bool:
+        if threading.get_ident() not in self.idents:
+            return True
+        try:
+            self.target.handle(record)
+        except Exception:
+            pass
+        return False
+
+    def install(self) -> None:
+        for name in self.LOGGERS:
+            lg = logging.getLogger(name)
+            if self not in lg.filters:
+                lg.addFilter(self)
+
+    def uninstall(self) -> None:
+        for name in self.LOGGERS:
+            logging.getLogger(name).removeFilter(self)
+
+
 def _discord_webhook_url() -> str:
     """The Discord Webhook URL from Configuration → General ("" if unset)."""
     try:
@@ -1192,6 +1254,10 @@ class LiveMonitorWorker(QThread):
 
     def run(self):
         self.log_msg.emit("[System] Monitoring worker thread active.")
+        # OF-Scraper's own log lines from polling go to the plugin log.
+        thread_logs = getattr(self.plugin, "_thread_logs", None)
+        if thread_logs is not None:
+            thread_logs.add_current_thread()
         
         while self.running:
             self.polling = True
@@ -1319,6 +1385,8 @@ class LiveMonitorWorker(QThread):
                     break
                 time.sleep(1)
 
+        if thread_logs is not None:
+            thread_logs.remove_current_thread()
         self.log_msg.emit("[System] Monitoring worker thread terminated.")
 
     def _stop_ended_recording(self, username: str, kind, is_live: bool) -> bool:
@@ -1382,7 +1450,6 @@ class LiveMonitorWorker(QThread):
         """
         import asyncio
         import sys
-        from ofscraper.data.models.utils.retriver import get_models
         from ofscraper.utils.auth.file import read_auth
         from ofscraper.utils.live import updater as live_updater
 
@@ -1421,7 +1488,7 @@ class LiveMonitorWorker(QThread):
             pass
 
         async def _do_fetch():
-            return await get_models(all_main_models=False)
+            return await _fetch_active_subscriptions()
 
         if sys.platform == "win32":
             loop = asyncio.SelectorEventLoop()
@@ -1981,6 +2048,10 @@ class Plugin(BasePlugin):
         # self.log is BasePlugin's "ofscraper_plugin.<name>" logger: the plugin
         # manager gives it the plugin's own log file (logging/.../plugins/).
         self._log_bridge = _LogBridge()
+        # OF-Scraper log lines from the poller / capture threads go to the
+        # plugin log, not the Scraper console (see _MonitorThreadLogFilter).
+        self._thread_logs = _MonitorThreadLogFilter(self.log)
+        self._thread_logs.install()
 
     def on_load(self):
         self.log.info(f"Live Stream Monitor v{self.version} loaded.")
@@ -2183,6 +2254,15 @@ class Plugin(BasePlugin):
                 worker.wait(2000)
             except Exception:
                 pass
+        self._thread_logs.uninstall()
+
+    def _in_monitor_thread(self, fn, *args):
+        """Run a capture/probe thread with its OF-Scraper logs in the plugin log."""
+        self._thread_logs.add_current_thread()
+        try:
+            return fn(*args)
+        finally:
+            self._thread_logs.remove_current_thread()
 
     # ── Session state (thread-safe) ───────────────────────────────────────────
 
@@ -2436,8 +2516,8 @@ class Plugin(BasePlugin):
                 return False
             stop_event = threading.Event()
             rec_thread = threading.Thread(
-                target=self.record_stream,
-                args=(username, save_location, stop_event),
+                target=self._in_monitor_thread,
+                args=(self.record_stream, username, save_location, stop_event),
                 daemon=True
             )
             # Register as connecting immediately so the worker won't spawn a duplicate.
@@ -2455,8 +2535,8 @@ class Plugin(BasePlugin):
                 return
             stop_event = threading.Event()
             rec_thread = threading.Thread(
-                target=self.probe_stream,
-                args=(username, save_location, stop_event),
+                target=self._in_monitor_thread,
+                args=(self.probe_stream, username, save_location, stop_event),
                 daemon=True,
             )
             self._connecting_recordings[username] = (rec_thread, stop_event)

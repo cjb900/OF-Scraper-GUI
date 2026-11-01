@@ -3,7 +3,8 @@ import logging
 import time
 from pathlib import Path
 
-log = logging.getLogger("shared")
+# The plugin's own log file; "shared" would show in the Scraper console.
+log = logging.getLogger("ofscraper_plugin.Live Stream Monitor")
 from PyQt6.QtCore import Qt, pyqtSlot, QTimer
 from PyQt6.QtGui import QBrush, QColor, QFont
 from PyQt6.QtWidgets import (
@@ -252,6 +253,11 @@ class LiveMonitorTab(QWidget):
 
         self.enable_check = QCheckBox("Enable Auto-Capture")
         self.enable_check.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        self.enable_check.setToolTip(
+            "Poll your subscriptions and capture creators who go live.\n"
+            "When you tick it, you're asked whether it should also start by\n"
+            "itself every time the GUI launches (e.g. on a server)."
+        )
         self.enable_check.toggled.connect(self._on_toggle_monitor)
         config_layout.addWidget(self.enable_check)
 
@@ -590,14 +596,34 @@ class LiveMonitorTab(QWidget):
         self._update_action_buttons()
 
         if getattr(self.plugin, "auto_capture", False):
-            # Left on last time: start again once the page is up.
+            # Set to start at launch: start once the page is up.
             QTimer.singleShot(1500, self._resume_auto_capture)
 
     def _resume_auto_capture(self):
         if self.plugin.worker is not None or self.enable_check.isChecked():
             return
-        self.append_log("[System] Auto-Capture was on last time — starting it again.")
-        self._on_toggle_monitor(True)
+        self.append_log("[System] Auto-Capture is set to start at launch — starting it.")
+        self._with_chromium(
+            lambda: self._start_monitor_now(at_launch=True), "starting the monitor"
+        )
+
+    def _ask_start_at_launch(self) -> bool:
+        """Ask whether Auto-Capture should also start every time the GUI launches."""
+        reply = QMessageBox.question(
+            self,
+            "Start Auto-Capture at launch?",
+            "Start the Live Stream Monitor's Auto-Capture automatically every time "
+            "the GUI launches?\n\n"
+            "Yes: it turns on by itself at each launch (useful on a server nobody "
+            "is watching).\n"
+            "No: it runs only until you untick it or close the GUI.\n\n"
+            "To change this later, untick Enable Auto-Capture and tick it again.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+            if getattr(self.plugin, "auto_capture", False)
+            else QMessageBox.StandardButton.No,
+        )
+        return reply == QMessageBox.StandardButton.Yes
 
     @staticmethod
     def _default_save_dir() -> str:
@@ -740,9 +766,9 @@ class LiveMonitorTab(QWidget):
         self.log_output.appendPlainText(display)
         if at_bottom:
             sb.setValue(sb.maximum())
-        log.debug(f"[Live Monitor Console] {str(text).strip()}")
-        # Every console line also goes to the plugin's own log file
-        # (logging/<profile>_<day>/plugins/plugin-live_stream_monitor_*.log).
+        # Every console line goes to the plugin's own log file
+        # (logging/<profile>_<day>/plugins/plugin-live_stream_monitor_*.log),
+        # not OF-Scraper's main log: that one feeds the Scraper console.
         try:
             self.plugin.log.info(str(text).strip())
         except Exception:
@@ -1267,7 +1293,7 @@ class LiveMonitorTab(QWidget):
         self._discord_warning = box
         return True
 
-    def _start_monitor_now(self):
+    def _start_monitor_now(self, at_launch: bool = False):
         if self.plugin.worker is not None:
             return
         self.enable_check.blockSignals(True)
@@ -1284,8 +1310,19 @@ class LiveMonitorTab(QWidget):
             pass
 
         self._remember_capture_dir()
+        # auto_capture = start at launch. Asked when ticked by hand; a start at
+        # launch keeps it (and must not wait on a dialog on a server).
+        if at_launch:
+            start_at_launch = True
+        else:
+            start_at_launch = self._ask_start_at_launch()
+            self.append_log(
+                "[System] Auto-Capture will start every time the GUI launches."
+                if start_at_launch
+                else "[System] Auto-Capture is on for this session only."
+            )
         self.plugin.set_page_settings(
-            auto_capture=True, poll_interval=self.interval_spin.value()
+            auto_capture=start_at_launch, poll_interval=self.interval_spin.value()
         )
         self.plugin.start_monitor(
             interval=self.interval_spin.value(),

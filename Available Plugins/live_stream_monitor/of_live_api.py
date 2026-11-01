@@ -7,7 +7,8 @@ import logging
 from typing import Any
 from urllib.parse import quote
 
-log = logging.getLogger("ofscraper_plugins")
+# The plugin's own log file (set up by the plugin manager for this name).
+log = logging.getLogger("ofscraper_plugin.Live Stream Monitor")
 
 
 def _api(url: str) -> str:

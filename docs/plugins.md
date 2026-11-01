@@ -243,7 +243,7 @@ Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects
 
 This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
 
-**Highlights (plugin v1.3.14)**
+**Highlights (plugin v1.3.15)**
 
 The version shows on the Plugins page and next to the Live Monitor page title.
 
@@ -263,7 +263,7 @@ The version shows on the Plugins page and next to the Live Monitor page title.
 - Once Chromium works, Playwright Setup shrinks to "🟢 Chromium ready"; **Manage…** shows Reinstall Chromium and Clear saved browser logins
 - The table updates rows in place between polls, so your scroll position and selection stay put
 - The top of the page shows whether the monitor is working: last check time, seconds until the next one, how many creators are live and recording
-- Poll interval, capture folder and Auto-Capture are remembered. If Auto-Capture was on when you closed the GUI, it starts again on the next launch (an auth failure turns it off)
+- Poll interval and capture folder are remembered. When you tick **Enable Auto-Capture**, you're asked whether it should start by itself every time the GUI launches (since v1.3.15): **Yes** for a server nobody is watching, **No** to run it for this session only. A start at launch never asks. To change your answer, untick and tick it again. An auth failure turns the start at launch off
 - The console keeps the last 2,000 lines, and stays where you scrolled until you go back to the bottom
 - Capture cooldown so Auto-Capture does not immediately re-spawn the same creator: 30 s after **Stop**, 2 min after any start that didn't reach recording, 10 min after a login timeout
 - **Stop** takes effect within a few seconds, even while the browser is waiting for a login or for the player
@@ -276,6 +276,7 @@ The version shows on the Plugins page and next to the Live Monitor page title.
 - When a stream ends, the recording's length is fixed with the **FFmpeg from Configuration → Download** (or a built-in fallback). Long recordings are processed without loading them into memory
 - **Clear saved browser logins** (Playwright Setup → Manage…) deletes the capture browser's saved OnlyFans logins. There is one per creator under `<config>/playwright_profiles/`, readable only by you
 - **Plugin log file:** everything shown in the Live Monitor console, plus debug lines (each poll's result, every "is it still live?" check, and a once-a-minute recording summary), is written to `logging/<profile>_<date>/plugins/plugin-live_stream_monitor_<time>.log` in the config folder (since v1.3.11; before, it only had the "loaded" line). Attach it when reporting a problem
+- The monitor always watches **all your active subscriptions**, whatever the Scraper page has selected (since v1.3.15; before, after scraping one creator the monitor polled only that creator until the GUI was restarted). Its own log lines, including OF-Scraper's request logging while it polls or captures, go to the plugin log file, not the Scraper console or the main log
 - **Show diagnostics** (off by default) reveals optional tools and the detailed audio/player log lines during captures:
   - *Diagnostics probe only* / **Probe selected…** — join live ~45s, redacted HLS/WebRTC/API evidence under `live_probe_reports/` (no WebM)
   - **Fetch live API dump…** — redacted `/streams/active` + `/streams/active/url` JSON under `live_api_dumps/`
@@ -286,7 +287,7 @@ The version shows on the Plugins page and next to the Live Monitor page title.
 1. Copy the `Available Plugins/live_stream_monitor` folder into your plugins folder
 2. Enable via Plugins page or `plugin_enabled = 1`, then Load now / restart
 3. Install Chromium from the Live Monitor page if prompted. Playwright is installed the same way OF-Scraper was: `pipx inject ofscraper playwright` for pipx, `uv pip install` into OF-Scraper's uv environment for uv, and pip otherwise. If that fails, the console shows the command to run yourself. On Linux the plugin never asks for your password: it installs Chromium's system libraries only when it already runs as root (e.g. Docker). Desktops usually have them; if Chromium can't start, run the `sudo … playwright install-deps chromium` command the console shows
-4. Enable Auto-Capture — polling uses normal GUI auth; Chromium opens only when someone goes live
+4. Enable Auto-Capture (and choose whether it starts at every launch) — polling uses normal GUI auth; Chromium opens only when someone goes live
 
 ---
 

@@ -2586,6 +2586,18 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.15: start-at-launch question, monitor logs out of the Scraper console (2026-10-31)
+
+Asked for: (1) when ticking Enable Auto-Capture, ask whether it should be on every time the GUI launches; (2) Live Stream Monitor lines showed in the Scraper console while scraping a creator (user's log `ofscraper_main_profile_2026-10-31_20.11.39.log`, screenshot).
+
+- **Start at launch:** `auto_capture` now means "start at launch". `LiveMonitorTab._start_monitor_now(at_launch=False)` asks `_ask_start_at_launch()` (Yes/No, default = the current setting) when the user ticks the box, after the Chromium check; the answer is saved and logged. `_resume_auto_capture` (page load) calls `_start_monitor_now(at_launch=True)` through `_with_chromium`: no dialog, so an unattended server never waits on a click. Unticking clears it (as before), so ticking again asks again.
+- **Console leak:** `gui.append_log` also logged every console line to the `shared` logger as `[Live Monitor Console] …`; `shared` and `shared_other` feed the GUI console (`app.py` GUILogHandler) and the main log. Removed (the plugin log has them since 1.3.11). The plugin modules' loggers (`gui.log`, `of_live_api.log`) are now the plugin's own logger.
+- **OF-Scraper's logging from the monitor's threads** (signature fetches, subscription requests): `_MonitorThreadLogFilter` is installed on the `shared` / `shared_other` loggers by `Plugin.__init__` (removed in `on_unload`); records logged from a registered thread are handed to the plugin logger and dropped there. The poll thread registers in `LiveMonitorWorker.run`; capture and probe threads run through `Plugin._in_monitor_thread`. Other threads pass untouched.
+- **Found in the same log: the monitor followed the scrape's model selection.** `retriver.get_models(all_main_models=False)` uses `settings.usernames`; after the user scraped melodymarksx every poll fetched only melodymarksx ("Final retrieved models (1)") until restart, so other creators going live were missed. Polls now use `_fetch_active_subscriptions()`: `get_sub_count()` + `subscriptions.get_subscriptions(active count)` (the active half of the pre-scrape `get_via_list` path; the monitor only uses active subscriptions anyway). No lists/blacklist fetch, no console warning print.
+- The poller tests patched `retriver.get_models`; they now patch `_fetch_active_subscriptions` (unpatched, the poll made real requests and the run hung).
+
+Tests: +8 in `test_live_stream_monitor.py` (asks on a manual tick, Yes/No saved, no question at launch, launch start goes through the Chromium check, active-subscription fetch ignores `get_models`, monitor-thread records go only to the plugin log and the filter is removed on unload, threads registered, console lines not sent to `shared`).
+
 ### Live Stream Monitor plugin v1.3.14: Discord @here when a stream ends (2026-10-31)
 
 Asked for: a sub-option under "Discord @here when live" for an @here when the creator ends their live stream.

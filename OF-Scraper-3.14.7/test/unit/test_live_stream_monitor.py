@@ -635,7 +635,7 @@ def poll_env(monkeypatch):
             raise r
         return r
 
-    monkeypatch.setattr(retriver, "get_models", get_models)
+    monkeypatch.setattr(lsm, "_fetch_active_subscriptions", get_models)
     return calls, models
 
 
@@ -932,7 +932,7 @@ def test_polls_stop_a_recording_after_the_stream_ends(plugin, poll_env, recordin
         return [_Model("creator", next(answers))]
 
     import ofscraper.data.models.utils.retriver as retriver
-    monkeypatch.setattr(retriver, "get_models", get_models)
+    monkeypatch.setattr(lsm, "_fetch_active_subscriptions", get_models)
 
     def on_status(statuses):
         seen.append(statuses["creator"]["status"])
@@ -1056,7 +1056,7 @@ def test_one_alert_per_go_live(plugin, poll_env, monkeypatch):
         return [_Model("creator", live), _Model("quiet", live)]
 
     import ofscraper.data.models.utils.retriver as retriver
-    monkeypatch.setattr(retriver, "get_models", get_models)
+    monkeypatch.setattr(lsm, "_fetch_active_subscriptions", get_models)
     _run_polls(plugin, 4)
     assert announced == ["creator", "creator"]
 
@@ -1237,7 +1237,7 @@ def test_each_poll_writes_a_debug_line(plugin, poll_env, monkeypatch):
         return [_Model("creator", True), _Model("other", False)]
 
     import ofscraper.data.models.utils.retriver as retriver
-    monkeypatch.setattr(retriver, "get_models", get_models)
+    monkeypatch.setattr(lsm, "_fetch_active_subscriptions", get_models)
     _run_polls(plugin, 1)
     assert any(l.startswith("[Monitor] poll ok: 2 creators, live: creator;") for l in lines)
 
@@ -1415,3 +1415,137 @@ def test_the_end_option_is_remembered(tmp_path):
     p = lsm.Plugin({"name": "x"}, str(tmp_path))
     p.set_page_settings(discord_end_ping=True)
     assert lsm.Plugin({"name": "x"}, str(tmp_path)).discord_end_ping is True
+
+
+# ── Enable Auto-Capture asks whether to start at every launch ────────────────
+
+def _start_tab(plugin, monkeypatch, answer):
+    gui = _load("gui")
+    from types import SimpleNamespace
+
+    asked = []
+    started = []
+    monkeypatch.setattr(plugin, "start_monitor", lambda **k: started.append(k))
+    tab = SimpleNamespace(
+        plugin=plugin, logs=[],
+        enable_check=_Stub(), save_input=_Stub(), browse_btn=_Stub(),
+        interval_spin=SimpleNamespace(setEnabled=lambda on: None, value=lambda: 60),
+        headless_check=SimpleNamespace(isChecked=lambda: True),
+        probe_check=SimpleNamespace(isChecked=lambda: False),
+        _remember_capture_dir=lambda: None, _capture_dir=lambda: "/captures",
+        _update_monitor_status=lambda: None, _warn_if_no_discord_webhook=lambda: False,
+        _ask_start_at_launch=lambda: asked.append(True) or answer,
+    )
+    tab.append_log = tab.logs.append
+    return gui, tab, asked, started
+
+
+@pytest.mark.parametrize("answer", [True, False])
+def test_ticking_auto_capture_asks_about_launch(plugin, monkeypatch, answer):
+    gui, tab, asked, started = _start_tab(plugin, monkeypatch, answer)
+    gui.LiveMonitorTab._start_monitor_now(tab)
+    assert asked == [True] and len(started) == 1
+    assert plugin.auto_capture is answer
+    want = "every time the GUI launches" if answer else "this session only"
+    assert any(want in line for line in tab.logs)
+
+
+def test_a_start_at_launch_does_not_ask(plugin, monkeypatch):
+    plugin.auto_capture = True
+    gui, tab, asked, started = _start_tab(plugin, monkeypatch, False)
+    gui.LiveMonitorTab._start_monitor_now(tab, at_launch=True)
+    assert asked == [] and len(started) == 1
+    assert plugin.auto_capture is True
+
+
+def test_the_launch_start_goes_through_the_chromium_check():
+    import inspect
+
+    gui = _load("gui")
+    src = inspect.getsource(gui.LiveMonitorTab._resume_auto_capture)
+    assert "_start_monitor_now(at_launch=True)" in src and "_with_chromium(" in src
+
+
+# ── Monitor logs stay out of the Scraper console ─────────────────────────────
+
+def test_polls_fetch_active_subscriptions_not_the_scrape_selection(monkeypatch):
+    import asyncio
+    import ofscraper.data.api.subscriptions.subscriptions as subs
+    import ofscraper.classes.of.models as of_models
+    from ofscraper.data.models.utils import retriver
+
+    seen = {}
+
+    async def get_subscriptions(count, account="active"):
+        seen["account"] = account
+        return [{"id": 1}, {"id": 2}]
+
+    monkeypatch.setattr(retriver, "get_sub_count", lambda: (2, 5))
+    monkeypatch.setattr(subs, "get_subscriptions", get_subscriptions)
+    monkeypatch.setattr(of_models, "Model", lambda d: ("model", d["id"]))
+
+    def no_get_models(*a, **k):
+        raise AssertionError("get_models follows the scrape's username selection")
+
+    monkeypatch.setattr(retriver, "get_models", no_get_models)
+    out = asyncio.new_event_loop().run_until_complete(lsm._fetch_active_subscriptions())
+    assert out == [("model", 1), ("model", 2)] and seen["account"] == "active"
+
+
+def test_monitor_thread_logs_go_to_the_plugin_log_only(plugin):
+    import logging as _logging
+
+    shared = _logging.getLogger("shared")
+    shown, plugin_lines = [], []
+
+    class _Collect(_logging.Handler):
+        def __init__(self, out):
+            super().__init__(_logging.DEBUG)
+            self.out = out
+
+        def emit(self, record):
+            self.out.append(record.getMessage())
+
+    console = _Collect(shown)
+    shared.addHandler(console)
+    old_level = shared.level
+    shared.setLevel(_logging.DEBUG)
+    to_plugin = _Collect(plugin_lines)
+    plugin.log.addHandler(to_plugin)
+    try:
+        assert plugin._thread_logs in shared.filters  # installed by the plugin
+        shared.debug("scrape line")  # not a monitor thread: shown as before
+
+        def monitor_thread():
+            plugin._in_monitor_thread(lambda: shared.debug("getting new signature"))
+
+        t = threading.Thread(target=monitor_thread)
+        t.start(); t.join()
+        assert shown == ["scrape line"]
+        assert plugin_lines == ["getting new signature"]
+        shared.debug("after the thread")  # the thread's registration is gone
+        assert shown == ["scrape line", "after the thread"]
+    finally:
+        shared.removeHandler(console)
+        shared.setLevel(old_level)
+        plugin.log.removeHandler(to_plugin)
+        plugin.on_unload()
+    assert plugin._thread_logs not in shared.filters
+
+
+def test_the_poller_and_captures_register_their_threads():
+    import inspect
+
+    run = inspect.getsource(lsm.LiveMonitorWorker.run)
+    assert "thread_logs.add_current_thread()" in run and "thread_logs.remove_current_thread()" in run
+    for name in ("start_recording", "start_probe"):
+        assert "target=self._in_monitor_thread" in inspect.getsource(getattr(lsm.Plugin, name))
+
+
+def test_console_lines_are_not_sent_to_the_scraper_console():
+    import inspect
+
+    gui = _load("gui")
+    assert gui.log.name == "ofscraper_plugin.Live Stream Monitor"
+    assert api.log.name == "ofscraper_plugin.Live Stream Monitor"
+    assert "[Live Monitor Console]" not in inspect.getsource(gui.LiveMonitorTab.append_log)
