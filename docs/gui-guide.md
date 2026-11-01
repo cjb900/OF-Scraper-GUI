@@ -679,7 +679,13 @@ Related prompts on the same page: **disk space** check against Save Location bef
 
 </details>
 
-> 📸 **Screenshot needed:** the **disk space** warning before a scrape and the toolbar showing **Cancelling…** after Cancel.
+<details><summary>Screenshot: Cancelling…</summary>
+
+<img src="images/cancelling.png" width="700" alt="Scraping page after Cancel: the toolbar buttons read Cancelling… and the status says Cancelling… finishing current work while the current download finishes">
+
+</details>
+
+> 📸 **Screenshot needed:** the **disk space** warning before a scrape.
 
 - **Cancel** shows a Cancelling… state and cooperatively stops API pagination, mid-file chunk downloads, and between models — not only between queued media items
 - **Confirm downloads** when the check-mode cart has 25+ items
