@@ -2587,6 +2587,8 @@ class GUIWorkflow:
         except Exception as e:
             log.debug(f"[GUI] live stubs install on main failed: {e}")
 
+        self._reset_purge_for_new_scrape()
+
         # Run scraper in background thread to not block the GUI
         thread = threading.Thread(
             target=self._run_scraper_thread,
@@ -4143,11 +4145,28 @@ class GUIWorkflow:
                 pass
             app_signals.scraping_finished.emit()
 
+    def _reset_purge_for_new_scrape(self):
+        """Each new scrape may purge again (Delete model DB / downloaded files).
+
+        The workflow lives for the whole GUI session, so without this only the
+        first purge of a session ran; later ones were skipped silently and the
+        scrape found nothing new. Daemon re-runs within one scrape still don't
+        purge (_run_scraper_thread only purges on run 1).
+        """
+        self._did_purge = False
+
     def _maybe_purge_before_scrape(self):
         """Delete model DB and/or downloaded files before scraping, if requested."""
-        if self._did_purge:
-            return
         if not self._advanced:
+            return
+        if self._did_purge:
+            # Never silently: a skipped delete looks like "nothing to scrape".
+            if self._advanced.get("delete_model_db") or self._advanced.get("delete_downloads"):
+                app_signals.log_message.emit(
+                    "WARNING",
+                    "Delete model DB / downloaded files was requested but already "
+                    "done for this scrape — not deleting again.",
+                )
             return
         if not bool(self._advanced.get("rescrape_all")):
             return

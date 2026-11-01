@@ -83,6 +83,7 @@ python3 rebuild_patch_zip.py --patch-id <YYYYMMDD>_gui_3_14_7_v<next number> --s
 | `20261030_gui_3_14_7_v408` | 2026-10-30 | Easier-to-read text in both themes: the light-mode sidebar logo, selected sidebar item, blue/green/orange/red/purple text, greyed-out text and empty-field hints are darker; dark-mode grey hint text is lighter; a few dialogs that used dark-mode colors in light mode now follow the theme. |
 | `20261031_gui_3_14_7_v409` | 2026-10-31 | Installer only (same 156 files): new `--force` option reinstalls ofscraper 3.14.7 and all GUI dependencies from scratch, then patches, to repair a broken or corrupt install. `--force --skip-deps` reinstalls only ofscraper. The install docs already listed `--force` but no 3.14.x script had it. |
 | `20261031_gui_3_14_7_v410` | 2026-10-31 | **Login in App Browser** works in Docker. It used to refuse with "Not Supported in Docker", although `launch_gui()` already starts Chromium there with `--disable-gpu --no-sandbox --disable-dev-shm-usage`. Tested in the Docker image: the login dialog loads OnlyFans and starts capturing. It is the only browser login in the container. |
+| `20261031_gui_3_14_7_v411` | 2026-10-31 | **Delete model DB / Also delete downloaded files** work on every scrape of a GUI session, not only the first. The workflow lives for the whole session and its "already purged" flag was only reset when it was created, so later purges were skipped silently (scrape found 0 new items). Reset at each scrape start; a purge that's skipped (daemon re-run of the same scrape) now says so. |
 
 ## Status
 
