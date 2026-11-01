@@ -109,14 +109,14 @@ def test_pip_force_uses_force_reinstall(patch_mod, runs):
 # --- _install_gui_deps ----------------------------------------------------------
 
 def test_gui_deps_force_reinstalls_all_even_when_present(patch_mod, runs, monkeypatch):
-    monkeypatch.setattr(patch_mod, "_check_missing_gui_deps", lambda: [])
+    monkeypatch.setattr(patch_mod, "_check_missing_gui_deps", lambda *a, **k: [])
     assert patch_mod._install_gui_deps("pip", force=True)
     assert runs[-1] == ([sys.executable, "-m", "pip", "install", "--force-reinstall"]
                         + patch_mod._gui_dep_names())
 
 
 def test_gui_deps_without_force_skips_when_present(patch_mod, runs, monkeypatch):
-    monkeypatch.setattr(patch_mod, "_check_missing_gui_deps", lambda: [])
+    monkeypatch.setattr(patch_mod, "_check_missing_gui_deps", lambda *a, **k: [])
     assert patch_mod._install_gui_deps("pip")
     assert runs == []
 
