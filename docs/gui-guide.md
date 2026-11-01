@@ -525,6 +525,14 @@ A searchable, filterable table of all creators you are subscribed to. From here 
 - **Click a username** — toggles that model's checkbox (avatar click still opens OnlyFans without changing selection)
 - **Show Avatars** — toggle to display each creator's profile picture alongside their name in the table. Clicking an avatar opens that creator's OnlyFans page in your browser
 - The footer shows how many rows are displayed vs the total (e.g. `42 / 1200 rows (filtered)`)
+- **Ticked models hidden by the search box** stay selected. The count turns orange, e.g. `3 / 17 selected (1 hidden by search)`, and **Next >>** asks whether to scrape all ticked models, only the ones shown, or go back (the default)
+
+  <details><summary>Screenshot</summary>
+
+  <img src="images/models-hidden-search.png" width="600" alt="Select Models with Privacy mode on: the count reads 3 / 17 selected (1 hidden by search) and the Selected Models Hidden by Search dialog offers Scrape all 3, Only the 2 shown, or Go back">
+
+  </details>
+
 - **Reload Models** — a **Reload Models** button appears in the navigation bar after models load, letting you re-fetch the model list without going back to the Select Action page
 
 Click **Next >>** when you have selected the creators you want to process. That opens the **Scraping page** (media table), where you review filters and start the job.
