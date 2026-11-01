@@ -35,6 +35,40 @@ def _rgba(token: str, alpha: float) -> str:
         return f"rgba(128, 128, 128, {alpha})"
 
 
+_NAME_EDGE = r"A-Za-z0-9_.\-"
+_names_re_cache: dict = {"key": None, "re": None}
+
+
+def _redact_monitor_names(text: str, names) -> str:
+    """Privacy mode: hide this page's creators anywhere in a console line.
+
+    The shared console filter only knows creators the Scraper has loaded;
+    the Live Monitor fetches its own subscription list.
+    """
+    try:
+        from ofscraper.gui.utils.privacy_mode import is_privacy_mode
+
+        if not is_privacy_mode():
+            return text
+    except Exception:
+        return text
+    key = tuple(sorted(n for n in (names or ()) if n and len(str(n)) >= 3))
+    if not key:
+        return text
+    if key != _names_re_cache["key"]:
+        import re
+
+        alt = "|".join(re.escape(str(n)) for n in sorted(key, key=len, reverse=True))
+        _names_re_cache["key"] = key
+        _names_re_cache["re"] = re.compile(
+            rf"(?i)(?<![{_NAME_EDGE}])(?:{alt})(?![{_NAME_EDGE}])"
+        )
+    try:
+        return _names_re_cache["re"].sub("{model}", text)
+    except Exception:
+        return text
+
+
 def _mask(username: str) -> str:
     """Username as shown on screen (hidden in Privacy mode)."""
     try:
@@ -760,6 +794,9 @@ class LiveMonitorTab(QWidget):
             display = redact_log_message(str(text))
         except Exception:
             display = text
+        display = _redact_monitor_names(
+            str(display), (getattr(self, "_last_statuses", None) or {}).keys()
+        )
         sb = self.log_output.verticalScrollBar()
         # Keep following new lines only if the reader hasn't scrolled up.
         at_bottom = sb.value() >= sb.maximum() - 4

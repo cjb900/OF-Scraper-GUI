@@ -1636,3 +1636,21 @@ def test_the_alert_script_never_picks_an_agreeing_button():
     # OK / Continue / Yes are only allowed outside Terms / Privacy / policy dialogs
     assert "(legal ? null : safe.find(b => okish.test(label(b))))" in js
     assert "buttons[buttons.length - 1]" not in js  # no "last button" fallback any more
+
+
+def test_monitor_console_hides_its_creators_in_privacy_mode(monkeypatch):
+    """1.3.18: the Live Monitor list isn't in the Scraper's model lists, so the
+    plugin console hides its own creators too."""
+    import ofscraper.gui.utils.privacy_mode as pm
+
+    gui = _load("gui")
+    names = ["livecreator", "other.one"]
+    line = "[Capture] Stopping capture for livecreator; other.one on cooldown; livecreatorx stays"
+    monkeypatch.setattr(pm, "_enabled", False)
+    assert gui._redact_monitor_names(line, names) == line
+    monkeypatch.setattr(pm, "_enabled", True)
+    out = gui._redact_monitor_names(line, names)
+    assert "livecreator;" not in out and "other.one" not in out
+    assert out.startswith("[Capture] Stopping capture for {model}; {model} on cooldown")
+    assert "livecreatorx stays" in out
+    assert gui._redact_monitor_names(line, []) == line

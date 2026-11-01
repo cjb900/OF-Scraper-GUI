@@ -2594,6 +2594,14 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.18: Privacy mode hides the monitor's creators in its console (2026-11-01)
+
+Found while taking documentation screenshots: many console lines put the username in plain text (`Stopping capture for …`, `… on cooldown`, `Launching browser for …`). The shared console filter (GUI patch v418) only knows creators loaded by the Scraper, but the Live Monitor fetches its own subscription list, so those names showed when the Scraper hadn't loaded models.
+
+- `gui._redact_monitor_names(text, names)`: in Privacy mode, replaces every creator in `_last_statuses` (the monitor table) with `{model}`, whole-word and case-insensitive; the regex is cached per name list. `append_log` applies it after `redact_log_message`.
+- The plugin log file still gets the real text (Privacy mode is about the screen).
+- Test: `test_monitor_console_hides_its_creators_in_privacy_mode`.
+
 ### Live Stream Monitor plugin v1.3.17: close OnlyFans alerts without accepting anything (2026-10-31)
 
 The 1.3.16 console export (`Live Stream Monitor Consol.txt`) named the alert: "Please acknowledge and accept our updated Terms of Service and Privacy Policy." in both captures, which then recorded fine side by side (so not a two-streams limit). It shows in every capture because each starts from a clean browser profile with only the Authentication cookies, until the account accepts the terms. 1.3.16's dismiss picked OK/Close/Continue/Yes/Confirm, else the close ×, else the **last button**, so it may have clicked an "Accept" button: the user asked that it log the button and never accept terms.

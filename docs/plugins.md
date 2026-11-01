@@ -243,11 +243,11 @@ Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects
 
 This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
 
-**Highlights (plugin v1.3.17)**
+**Highlights (plugin v1.3.18)**
 
 The version shows on the Plugins page and next to the Live Monitor page title.
 
-- Privacy mode masks usernames/paths in the plugin UI and console
+- Privacy mode masks usernames/paths in the plugin UI and console. The console hides every creator in the monitor's list wherever their name appears in a line, even if the Scraper hasn't loaded your models (since v1.3.18)
 - Windows capture paths use normal backslash display
 - **No window (headless browser)**, on by default: captures run in Chrome's headless mode, with no window at all. Untick it to use a real Chrome window (optionally kept off-screen with *Hide capture window*), e.g. to log in by hand
 - The capture browser logs in with the **Authentication** login: its cookies, its **user-agent** (OnlyFans ties the session to it, even a Firefox one) and its **x-bc** (put where the website reads it). Each capture starts from a clean browser profile. If OnlyFans still shows its login page, headless captures stop straight away with a message to re-import cookies (Authentication → Test must pass)
