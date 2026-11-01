@@ -119,9 +119,7 @@ Run the GUI on a machine without a desktop and open it at `http://<host>:6699/` 
 docker compose build ofscraper-gui
 docker compose up -d ofscraper-gui
 ```
-<img src="https://github.com/user-attachments/assets/38ce2f82-5b85-419b-9c33-c16ddabc4773" width="600" alt="Docker GUI">
-
-> 📸 **Screenshot needed:** the GUI open in a web browser through noVNC at `http://localhost:6699/`, with the address bar visible. The same picture is wanted in [Docker](docs/docker.md#accessing-the-gui).
+<img src="docs/images/docker-novnc.png" width="700" alt="OF-Scraper GUI running in Docker, open in a web browser through noVNC on port 6699 (Select Action page)">
 
 The desktop resizes to fit your browser window, and the GUI stays maximized in it: resize the window or go full screen and the GUI follows. `SCREEN_WIDTH` / `SCREEN_HEIGHT` in `docker-compose.yml` are only the starting size.
 

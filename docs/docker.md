@@ -107,7 +107,7 @@ Config and auth are stored on the config volume, so they survive rebuilds and re
 
 ## Accessing the GUI
 
-> 📸 **Screenshot needed:** the GUI open in a web browser through noVNC at `http://localhost:6699/`, with the browser's address bar visible.
+<img src="images/docker-novnc.png" width="700" alt="OF-Scraper GUI running in Docker, open in a web browser through noVNC on port 6699 (Select Action page)">
 
 | Method | Address | Notes |
 |---|---|---|
