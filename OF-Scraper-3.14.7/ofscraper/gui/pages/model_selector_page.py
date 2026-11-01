@@ -430,6 +430,10 @@ class ModelSelectorPage(QWidget):
         for btn in self.findChildren(QToolButton):
             if btn.text() == "?":
                 btn.setStyleSheet(_help_btn_qss())
+        try:
+            self._update_count()  # re-colour the "hidden by search" warning
+        except Exception:
+            pass
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1043,6 +1047,7 @@ class ModelSelectorPage(QWidget):
                 shown = item.text().lower()
                 haystack = f"{real} {shown}"
                 item.setHidden(not any(term in haystack for term in terms))
+        self._update_count()
 
     def _select_all(self):
         self.model_list.blockSignals(True)
@@ -1083,7 +1088,83 @@ class ModelSelectorPage(QWidget):
             if self.model_list.item(i).checkState() == Qt.CheckState.Checked
         )
         total = self.model_list.count()
-        self.count_label.setText(f"{checked} / {total} selected")
+        hidden = len(self._get_hidden_selected_names())
+        text = f"{checked} / {total} selected"
+        if hidden:
+            text += f" ({hidden} hidden by search)"
+            self.count_label.setToolTip(
+                "Some ticked models are not shown because of the search box.\n"
+                "They are still selected and will be scraped."
+            )
+            self.count_label.setProperty("muted", False)
+            self.count_label.setStyleSheet(f"color: {c('peach')}; font-weight: bold;")
+        else:
+            self.count_label.setToolTip("")
+            self.count_label.setProperty("muted", True)
+            self.count_label.setStyleSheet("")
+        self.count_label.setText(text)
+
+    def _get_hidden_selected_names(self):
+        """Ticked models that the search box is currently hiding."""
+        return [
+            self.model_list.item(i).data(Qt.ItemDataRole.UserRole)
+            for i in range(self.model_list.count())
+            if self.model_list.item(i).checkState() == Qt.CheckState.Checked
+            and self.model_list.item(i).isHidden()
+        ]
+
+    def _confirm_hidden_selection(self, selected, hidden):
+        """Ask before scraping ticked models the search box hides.
+
+        Returns the names to scrape, or None to stay on this page.
+        """
+        try:
+            from ofscraper.gui.utils.privacy_mode import mask_username
+        except Exception:
+            mask_username = None
+
+        def _shown(name):
+            try:
+                return (mask_username(name) if mask_username else None) or name
+            except Exception:
+                return name
+
+        listed = [_shown(n) for n in hidden[:10]]
+        more = len(hidden) - len(listed)
+        names_text = "\n".join(f"  • {n}" for n in listed)
+        if more > 0:
+            names_text += f"\n  … and {more} more"
+        visible_n = len(selected) - len(hidden)
+
+        msg = QMessageBox(self)
+        msg.setIcon(QMessageBox.Icon.Warning)
+        msg.setWindowTitle("Selected Models Hidden by Search")
+        msg.setText(
+            f"{len(hidden)} of the {len(selected)} ticked models are hidden by "
+            f"the search box:\n\n{names_text}"
+        )
+        msg.setInformativeText(
+            "Hidden models are still selected. Scrape all of them, only the "
+            "ones you can see, or go back and check the list?"
+        )
+        all_btn = msg.addButton(
+            f"Scrape all {len(selected)}", QMessageBox.ButtonRole.AcceptRole
+        )
+        visible_btn = None
+        if visible_n > 0:
+            visible_btn = msg.addButton(
+                f"Only the {visible_n} shown", QMessageBox.ButtonRole.ActionRole
+            )
+        back_btn = msg.addButton("Go back", QMessageBox.ButtonRole.RejectRole)
+        msg.setDefaultButton(back_btn)
+        msg.exec()
+        clicked = msg.clickedButton()
+        if clicked is all_btn:
+            return list(selected)
+        if visible_btn is not None and clicked is visible_btn:
+            hidden_set = set(hidden)
+            return [n for n in selected if n not in hidden_set]
+        return None
 
     def _get_selected_names(self):
         """Return list of selected model names (using stored UserRole data)."""
@@ -1273,6 +1354,15 @@ class ModelSelectorPage(QWidget):
                 "Please select at least one model to continue.",
             )
             return
+
+        hidden = self._get_hidden_selected_names()
+        if hidden:
+            log.warning(
+                f"[Select Models] {len(hidden)} ticked model(s) hidden by search"
+            )
+            selected = self._confirm_hidden_selection(selected, hidden)
+            if not selected:
+                return
 
         selected_models = [
             self._all_models[name] for name in selected if name in self._all_models

@@ -605,6 +605,7 @@ Tips:
 - Rows show aligned columns: **username**, **subscribed date**, and **current_price** (monospace), with or without **Show Avatars**.
 - With **Show Avatars** on, click the avatar to open the creator's OnlyFans page (does not toggle selection).
 - Use **Select All / Deselect All / Toggle** for bulk selection.
+- Ticked models stay selected when the search box hides them. The count then says e.g. `3 / 50 selected (1 hidden by search)` in orange, and **Next** asks whether to scrape all ticked models, only the ones shown, or go back.
 
 <a id="models-reload"></a>
 ### Reload Models
@@ -993,6 +994,7 @@ Column headers remember **width**, **order** (drag to reorder), and **visibility
   - Summary: `Models done/total  ✓ok  ✗failed`
   - One chip per selected model (○ waiting → ● running → ✓ ok / ✗ fail)
   - Hover a chip for status / error detail (names respect Privacy mode)
+  - The bar is cleared when you pick new models and when a scrape starts, so it never shows the previous run's models next to a confirm dialog
 - Progress updates are **throttled/batched** so large scrapes stay responsive (bar + bytes + table cells).
 - The console area shows detailed logs and trace output.
 - Drag the **horizontal bar** between the table and console to resize the log panel (height is remembered in `gui_settings.json`).

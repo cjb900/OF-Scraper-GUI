@@ -2188,6 +2188,16 @@ class GUIWorkflow:
     def _on_models_selected(self, models):
         self._selected_models = models
         log.info(f"[GUI Workflow] Models set: {len(models)} models")
+        try:
+            running = (
+                getattr(self, "_scraper_thread", None) is not None
+                and self._scraper_thread.is_alive()
+            )
+        except Exception:
+            running = False
+        if not running:
+            # New selection: last run's chips no longer describe it.
+            self._clear_model_badges()
         # Check modes auto-start as soon as models are confirmed —
         # no separate "Start Scraping" click required.
         if bool(self._selected_actions & self._CHECK_MODES):
@@ -2437,6 +2447,9 @@ class GUIWorkflow:
                 "[GUI Workflow] Scrape already running — ignoring duplicate start"
             )
             return
+        # Drop the previous run's model chips before any confirm dialog, so
+        # the bar above the table never shows last run's models next to it.
+        self._clear_model_badges()
         # Gate check-mode / manual-URL / daemon paths that skip table Start.
         # Normal Start Scraping already confirms in table_page; session skip
         # makes a second dialog a no-op when the user opted out.
@@ -4144,6 +4157,13 @@ class GUIWorkflow:
             except Exception:
                 pass
             app_signals.scraping_finished.emit()
+
+    def _clear_model_badges(self):
+        """Empty the per-model chip bar (it is refilled once the scrape starts)."""
+        try:
+            app_signals.model_badges_reset.emit([])
+        except Exception:
+            pass
 
     def _reset_purge_for_new_scrape(self):
         """Each new scrape may purge again (Delete model DB / downloaded files).
