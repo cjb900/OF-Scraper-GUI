@@ -411,7 +411,11 @@ After selecting an action, click **Next** to move on. After models load, a **Rel
 
 #### Update metadata (no downloads)
 
-> 📸 **Screenshot needed:** the Select Action page with **Update metadata** chosen, showing the Mode choices (Update / Check / Complete), **Mark unmatched media as locked** and **Check file hashes this run**.
+<details><summary>Screenshot</summary>
+
+<img src="images/action-update-metadata.png" width="600" alt="Select Action with Update metadata chosen: Metadata mode Update (recommended), Check or Complete, plus Mark unmatched media as locked and Check file hashes this run (slower)">
+
+</details>
 
 Updates the database for the chosen models and areas **without downloading anything**. Use it after moving or restoring your download folder, or when files you already have show as not downloaded. Equivalent to `ofscraper metadata`.
 
