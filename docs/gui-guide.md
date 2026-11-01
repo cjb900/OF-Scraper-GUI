@@ -430,7 +430,11 @@ Pick areas and models as usual. The run happens once (no daemon); when it finish
 
 #### Download all purchased content (all creators)
 
-> 📸 **Screenshot needed:** the Select Action page with **Download all purchased content** chosen (Exclude creators box, **Pick…** button, media types), plus the **Pick…** list of creators. Turn on Privacy mode first so no usernames or paths show.
+<details><summary>Screenshot</summary>
+
+<img src="images/action-purchased.png" width="600" alt="Select Action with Download all purchased content chosen: Exclude creators box, Pick… button and media types, with the Pick… list open (Privacy mode on, every creator shown as Hidden for Privacy)">
+
+</details>
 
 Downloads everything you have bought (PPV messages and paid posts) from **every** creator, including expired subscriptions and deleted accounts that can't be picked on the Models page.
 
