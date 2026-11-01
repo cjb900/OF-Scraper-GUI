@@ -698,7 +698,9 @@ Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**)
 
 ### Daemon mode (auto-repeat scraping)
 
-> 📸 **Screenshot needed:** the table toolbar between daemon runs, with the countdown timer, the last-run chip and the **Stop Daemon** button, plus the **Daemon Mode** options on the Areas page.
+<img src="images/daemon-options.png" width="500" alt="Daemon Mode options on the Areas page: enable daemon mode, interval in minutes, system notification and sound alert when scraping starts, @here Discord mention when new content is found">
+
+> 📸 **Screenshot needed:** the table toolbar between daemon runs, with the countdown timer, the last-run chip and the **Stop Daemon** button.
 
 - Enable from **Select Content Areas & Filters → Daemon Mode**
 - Sets an interval (1–1440 minutes) for repeated scraping runs
