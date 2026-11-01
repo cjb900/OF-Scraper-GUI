@@ -393,12 +393,9 @@ The usual flow is **Select Action → Select Content Areas & Filters → Select 
 
 <details><summary>Screenshots</summary>
 
-<img src="https://github.com/user-attachments/assets/e7c590a6-3b05-4e93-9d8c-f35eb673aa46" width="600" alt="Main Window — Select Action">
-<img src="https://github.com/user-attachments/assets/98ef9690-5594-4ff8-b5e0-222e7fe53525" width="600" alt="Main Window — User List">
+<img src="images/select-action.png" width="600" alt="Select Action: Download content from a user (with the User Lists box), like/unlike, download + like/unlike, scrape by URL, Update metadata, Download all purchased content, and the Check Modes">
 
 </details>
-
-> 📸 **Screenshot to check:** the Select Action screenshots may be older than the **Update metadata** and **Download all purchased content** actions (patches v391 / v392). Retake them if those two actions are missing from the list. The first one is also used in the README.
 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
