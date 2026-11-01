@@ -297,12 +297,34 @@ class LiveMonitorTab(QWidget):
         )
         self.discord_ping_check.toggled.connect(self._on_discord_ping_toggled)
         self._discord_warning = None
-        self.discord_ping_check.setEnabled(self.notify_check.isChecked())
-        self.notify_check.toggled.connect(self.discord_ping_check.setEnabled)
         discord_row = QHBoxLayout()
         discord_row.setContentsMargins(22, 0, 0, 0)
         discord_row.addWidget(self.discord_ping_check)
         config_layout.addLayout(discord_row)
+
+        # Sub-option of the live alert, indented one more level.
+        self.discord_end_check = QCheckBox("Discord @here when it ends")
+        self.discord_end_check.setChecked(
+            bool(getattr(self.plugin, "discord_end_ping", False))
+        )
+        self.discord_end_check.setToolTip(
+            "Also post \"@here <creator> has ended their live stream\" after a live\n"
+            "alert, once per stream. If it was recorded, the alert says how long\n"
+            "and how big the recording is and goes out when the recording stops\n"
+            "(seconds after the stream ends); otherwise after two polls without\n"
+            "the creator live. A manual Stop isn't counted as the stream ending."
+        )
+        self.discord_end_check.toggled.connect(
+            lambda on: self.plugin.set_page_settings(discord_end_ping=bool(on))
+        )
+        discord_end_row = QHBoxLayout()
+        discord_end_row.setContentsMargins(44, 0, 0, 0)
+        discord_end_row.addWidget(self.discord_end_check)
+        config_layout.addLayout(discord_end_row)
+
+        self.notify_check.toggled.connect(lambda _on: self._update_discord_options())
+        self.discord_ping_check.toggled.connect(lambda _on: self._update_discord_options())
+        self._update_discord_options()
 
         # Capture / stop controls
         self.capture_selected_btn = StyledButton("Capture selected", primary=True)
@@ -1201,6 +1223,12 @@ class LiveMonitorTab(QWidget):
             self.interval_spin.setEnabled(True)
             self.plugin.stop_monitor()
             self._apply_privacy_to_save_field()
+
+    def _update_discord_options(self):
+        """Each Discord option is usable only while the options above it are on."""
+        notify = self.notify_check.isChecked()
+        self.discord_ping_check.setEnabled(notify)
+        self.discord_end_check.setEnabled(notify and self.discord_ping_check.isChecked())
 
     def _on_discord_ping_toggled(self, on: bool):
         self.plugin.set_page_settings(discord_live_ping=bool(on))

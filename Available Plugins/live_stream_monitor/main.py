@@ -333,7 +333,23 @@ def _live_message(username: str) -> str:
     )
 
 
-def _post_discord(url: str, content: str, log=None, username: str = "") -> bool:
+def _ended_message(username: str, recorded=None) -> str:
+    """The @here end-of-stream alert; *recorded* is (seconds, bytes) or None."""
+    shown = username.replace("_", "\\_")
+    msg = f"@here ⚫ **{shown}** has ended their live stream."
+    if recorded:
+        seconds, size = recorded
+        h, rem = divmod(max(0, int(seconds)), 3600)
+        m, s = divmod(rem, 60)
+        length = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+        mb = (size or 0) / (1024 * 1024)
+        shown_size = f"{mb / 1024:.2f} GB" if mb >= 1024 else f"{mb:.0f} MB"
+        msg += f" Recorded {length} ({shown_size})."
+    return msg
+
+
+def _post_discord(url: str, content: str, log=None, username: str = "",
+                  what: str = "live alert") -> bool:
     """POST *content* to a Discord webhook, letting @here ping.
 
     Retries once after a 429 (rate limit). Never logs the URL: it is a secret.
@@ -346,11 +362,11 @@ def _post_discord(url: str, content: str, log=None, username: str = "") -> bool:
             r = httpx.post(url, json=payload, timeout=15)
         except Exception as e:
             if log:
-                log(f"[Discord] Live alert for {username} failed: {type(e).__name__}")
+                log(f"[Discord] {what.capitalize()} for {username} failed: {type(e).__name__}")
             return False
         if r.status_code in (200, 204):
             if log:
-                log(f"[Discord] Sent @here live alert for {username}.")
+                log(f"[Discord] Sent @here {what} for {username}.")
             return True
         if r.status_code == 429 and attempt == 0:
             try:
@@ -361,7 +377,7 @@ def _post_discord(url: str, content: str, log=None, username: str = "") -> bool:
             continue
         break
     if log:
-        log(f"[Discord] Live alert for {username} failed: HTTP {r.status_code}")
+        log(f"[Discord] {what.capitalize()} for {username} failed: HTTP {r.status_code}")
     return False
 
 
@@ -1170,6 +1186,9 @@ class LiveMonitorWorker(QThread):
         # Creators live on the previous successful poll (for Discord alerts:
         # one per go-live, not one per poll).
         self._was_live = set()
+        # {username: polls in a row not live} for announced creators without a
+        # capture (see _announce_end_without_recording).
+        self._end_misses = {}
 
     def run(self):
         self.log_msg.emit("[System] Monitoring worker thread active.")
@@ -1212,6 +1231,7 @@ class LiveMonitorWorker(QThread):
 
                     # The row keeps its Recording status until the file is saved.
                     self._stop_ended_recording(username, kind, is_live)
+                    self._announce_end_without_recording(username, kind, is_live)
 
                     # File counts are read here, not on the GUI thread.
                     count, tooltip = self.plugin.stream_files_summary(
@@ -1330,7 +1350,24 @@ class LiveMonitorWorker(QThread):
             f"({watch['misses']} checks in a row) — stopping and saving the recording."
         )
         self._live_watch.pop(username, None)
+        self.plugin.mark_stopped_as_ended(username)
         return bool(self.plugin.stop_capture(username))
+
+    def _announce_end_without_recording(self, username: str, kind, is_live: bool) -> bool:
+        """End alert for an announced creator with no capture running.
+
+        (A recording sends its own end alert when it stops.) After
+        _NOT_LIVE_POLLS_TO_STOP polls in a row without them live.
+        """
+        if is_live or kind is not None or not self.plugin.was_announced_live(username):
+            self._end_misses.pop(username, None)
+            return False
+        misses = self._end_misses.get(username, 0) + 1
+        if misses < _NOT_LIVE_POLLS_TO_STOP:
+            self._end_misses[username] = misses
+            return False
+        self._end_misses.pop(username, None)
+        return bool(self.plugin.announce_ended(username))
 
     def fetch_models(self, refresh_auth: bool = False):
         """Fetch subscriptions via the same API path as Areas / Select Models.
@@ -1928,7 +1965,15 @@ class Plugin(BasePlugin):
         # With notifications on: post "@here <creator> is live" to the Discord
         # webhook from Configuration (for servers nobody is watching).
         self.discord_live_ping = False
+        # Under that: also "@here <creator> ended their live stream".
+        self.discord_end_ping = False
         self._discord_missing_logged = False
+        # Creators whose live alert was sent and whose end hasn't been announced
+        # yet (an end alert only follows a live alert, once). Under _state_lock.
+        self._live_announced = set()
+        # Recordings the poller stopped because the stream ended (vs. a user
+        # Stop), so the capture thread knows to send the end alert.
+        self._stopped_as_ended = set()
         # Capture browser without any window (Chrome's new headless mode).
         self.no_window = True
         self._load_settings()
@@ -2012,6 +2057,8 @@ class Plugin(BasePlugin):
                     self.notify = bool(data.get("notify"))
                 if "discord_live_ping" in data:
                     self.discord_live_ping = bool(data.get("discord_live_ping"))
+                if "discord_end_ping" in data:
+                    self.discord_end_ping = bool(data.get("discord_end_ping"))
                 if "no_window" in data:
                     self.no_window = bool(data.get("no_window"))
         except Exception:
@@ -2031,6 +2078,7 @@ class Plugin(BasePlugin):
                         "auto_capture": bool(self.auto_capture),
                         "notify": bool(self.notify),
                         "discord_live_ping": bool(self.discord_live_ping),
+                        "discord_end_ping": bool(self.discord_end_ping),
                         "no_window": bool(self.no_window),
                     },
                     indent=2,
@@ -2056,7 +2104,7 @@ class Plugin(BasePlugin):
         """Save any of the page settings below (only on change)."""
         changed = False
         for key in ("poll_interval", "capture_dir", "auto_capture", "notify",
-                    "discord_live_ping", "no_window"):
+                    "discord_live_ping", "discord_end_ping", "no_window"):
             if key in values and getattr(self, key) != values[key]:
                 setattr(self, key, values[key])
                 changed = True
@@ -2215,9 +2263,52 @@ class Plugin(BasePlugin):
                 )
             return False
         self._discord_missing_logged = False
+        with self._state_lock:
+            self._live_announced.add(username)
         threading.Thread(
             target=_post_discord,
             args=(url, _live_message(username), self._emit_log, username),
+            daemon=True,
+        ).start()
+        return True
+
+    def was_announced_live(self, username: str) -> bool:
+        with self._state_lock:
+            return username in self._live_announced
+
+    def mark_stopped_as_ended(self, username: str) -> None:
+        """The poller is stopping *username*'s recording because the stream ended."""
+        with self._state_lock:
+            self._stopped_as_ended.add(username)
+
+    def take_stopped_as_ended(self, username: str) -> bool:
+        with self._state_lock:
+            if username in self._stopped_as_ended:
+                self._stopped_as_ended.discard(username)
+                return True
+            return False
+
+    def announce_ended(self, username: str, recorded=None) -> bool:
+        """Post "@here <creator> ended their live stream" (any thread).
+
+        Only for a creator whose live alert was sent, once per stream, and only
+        with Desktop notifications, the live alert and this option all on.
+        *recorded* is (seconds, bytes) of the saved recording, or None.
+        Returns True when a message was queued.
+        """
+        with self._state_lock:
+            if username not in self._live_announced:
+                return False
+            self._live_announced.discard(username)
+        if not (self.notify and self.discord_live_ping and self.discord_end_ping):
+            return False
+        url = _discord_webhook_url()
+        if not url:
+            return False
+        threading.Thread(
+            target=_post_discord,
+            args=(url, _ended_message(username, recorded), self._emit_log, username,
+                  "stream-ended alert"),
             daemon=True,
         ).start()
         return True
@@ -2873,6 +2964,10 @@ class Plugin(BasePlugin):
         final_path = None
         recording_started = False
         login_timed_out = False
+        # True when the recording stopped because the stream ended (not a
+        # user Stop): then the Discord end alert goes out with the recording.
+        stream_ended = False
+        self.take_stopped_as_ended(username)  # drop a stale mark from a race
         _chunk_file = None
         try:
             config_dir = get_config_path().parent
@@ -3516,6 +3611,7 @@ class Plugin(BasePlugin):
                         self._emit_log(
                             f"[Playwright] Left /live page ({rec_page.url}) — stream ended."
                         )
+                        stream_ended = True
                         break
 
                     # OnlyFans shows "Live video has ended" on the page as soon as
@@ -3538,6 +3634,7 @@ class Plugin(BasePlugin):
                     end_reason = end_watch.reason()
                     if end_reason:
                         self._emit_log(f"[Playwright] {end_reason} — stopping.")
+                        stream_ended = True
                         break
                     # Secondary stop: 30 min of no video activity (hung session)
                     try:
@@ -3589,12 +3686,26 @@ class Plugin(BasePlugin):
                     _chunk_file.close()
                     _chunk_file = None
 
+            recorded = None
             if final_path and final_path.exists() and final_path.stat().st_size > 0:
                 self._emit_log(f"[Capture] Stream saved: {final_name}")
                 self._finalize_recording(final_path, rec_start_time, last_chunk_time)
                 self._notify("Live recording saved", username)
+                try:
+                    recorded = (
+                        (last_chunk_time - rec_start_time).total_seconds(),
+                        final_path.stat().st_size,
+                    )
+                except Exception:
+                    recorded = None
             else:
                 self._emit_log(f"[Capture] No data was recorded for {username}.")
+            # The poller stops a recording whose stream ended through Stop;
+            # it marks those so they count as ended, not as a user Stop.
+            if self.take_stopped_as_ended(username):
+                stream_ended = True
+            if stream_ended and recording_started:
+                self.announce_ended(username, recorded)
 
         except Exception as ex:
             self._emit_log(f"[Error] Stream capture failed for {username}: {ex}")

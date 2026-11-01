@@ -966,7 +966,7 @@ def discord(plugin, monkeypatch):
             self._run()
 
     monkeypatch.setattr(lsm.threading, "Thread", _NowThread)
-    monkeypatch.setattr(lsm, "_post_discord", lambda url, content, log, user: sent.append((url, content, user)))
+    monkeypatch.setattr(lsm, "_post_discord", lambda url, content, log, user, *what: sent.append((url, content, user)))
     return sent, logs
 
 
@@ -1308,3 +1308,110 @@ def test_the_login_check_polls_instead_of_waiting_5_s():
     assert "wait_for_timeout(5000)" not in before_check
     assert "_LIVE_PAGE_STATE_JS" in before_check and "_poll_until(" in before_check
     assert lsm._LIVE_PAGE_WAIT_SECONDS == 5  # the old fixed wait is the limit
+
+
+
+# ── Discord @here when a stream ends ─────────────────────────────────────────
+
+def test_end_alert_text():
+    assert lsm._ended_message("katie_darling") == "@here ⚫ **katie\\_darling** has ended their live stream."
+    msg = lsm._ended_message("creator", (3725, 1536 * 1024 * 1024))
+    assert msg.endswith("Recorded 1:02:05 (1.50 GB).")
+    assert lsm._ended_message("creator", (65, 50 * 1024 * 1024)).endswith("Recorded 1:05 (50 MB).")
+
+
+def test_end_alert_follows_a_live_alert_once(plugin, discord):
+    sent, _ = discord
+    plugin.discord_live_ping = plugin.discord_end_ping = True
+    assert plugin.announce_ended("creator") is False  # never announced live
+    assert plugin.announce_live("creator") is True
+    assert plugin.announce_ended("creator", (60, 1024 * 1024)) is True
+    assert plugin.announce_ended("creator") is False  # once per stream
+    assert [s[1].split()[1] for s in sent] == ["🔴", "⚫"]
+    assert "Recorded 1:00 (1 MB)." in sent[1][1]
+
+
+def test_end_alert_needs_its_option_and_the_ones_above(plugin, discord):
+    sent, _ = discord
+    plugin.discord_live_ping = True
+    plugin.announce_live("creator")
+    assert plugin.announce_ended("creator") is False  # end option off
+    assert not plugin.was_announced_live("creator")  # but the stream is done
+    plugin.discord_end_ping = True
+    plugin.notify = False
+    plugin._live_announced.add("creator")
+    assert plugin.announce_ended("creator") is False
+
+
+def test_sender_names_which_alert(monkeypatch):
+    _fake_post(monkeypatch, [_Resp(204), _Resp(500)])
+    logs = []
+    lsm._post_discord("u", "x", logs.append, "creator", "stream-ended alert")
+    lsm._post_discord("u", "x", logs.append, "creator", "stream-ended alert")
+    assert logs == ["[Discord] Sent @here stream-ended alert for creator.",
+                    "[Discord] Stream-ended alert for creator failed: HTTP 500"]
+
+
+def test_poller_announces_an_end_without_a_recording(plugin, monkeypatch):
+    ended = []
+    monkeypatch.setattr(plugin, "announce_ended", lambda u, r=None: ended.append(u) or True)
+    plugin._live_announced.add("creator")
+    worker = lsm.LiveMonitorWorker(plugin, 0, None)
+    end = worker._announce_end_without_recording
+    assert [end("creator", None, live) for live in (False, True, False, False)] == [False, False, False, True]
+    assert ended == ["creator"]
+
+
+def test_poller_leaves_the_end_alert_to_a_running_recording(plugin, monkeypatch):
+    ended = []
+    monkeypatch.setattr(plugin, "announce_ended", lambda u, r=None: ended.append(u) or True)
+    plugin._live_announced.add("creator")
+    worker = lsm.LiveMonitorWorker(plugin, 0, None)
+    for _ in range(3):
+        worker._announce_end_without_recording("creator", "recording", False)
+    assert ended == []
+
+
+def test_a_poller_stop_counts_as_the_stream_ending(plugin, recording):
+    stops, _ = recording
+    worker = lsm.LiveMonitorWorker(plugin, 0, None)
+    _watch(worker, [True, False, False])
+    assert stops == ["creator"]
+    assert plugin.take_stopped_as_ended("creator") is True
+    assert plugin.take_stopped_as_ended("creator") is False
+
+
+def test_the_recording_sends_the_end_alert_only_when_the_stream_ended():
+    import inspect
+
+    src = inspect.getsource(lsm.Plugin.record_stream)
+    assert src.count("stream_ended = True") == 3  # left /live, end check, poller stop
+    save = src.index("[Capture] Stream saved")
+    assert save < src.index("self.take_stopped_as_ended(username):") < src.index("self.announce_ended(username, recorded)")
+    assert "if stream_ended and recording_started:" in src
+
+
+def test_discord_options_enable_from_the_top_down():
+    gui = _load("gui")
+    from types import SimpleNamespace
+
+    def box(checked):
+        b = SimpleNamespace(checked=checked, enabled=None)
+        b.isChecked = lambda: b.checked
+        b.setEnabled = lambda on: setattr(b, "enabled", on)
+        return b
+
+    for notify, live, want_live, want_end in [
+        (True, True, True, True), (True, False, True, False),
+        (False, True, False, False), (False, False, False, False),
+    ]:
+        tab = SimpleNamespace(notify_check=box(notify), discord_ping_check=box(live),
+                              discord_end_check=box(False))
+        gui.LiveMonitorTab._update_discord_options(tab)
+        assert (tab.discord_ping_check.enabled, tab.discord_end_check.enabled) == (want_live, want_end)
+
+
+def test_the_end_option_is_remembered(tmp_path):
+    p = lsm.Plugin({"name": "x"}, str(tmp_path))
+    p.set_page_settings(discord_end_ping=True)
+    assert lsm.Plugin({"name": "x"}, str(tmp_path)).discord_end_ping is True

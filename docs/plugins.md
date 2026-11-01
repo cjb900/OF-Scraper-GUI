@@ -243,7 +243,7 @@ Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects
 
 This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
 
-**Highlights (plugin v1.3.13)**
+**Highlights (plugin v1.3.14)**
 
 The version shows on the Plugins page and next to the Live Monitor page title.
 
@@ -259,6 +259,7 @@ The version shows on the Plugins page and next to the Live Monitor page title.
 - While recording, the Status column shows the time and file size so far, e.g. `Recording 🔴 (12:04 · 850 MB)`
 - **Desktop notifications** (on by default) when a recording starts, is saved, or a capture fails. Names are hidden in Privacy mode
   - **Discord @here when live** (under Desktop notifications, off by default; since v1.3.9): posts `@here 🔴 <creator> is live on OnlyFans` with a link to the stream to the **Discord Webhook URL** from **Configuration → General**, once each time a creator goes live. Meant for servers (e.g. [Docker](docker.md)) that nobody is watching. Ignored creators are skipped; the real name is sent even in Privacy mode. The console shows whether each alert was sent. If no webhook is set, a warning pops up when you tick the option and when the monitor starts (since v1.3.10); it doesn't block anything and the option stays on, so alerts start once a webhook is saved. Restarting the GUI or the monitor while someone is live sends their alert again
+    - **Discord @here when it ends** (under the live alert, off by default; since v1.3.14): after a live alert, posts `@here ⚫ <creator> has ended their live stream`, once per stream. If the stream was recorded, it says how long and how big the recording is (e.g. `Recorded 1:02:05 (1.50 GB).`) and goes out when the recording stops, seconds after the stream ends. Otherwise (no capture running, e.g. it failed or you stopped it) it goes out after two monitor polls without the creator live. A manual **Stop** isn't treated as the stream ending
 - Once Chromium works, Playwright Setup shrinks to "🟢 Chromium ready"; **Manage…** shows Reinstall Chromium and Clear saved browser logins
 - The table updates rows in place between polls, so your scroll position and selection stay put
 - The top of the page shows whether the monitor is working: last check time, seconds until the next one, how many creators are live and recording

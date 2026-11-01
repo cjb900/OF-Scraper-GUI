@@ -2586,6 +2586,20 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.14: Discord @here when a stream ends (2026-10-31)
+
+Asked for: a sub-option under "Discord @here when live" for an @here when the creator ends their live stream.
+
+- **Discord @here when it ends** (`discord_end_ping`, default off), indented under the live option; `_update_discord_options` enables each Discord option only while the ones above are on.
+- Pairing: `announce_live` adds the creator to `Plugin._live_announced` when the live alert is queued; `announce_ended` only sends for a creator in that set and removes it (once per stream; removed even when the end option is off, so a later toggle doesn't send a stale alert).
+- **Recorded streams:** `record_stream` sets `stream_ended` when it stops because the page left /live or `_StreamEndWatch` gave a reason, and when the poller stopped it (`_stop_ended_recording` calls `mark_stopped_as_ended` before `stop_capture`; the thread takes the mark after saving). After the save, `announce_ended(username, (seconds, bytes))`, so the alert says `Recorded h:mm:ss (size)`. A user Stop sets neither, so no end alert from the recording; a stale mark from a race is dropped when a recording starts.
+- **No capture running** (failed start, user Stop while still live): `LiveMonitorWorker._announce_end_without_recording` sends it after `_NOT_LIVE_POLLS_TO_STOP` = 2 polls without `hasStream` for an announced creator with no session.
+- `_post_discord(..., what=)` names the alert in the console ("Sent @here stream-ended alert for …").
+- Checked offscreen with the real `LiveMonitorTab` (three indent levels, enable chain, saved settings).
+- The `docs/images/live-stream-monitor.png` screenshot (v1.3.13) predates this checkbox.
+
+Tests: +10 in `test_live_stream_monitor.py` (message text, follows a live alert once, needs its option and the ones above, sender label, poller end without a recording, left to a running recording, a poller stop counts as ended, recording-side wiring, enable chain, setting remembered); the `discord` fixture's fake sender takes the new label.
+
 ### Live Stream Monitor plugin v1.3.13: no fixed 5 s before the login check (2026-10-31)
 
 User confirmed 1.3.12 starts much faster and still records sound; asked to cut the remaining fixed 5 s after opening /live ("Auth check URL").
