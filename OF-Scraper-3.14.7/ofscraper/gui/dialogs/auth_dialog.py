@@ -2941,14 +2941,25 @@ def _validate_of_credentials(creds: dict) -> "tuple[bool | None, str]":
         # If credentials succeeded, set _old_auth to None so they stay saved!
         _old_auth = None
 
+        # Privacy mode: the account's display name and @username are hidden
+        # (this text is shown in a dialog and in the status bar).
+        try:
+            from ofscraper.gui.utils.privacy_mode import mask_username
+
+            acct_name = mask_username(user_info.get("name", "")) or ""
+            acct_user = mask_username(user_info.get("username", "")) or ""
+        except Exception:
+            acct_name = user_info.get("name", "")
+            acct_user = user_info.get("username", "")
+
         if models:
             return True, (
                 f"Credentials valid — loaded {len(models)} model(s) successfully.\n\n"
-                f"Logged in as: {user_info.get('name', '')} (@{user_info.get('username', '')})"
+                f"Logged in as: {acct_name} (@{acct_user})"
             )
         else:
             return True, (
-                f"Credentials valid for @{user_info.get('username', '')}.\n"
+                f"Credentials valid for @{acct_user}.\n"
                 "Note: No active model subscriptions were returned."
             )
 

@@ -264,6 +264,7 @@ Bottom of the sidebar:
 - **Verbose Log**: DEBUG logging to a dedicated GUI verbose log file.
 - **Privacy**: Privacy / demo mode for safe screenshots. When **On**:
   - Auth credential fields are masked (password dots); reveal eye is disabled
+  - **Test Credentials** hides your account name and @username in its result and in the status bar
   - Save Location, Discord webhook, FFmpeg / CDM paths show `[Hidden for Privacy]`
   - **Select Models** list shows `[Hidden for Privacy]` instead of creator names/prices (search still works)
   - Table **UserName** column shows `[Hidden for Privacy]`

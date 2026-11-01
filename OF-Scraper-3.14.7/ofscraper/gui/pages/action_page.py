@@ -462,10 +462,18 @@ class ActionPage(QWidget):
         try:
             import ofscraper.managers.manager as _manager
 
-            mm = _manager.Manager.current_model_manager
-            names.update(m.name for m in (mm.all_subs or []) if getattr(m, "name", None))
+            mgr = _manager.Manager
         except Exception:
-            pass
+            mgr = None
+        # The Areas page puts loaded subscriptions on ``model_manager``; a
+        # scrape fills the profile's ``current_model_manager``. Read both.
+        for attr in ("model_manager", "current_model_manager"):
+            try:
+                mm = getattr(mgr, attr, None) if mgr is not None else None
+                subs = getattr(mm, "all_subs", None) or []
+                names.update(m.name for m in subs if getattr(m, "name", None))
+            except Exception:
+                pass
         try:
             from ofscraper.gui.utils.gui_settings import load_gui_settings
 
