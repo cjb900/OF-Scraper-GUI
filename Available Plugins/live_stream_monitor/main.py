@@ -267,6 +267,31 @@ _LIVE_PAGE_STATE_JS = """() => {
     return '';
 }"""
 
+# JOIN LIVE STREAM: OnlyFans can put a "ModalUserAlert" dialog over it, which
+# blocks every click (seen 2026-10-31 with two captures starting together).
+_JOIN_ATTEMPTS = 3
+_JOIN_CLICK_TIMEOUT_MS = 10000
+# Close an open OnlyFans alert dialog. Returns its text ('' = none open).
+_DISMISS_ALERT_JS = """() => {
+    const m = document.querySelector('#ModalUserAlert.show, .modal.show[role="dialog"]');
+    if (!m) return '';
+    const body = m.querySelector('.modal-body') || m;
+    const text = (body.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 300) || '(no text)';
+    const buttons = [...m.querySelectorAll('button')];
+    const pick = buttons.find(b => /^(ok|okay|got it|close|continue|yes|confirm)$/i
+                                     .test((b.textContent || '').trim()))
+        || m.querySelector('button.close, [aria-label="Close"]')
+        || buttons[buttons.length - 1];
+    if (pick) pick.click();
+    return text;
+}"""
+
+
+def _first_line(err) -> str:
+    """Playwright errors carry a long call log; the first line says what failed."""
+    return str(err).strip().splitlines()[0] if str(err).strip() else type(err).__name__
+
+
 # 0 = no <video>, 1 = <video> but no live picture yet, 2 = playing.
 _PLAYER_STATE_JS = """() => {
     const v = document.querySelector('video');
@@ -3310,16 +3335,44 @@ class Plugin(BasePlugin):
 
                 # Click "JOIN LIVE STREAM" if the pre-join landing screen is showing.
                 # OnlyFans requires this interaction before the actual WebRTC stream loads.
+                # An OnlyFans alert dialog can cover the button: say what it
+                # says, close it and try again.
                 try:
                     join_btn = rec_page.locator("button:has-text('JOIN LIVE STREAM')")
                     if join_btn.count() > 0:
                         self._emit_log("[Playwright] Clicking 'JOIN LIVE STREAM'...")
-                        join_btn.first.click()
-                        # The player wait below polls; this only lets the click land.
-                        rec_page.wait_for_timeout(1000)
-                        self._emit_log("[Playwright] Joined the live stream.")
+                        for attempt in range(1, _JOIN_ATTEMPTS + 1):
+                            if stop_event.is_set():
+                                break
+                            try:
+                                alert = rec_page.evaluate(_DISMISS_ALERT_JS)
+                            except Exception:
+                                alert = ""
+                            if alert:
+                                self._emit_log(
+                                    f"[Playwright] OnlyFans showed an alert: \"{alert}\" — closed it."
+                                )
+                                rec_page.wait_for_timeout(500)
+                            try:
+                                join_btn.first.click(timeout=_JOIN_CLICK_TIMEOUT_MS)
+                            except Exception as e:
+                                self._emit_log(
+                                    f"[Playwright] Join attempt {attempt}/{_JOIN_ATTEMPTS} "
+                                    f"failed: {_first_line(e)}"
+                                )
+                                self.log.debug(f"[Playwright] {username}: join error detail: {e}")
+                                continue
+                            # The player wait below polls; this only lets the click land.
+                            rec_page.wait_for_timeout(1000)
+                            self._emit_log("[Playwright] Joined the live stream.")
+                            break
+                        else:
+                            self._emit_log(
+                                "[Playwright] Couldn't click 'JOIN LIVE STREAM' — "
+                                "trying to record anyway."
+                            )
                 except Exception as e:
-                    self._emit_log(f"[Playwright] Join button error: {e}")
+                    self._emit_log(f"[Playwright] Join button error: {_first_line(e)}")
 
                 # Wait for the stream's <video> to play. Checked every second (it
                 # is usually ready in 1-3 s); 60 s is only the limit. Each check
@@ -3621,7 +3674,15 @@ class Plugin(BasePlugin):
                     self._notify("Live recording started", username)
                 else:
                     reason = recorder_result.get("reason", "unknown") if isinstance(recorder_result, dict) else recorder_result
-                    self._emit_log(f"[Playwright] Warning: MediaRecorder failed ({reason}) — stream may not be captured.")
+                    # Nothing to record: end this attempt as a failed start (the
+                    # monitor retries after the cooldown) instead of sitting in
+                    # "Connecting" with no recorder.
+                    self._emit_log(
+                        f"[Playwright] Couldn't start recording ({reason}) — "
+                        "giving up this attempt; Auto-Capture retries in 2 min."
+                    )
+                    rec_ctx.close()
+                    return
 
                 offline_counter = 0
                 max_offline = 360  # 360 × 5 s = 30 min fallback for hung sessions

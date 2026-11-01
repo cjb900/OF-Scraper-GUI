@@ -1296,7 +1296,7 @@ def test_no_fixed_startup_sleeps_are_left():
     assert "_PLAYER_STATE_JS" in src and "_AUDIO_SOURCE_JS" in src
     # audio is waited for after the player, before the recorder starts
     assert src.index("_PLAYER_STATE_JS") < src.index("_AUDIO_SOURCE_JS") < src.index("new MediaRecorder")
-    after_join = src[src.index("join_btn.first.click()"):src.index("Joined the live stream")]
+    after_join = src[src.index("join_btn.first.click("):src.index("Joined the live stream")]
     assert "wait_for_timeout(1000)" in after_join  # was a fixed 3 s
 
 
@@ -1549,3 +1549,34 @@ def test_console_lines_are_not_sent_to_the_scraper_console():
     assert gui.log.name == "ofscraper_plugin.Live Stream Monitor"
     assert api.log.name == "ofscraper_plugin.Live Stream Monitor"
     assert "[Live Monitor Console]" not in inspect.getsource(gui.LiveMonitorTab.append_log)
+
+
+# ── An alert over JOIN LIVE STREAM; a recorder that can't start ──────────────
+
+def test_click_errors_are_cut_to_their_first_line():
+    err = Exception("Locator.click: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator")
+    assert lsm._first_line(err) == "Locator.click: Timeout 30000ms exceeded."
+    assert lsm._first_line(Exception("")) == "Exception"
+
+
+def test_join_closes_an_alert_and_retries():
+    import inspect
+
+    src = inspect.getsource(lsm.Plugin.record_stream)
+    join = src[src.index("Clicking 'JOIN LIVE STREAM'"):src.index("Waiting for the stream player")]
+    assert "for attempt in range(1, _JOIN_ATTEMPTS + 1):" in join
+    # the alert is closed before each click, and each click has its own limit
+    assert join.index("_DISMISS_ALERT_JS") < join.index("click(timeout=_JOIN_CLICK_TIMEOUT_MS)")
+    assert "OnlyFans showed an alert" in join and "_first_line(e)" in join
+    assert lsm._JOIN_ATTEMPTS * lsm._JOIN_CLICK_TIMEOUT_MS <= 30000  # no slower than before
+
+
+def test_a_recorder_that_cannot_start_ends_the_attempt():
+    """It used to stay in "Connecting" forever, so Auto-Capture never retried."""
+    import inspect
+
+    src = inspect.getsource(lsm.Plugin.record_stream)
+    fail = src.index("Couldn't start recording (")
+    loop = src.index("offline_counter = 0")
+    assert fail < loop
+    assert "rec_ctx.close()\n                    return" in src[fail:loop]

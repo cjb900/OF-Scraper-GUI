@@ -2586,6 +2586,17 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.16: an alert over JOIN no longer leaves a capture stuck (2026-10-31)
+
+Reported on v1.3.15 (plugin log `plugin-live_stream_monitor_2026-10-31_18.38.51 (2).log`, screenshot): ninadiamondz and ronnieblaze went live together; both captures started in the same second. In each, the JOIN LIVE STREAM button was disabled at first, then an OnlyFans `ModalUserAlert` dialog intercepted every click until Playwright's 30 s timeout; the player never got a live picture ("found (no live picture yet) after 10.1 s"), no audio, `MediaRecorder failed (no-tracks)`, and the capture then sat in "Connecting" for good (the loop ran with no recorder; the poller doesn't restart a creator with a session).
+
+- The dialog's text isn't in the log. Unconfirmed guess: one account joining two streams at once. 1.3.13's faster live-page wait (it returns as soon as the JOIN button exists, even disabled) may also matter; the click itself waits for the button to be enabled.
+- Join: up to `_JOIN_ATTEMPTS` = 3 tries of `_JOIN_CLICK_TIMEOUT_MS` = 10 s (30 s total, as before). Before each, `_DISMISS_ALERT_JS` closes an open `#ModalUserAlert.show` / `.modal.show[role=dialog]` (OK/Close/Continue/… button, else the close ×, else the last button) and returns its `.modal-body` text, which goes to the console ("OnlyFans showed an alert: "…" — closed it."). Click errors show their first line (`_first_line`); the full Playwright call log goes to the plugin log at debug.
+- A recorder that can't start now closes the browser and returns: a failed start, so the existing cooldown (2 min), "Live capture failed" notification and retry apply.
+- `_DISMISS_ALERT_JS` checked in QtWebEngine: dialog with Cancel/OK and dialog with only a close × are closed and their body text returned; no dialog → ''.
+
+Tests: +3 in `test_live_stream_monitor.py` (first-line errors, join closes the alert before each click with a per-click limit and no more than 30 s total, a recorder that can't start ends the attempt); one older source test follows the new click call.
+
 ### Live Stream Monitor plugin v1.3.15: start-at-launch question, monitor logs out of the Scraper console (2026-10-31)
 
 Asked for: (1) when ticking Enable Auto-Capture, ask whether it should be on every time the GUI launches; (2) Live Stream Monitor lines showed in the Scraper console while scraping a creator (user's log `ofscraper_main_profile_2026-10-31_20.11.39.log`, screenshot).
