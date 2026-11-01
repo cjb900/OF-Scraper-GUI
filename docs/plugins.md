@@ -237,7 +237,7 @@ The plugin handles its own setup on first enable:
 
 ### Live Stream Monitor (`live_stream_monitor`)
 
-> 📸 **Screenshot needed:** the **📺 Live Monitor** page (plugin v1.3.13) showing the creator list and the **No window (headless browser)**, **Hide capture window** and **Desktop notifications** options. A second one with a capture running would help too. Turn on Privacy mode first so no usernames or paths show.
+<img src="images/live-stream-monitor.png" width="800" alt="Live Monitor page (plugin v1.3.13, Privacy mode on): monitor options on the left, the subscriptions table with one creator recording, and the console">
 
 Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects when a creator goes live, and captures the stream with Playwright Chromium into `{username}/Live_Streams/`.
 

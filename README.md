@@ -62,7 +62,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 - **Plugins** (experimental): AI image tagging, an AI assistant, live stream capture and trial-link scanning
 - **Docker** support: run the GUI on a server and open it in your browser
 
-> 📸 **Screenshot needed:** a small row of pictures for this list, e.g. a Check Mode table, the Authentication page and the Plugins page. The GUI guide already has pictures of these that could be reused; the Live Monitor page still needs one ([Plugins](docs/plugins.md#live-stream-monitor-live_stream_monitor)). Turn on Privacy mode first so no usernames or paths show.
+> 📸 **Screenshot needed:** a small row of pictures for this list, e.g. a Check Mode table, the Authentication page and the Plugins page. The GUI guide already has pictures of these that could be reused, and [Plugins](docs/plugins.md#live-stream-monitor-live_stream_monitor) has one of the Live Monitor page. Turn on Privacy mode first so no usernames or paths show.
 
 The [GUI guide](docs/gui-guide.md) walks through every page.
 
