@@ -213,11 +213,83 @@ _EXTRA_REDACTIONS = [
 ]
 
 
+_KNOWN_CACHE: dict = {"key": None, "names": None, "ids": None}
+_NAME_EDGE = r"A-Za-z0-9_.\-"
+
+
+def _loaded_subs_dicts() -> list:
+    """Model dicts (username -> Model) that already exist; never creates managers."""
+    out = []
+    try:
+        import ofscraper.managers.manager as _manager
+
+        mgr = _manager.Manager
+    except Exception:
+        return out
+    if mgr is None:
+        return out
+    try:
+        mm = getattr(mgr, "_model_manager", None)
+        if mm is not None:
+            out.append(getattr(mm, "_all_subs_dict", None) or {})
+    except Exception:
+        pass
+    try:
+        pm = getattr(mgr, "_profile_manager", None)
+        for mm in (getattr(pm, "model_managers", None) or {}).values():
+            out.append(getattr(mm, "_all_subs_dict", None) or {})
+    except Exception:
+        pass
+    return [d for d in out if d]
+
+
+def _known_model_patterns():
+    """(name_regex, id_regex) for every loaded subscription, cached per load."""
+    dicts = _loaded_subs_dicts()
+    key = tuple((id(d), len(d)) for d in dicts)
+    if key == _KNOWN_CACHE["key"]:
+        return _KNOWN_CACHE["names"], _KNOWN_CACHE["ids"]
+    names, ids = set(), set()
+    for d in dicts:
+        for name, model in list(d.items()):
+            if name and len(str(name)) >= 3:
+                names.add(str(name))
+            try:
+                mid = str(getattr(model, "id", "") or "")
+            except Exception:
+                mid = ""
+            if mid.isdigit() and len(mid) >= 5:
+                ids.add(mid)
+    name_re = id_re = None
+    if names:
+        alt = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+        name_re = re.compile(rf"(?i)(?<![{_NAME_EDGE}])(?:{alt})(?![{_NAME_EDGE}])")
+    if ids:
+        alt = "|".join(sorted(ids, key=len, reverse=True))
+        id_re = re.compile(rf"(?<!\d)(?:{alt})(?!\d)")
+    _KNOWN_CACHE.update(key=key, names=name_re, ids=id_re)
+    return name_re, id_re
+
+
+def redact_known_models(message: str) -> str:
+    """Replace usernames and model IDs of loaded subscriptions anywhere in text."""
+    try:
+        name_re, id_re = _known_model_patterns()
+        if name_re is not None:
+            message = name_re.sub("{model}", message)
+        if id_re is not None:
+            message = id_re.sub("{model_id}", message)
+    except Exception:
+        pass
+    return message
+
+
 def redact_log_message(message: str) -> str:
     """Extra redaction applied to GUI console lines when privacy mode is on."""
     if not is_privacy_mode() or not message:
         return message
-    out = redact_status_message(message)
+    out = redact_known_models(str(message))
+    out = redact_status_message(out)
     try:
         from ofscraper.utils.logs.utils.sensitive import getSenstiveDict
 

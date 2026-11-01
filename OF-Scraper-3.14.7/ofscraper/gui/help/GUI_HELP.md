@@ -270,7 +270,7 @@ Bottom of the sidebar:
   - Table **UserName** column shows `[Hidden for Privacy]`
   - **Download all purchased content**: the **Exclude creators** box and its **Pick…** list show `[Hidden for Privacy]` (search in Pick… still matches real names; the exclusions still apply)
   - **Download failures** dialog Model column and status lines like `Processing …` are masked
-  - Console lines get extra cookie/path/webhook/username redaction, including username lists in logged run settings (e.g. `'url': [...]`, `'usernames': [...]`)
+  - Console lines get extra cookie/path/webhook/username redaction: the username and model ID of every loaded subscription are replaced with `{model}` / `{model_id}` wherever they appear, and username lists in logged run settings (e.g. `'url': [...]`) are hidden
   - Avatars on the model list are suppressed while Privacy is on
   - Preference is stored in `gui_settings.json` (`privacy_mode`)
 - **Version (`v…`)**: Click to open **About** — see [About & text size](#about-text-size).
