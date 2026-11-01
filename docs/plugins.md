@@ -243,7 +243,7 @@ Adds a **📺 Live Monitor** sidebar page that polls your subscriptions, detects
 
 This is **separate** from the Areas checkbox **Streams** (API VODs / stream posts in your normal scrape folders).
 
-**Highlights (plugin v1.3.16)**
+**Highlights (plugin v1.3.17)**
 
 The version shows on the Plugins page and next to the Live Monitor page title.
 
@@ -268,7 +268,7 @@ The version shows on the Plugins page and next to the Live Monitor page title.
 - Capture cooldown so Auto-Capture does not immediately re-spawn the same creator: 30 s after **Stop**, 2 min after any start that didn't reach recording, 10 min after a login timeout
 - **Stop** takes effect within a few seconds, even while the browser is waiting for a login or for the player
 - Recording starts within a few seconds of opening a stream (since v1.3.12 / v1.3.13): instead of fixed waits (5 s after opening the live page, 3 s after JOIN, player checked only every 5 s, then always 8 s for audio), the plugin checks every quarter second for the live page or login redirect, every second for the player and every half second for audio, and moves on as soon as each is ready. The console shows how long each took. The limits are unchanged: 5 s for the live page, 60 s for the player and 8 s for audio
-- If OnlyFans shows an alert over the **JOIN LIVE STREAM** button, the console shows what it says, the plugin closes it and clicks again (up to 3 tries). If recording still can't start, the attempt ends as a failed start and Auto-Capture tries again 2 minutes later (since v1.3.16; before, the creator could stay on "Connecting" with nothing being recorded)
+- If OnlyFans shows an alert over the **JOIN LIVE STREAM** button, the console shows what it says and how it was closed, and the plugin clicks JOIN again (up to 3 tries). It **never accepts anything**: it won't click a button that accepts, agrees, acknowledges or consents, and in a Terms / Privacy / policy notice it won't click OK, Continue or Yes either. It uses the close ×, Close, Cancel, Not now or Later; otherwise it presses Escape, and if the notice is still there it hides it on the page without clicking anything (since v1.3.17). OnlyFans' "updated Terms of Service and Privacy Policy" notice appears in every capture until you accept the new terms yourself on onlyfans.com. If recording still can't start, the attempt ends as a failed start and Auto-Capture tries again 2 minutes later (since v1.3.16; before, the creator could stay on "Connecting" with nothing being recorded)
 - A recording stops by itself when the stream ends, usually within about 5–10 seconds (since v1.3.11): when the capture page shows OnlyFans' **"Live video has ended"** message, the plugin asks OnlyFans right away and stops and saves the recording if OnlyFans agrees. The page text alone never stops it (the words could be in chat); if OnlyFans can't be asked, it stops once the message has been up for 30 seconds
 - As a backup, each monitor poll checks whether OnlyFans still lists the creator as live (the same check that starts captures); two polls in a row without it stop and save the recording, so it ends within about two poll intervals (2–3 min at the default 60 s). The console says why. Since v1.3.8; before, the page could stay on /live with a frozen video that kept the recorder producing data, and the capture ran on
   - This only applies to captures of creators the monitor has seen live; a manual **Capture selected** of someone OnlyFans doesn't list as live isn't stopped this way

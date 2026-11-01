@@ -2586,6 +2586,16 @@ Seen with the user's first real v1.3.6 headless capture: the file stopped growin
 
 Also seen in that capture, not fixed yet: the saved file had a video track (720×1280) but no audio track, while the earlier live tests recorded 1v/1a; the PC was out of memory at the time (7.5 GB used, ~450 MB free, load 56). Waiting on the Live Monitor console export to see what the recorder reported.
 
+### Live Stream Monitor plugin v1.3.17: close OnlyFans alerts without accepting anything (2026-10-31)
+
+The 1.3.16 console export (`Live Stream Monitor Consol.txt`) named the alert: "Please acknowledge and accept our updated Terms of Service and Privacy Policy." in both captures, which then recorded fine side by side (so not a two-streams limit). It shows in every capture because each starts from a clean browser profile with only the Authentication cookies, until the account accepts the terms. 1.3.16's dismiss picked OK/Close/Continue/Yes/Confirm, else the close ×, else the **last button**, so it may have clicked an "Accept" button: the user asked that it log the button and never accept terms.
+
+- `_DISMISS_ALERT_JS` returns `{text, legal, button}`. It never clicks a button whose label matches `/accept|agree|acknowledge|consent/i`; order: close × (`button.close` / `aria-label="Close"`), then Close/Cancel/Not now/Later/Dismiss/No thanks/Skip/×, then (only if the dialog doesn't mention terms/privacy/policy/agreement) OK/Okay/Got it/Continue/Yes/Confirm. No "last button" fallback.
+- `Plugin._close_onlyfans_alert(page)`: if no button was safe, press Escape; if `_ALERT_OPEN_JS` still finds it, `_HIDE_ALERT_JS` hides it (removes `show`, `display:none`, drops `.modal-backdrop` and `body.modal-open`; nothing inside is clicked). Console: `… — closed it with "×"` / `with Escape` / `hid it (no button in it was clicked)`; for a legal notice, plus "Nothing was accepted. To stop this notice, accept the new terms yourself on onlyfans.com."
+- Checked in QtWebEngine with an accept-flag on every agreeing button: ToS with only Accept → no click, hidden; ToS with Accept + × → ×; ToS with I Agree + OK → no click (OK not allowed in a legal notice), hidden; non-legal with OK → OK; no dialog → None. `accepted` stayed false in every case.
+
+Tests: +4 in `test_live_stream_monitor.py` (no alert, button named, Escape then hide for a terms notice with the "nothing was accepted" note, script never picks an agreeing button / no last-button fallback); the join wiring test follows the helper.
+
 ### Live Stream Monitor plugin v1.3.16: an alert over JOIN no longer leaves a capture stuck (2026-10-31)
 
 Reported on v1.3.15 (plugin log `plugin-live_stream_monitor_2026-10-31_18.38.51 (2).log`, screenshot): ninadiamondz and ronnieblaze went live together; both captures started in the same second. In each, the JOIN LIVE STREAM button was disabled at first, then an OnlyFans `ModalUserAlert` dialog intercepted every click until Playwright's 30 s timeout; the player never got a live picture ("found (no live picture yet) after 10.1 s"), no audio, `MediaRecorder failed (no-tracks)`, and the capture then sat in "Connecting" for good (the loop ran with no recorder; the poller doesn't restart a creator with a session).

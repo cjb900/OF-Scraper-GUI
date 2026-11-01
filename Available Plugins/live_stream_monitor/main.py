@@ -271,20 +271,44 @@ _LIVE_PAGE_STATE_JS = """() => {
 # blocks every click (seen 2026-10-31 with two captures starting together).
 _JOIN_ATTEMPTS = 3
 _JOIN_CLICK_TIMEOUT_MS = 10000
-# Close an open OnlyFans alert dialog. Returns its text ('' = none open).
+# Close an open OnlyFans alert dialog without agreeing to anything.
+# Returns None (no dialog) or {text, legal, button}: *button* is the label of
+# the button clicked, '' if no button was safe to click. Never clicks a button
+# that accepts/agrees/acknowledges/consents; in a Terms / Privacy / policy
+# dialog it also won't click OK / Continue / Yes (they can mean "I agree").
+_ALERT_SELECTOR = '#ModalUserAlert.show, .modal.show[role="dialog"]'
 _DISMISS_ALERT_JS = """() => {
-    const m = document.querySelector('#ModalUserAlert.show, .modal.show[role="dialog"]');
-    if (!m) return '';
+    const m = document.querySelector('%(sel)s');
+    if (!m) return null;
+    const squash = s => (s || '').replace(/\\s+/g, ' ').trim();
     const body = m.querySelector('.modal-body') || m;
-    const text = (body.innerText || '').replace(/\\s+/g, ' ').trim().slice(0, 300) || '(no text)';
-    const buttons = [...m.querySelectorAll('button')];
-    const pick = buttons.find(b => /^(ok|okay|got it|close|continue|yes|confirm)$/i
-                                     .test((b.textContent || '').trim()))
-        || m.querySelector('button.close, [aria-label="Close"]')
-        || buttons[buttons.length - 1];
+    const text = squash(body.innerText).slice(0, 300) || '(no text)';
+    const label = b => squash(b.textContent) || squash(b.getAttribute('aria-label'));
+    const agrees = /accept|agree|acknowledge|consent/i;
+    const legal = /terms|privacy|policy|agreement/i.test(squash(m.innerText));
+    const safe = [...m.querySelectorAll('button')].filter(b => !agrees.test(label(b)));
+    const closeX = safe.find(b => b.matches('button.close, [aria-label="Close"]'));
+    const neutral = /^(close|cancel|not now|(maybe )?later|dismiss|no thanks|skip|\u00d7)$/i;
+    const okish = /^(ok|okay|got it|continue|yes|confirm)$/i;
+    const pick = closeX
+        || safe.find(b => neutral.test(label(b)))
+        || (legal ? null : safe.find(b => okish.test(label(b))));
     if (pick) pick.click();
-    return text;
-}"""
+    return {text, legal, button: pick ? (label(pick) || 'close') : ''};
+}""" % {"sel": _ALERT_SELECTOR}
+_ALERT_OPEN_JS = "() => !!document.querySelector('%s')" % _ALERT_SELECTOR
+# Last resort when no button is safe and Escape didn't close it: hide the
+# dialog on the page (nothing in it is clicked, nothing is accepted).
+_HIDE_ALERT_JS = """() => {
+    const m = document.querySelector('%(sel)s');
+    if (!m) return false;
+    m.classList.remove('show');
+    m.style.display = 'none';
+    m.setAttribute('aria-hidden', 'true');
+    document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
+    document.body.classList.remove('modal-open');
+    return true;
+}""" % {"sel": _ALERT_SELECTOR}
 
 
 def _first_line(err) -> str:
@@ -2281,6 +2305,40 @@ class Plugin(BasePlugin):
                 pass
         self._thread_logs.uninstall()
 
+    @staticmethod
+    def _close_onlyfans_alert(page) -> str:
+        """Close an OnlyFans alert over the page without accepting anything.
+
+        Returns a console line saying what it said and how it was closed, or
+        '' when no alert is open.
+        """
+        try:
+            alert = page.evaluate(_DISMISS_ALERT_JS)
+        except Exception:
+            return ""
+        if not alert:
+            return ""
+        if alert.get("button"):
+            how = f'closed it with "{alert["button"]}"'
+        else:
+            # No button that's safe to click: Escape, then hide it.
+            how = "closed it with Escape"
+            try:
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(300)
+                if page.evaluate(_ALERT_OPEN_JS):
+                    page.evaluate(_HIDE_ALERT_JS)
+                    how = "hid it (no button in it was clicked)"
+            except Exception:
+                how = "couldn't close it"
+        note = f'OnlyFans showed an alert: "{alert.get("text", "")}" — {how}.'
+        if alert.get("legal"):
+            note += (
+                " Nothing was accepted. To stop this notice, accept the new "
+                "terms yourself on onlyfans.com."
+            )
+        return note
+
     def _in_monitor_thread(self, fn, *args):
         """Run a capture/probe thread with its OF-Scraper logs in the plugin log."""
         self._thread_logs.add_current_thread()
@@ -3344,14 +3402,9 @@ class Plugin(BasePlugin):
                         for attempt in range(1, _JOIN_ATTEMPTS + 1):
                             if stop_event.is_set():
                                 break
-                            try:
-                                alert = rec_page.evaluate(_DISMISS_ALERT_JS)
-                            except Exception:
-                                alert = ""
-                            if alert:
-                                self._emit_log(
-                                    f"[Playwright] OnlyFans showed an alert: \"{alert}\" — closed it."
-                                )
+                            alert_note = self._close_onlyfans_alert(rec_page)
+                            if alert_note:
+                                self._emit_log(f"[Playwright] {alert_note}")
                                 rec_page.wait_for_timeout(500)
                             try:
                                 join_btn.first.click(timeout=_JOIN_CLICK_TIMEOUT_MS)

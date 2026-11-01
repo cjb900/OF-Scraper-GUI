@@ -1566,8 +1566,8 @@ def test_join_closes_an_alert_and_retries():
     join = src[src.index("Clicking 'JOIN LIVE STREAM'"):src.index("Waiting for the stream player")]
     assert "for attempt in range(1, _JOIN_ATTEMPTS + 1):" in join
     # the alert is closed before each click, and each click has its own limit
-    assert join.index("_DISMISS_ALERT_JS") < join.index("click(timeout=_JOIN_CLICK_TIMEOUT_MS)")
-    assert "OnlyFans showed an alert" in join and "_first_line(e)" in join
+    assert join.index("_close_onlyfans_alert(rec_page)") < join.index("click(timeout=_JOIN_CLICK_TIMEOUT_MS)")
+    assert "_first_line(e)" in join
     assert lsm._JOIN_ATTEMPTS * lsm._JOIN_CLICK_TIMEOUT_MS <= 30000  # no slower than before
 
 
@@ -1580,3 +1580,59 @@ def test_a_recorder_that_cannot_start_ends_the_attempt():
     loop = src.index("offline_counter = 0")
     assert fail < loop
     assert "rec_ctx.close()\n                    return" in src[fail:loop]
+
+
+
+# ── Closing an OnlyFans alert never accepts anything ─────────────────────────
+
+class _AlertPage:
+    def __init__(self, alert, open_after_escape=False):
+        self.alert, self.open_after_escape = alert, open_after_escape
+        self.keys, self.hidden = [], False
+        self.keyboard = type("K", (), {"press": lambda _s, k: self.keys.append(k)})()
+
+    def evaluate(self, js):
+        if js is lsm._DISMISS_ALERT_JS:
+            return self.alert
+        if js is lsm._ALERT_OPEN_JS:
+            return self.open_after_escape
+        if js is lsm._HIDE_ALERT_JS:
+            self.hidden = True
+            return True
+        raise AssertionError(js)
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+def test_no_alert_says_nothing():
+    assert lsm.Plugin._close_onlyfans_alert(_AlertPage(None)) == ""
+
+
+def test_the_button_used_is_named():
+    page = _AlertPage({"text": "Your session will expire soon.", "legal": False, "button": "OK"})
+    note = lsm.Plugin._close_onlyfans_alert(page)
+    assert note == 'OnlyFans showed an alert: "Your session will expire soon." — closed it with "OK".'
+    assert page.keys == [] and not page.hidden
+
+
+def test_terms_without_a_safe_button_use_escape_then_hide():
+    tos = {"text": "Please acknowledge and accept our updated Terms of Service and Privacy Policy.",
+           "legal": True, "button": ""}
+    page = _AlertPage(dict(tos))
+    note = lsm.Plugin._close_onlyfans_alert(page)
+    assert page.keys == ["Escape"] and not page.hidden
+    assert "closed it with Escape." in note
+    assert "Nothing was accepted" in note and "onlyfans.com" in note
+
+    page = _AlertPage(dict(tos), open_after_escape=True)
+    note = lsm.Plugin._close_onlyfans_alert(page)
+    assert page.hidden and "hid it (no button in it was clicked)" in note
+
+
+def test_the_alert_script_never_picks_an_agreeing_button():
+    js = lsm._DISMISS_ALERT_JS
+    assert "accept|agree|acknowledge|consent" in js
+    # OK / Continue / Yes are only allowed outside Terms / Privacy / policy dialogs
+    assert "(legal ? null : safe.find(b => okish.test(label(b))))" in js
+    assert "buttons[buttons.length - 1]" not in js  # no "last button" fallback any more
