@@ -16,7 +16,12 @@ Every **?** button in the app opens the matching part of the built-in **Help / R
 
 ### Theme
 
-> 📸 **Screenshot needed:** the main window in **Light** mode next to the same page in **Dark** mode, with the Theme button at the bottom of the sidebar visible. Take it on patch v408 or later, which changed the light-mode colors.
+<table>
+  <tr>
+    <td align="center"><img src="images/theme-dark.png" width="100%" alt="Select Content Areas & Filters in Dark mode; the sidebar button reads Light Mode"><br><em>Dark</em></td>
+    <td align="center"><img src="images/theme-light.png" width="100%" alt="The same page in Light mode; the sidebar button reads Dark Mode"><br><em>Light</em></td>
+  </tr>
+</table>
 
 - Toggle between **Dark** and **Light** mode using the button at the bottom of the left sidebar
 - Theme preference is saved to `gui_settings.json` in your ofscraper config directory
@@ -472,11 +477,9 @@ A dedicated action for downloading specific posts without going through model or
 
 <details><summary>Screenshot</summary>
 
-<img src="https://github.com/user-attachments/assets/bd4c6ed1-7b4a-44f9-a81e-7b14168d64c4" width="600" alt="Select Content Areas & Filters">
+<img src="images/theme-dark.png" width="600" alt="Select Content Areas & Filters: content areas, media types, post text, additional and advanced options; Next: Select Models in the bottom-right corner">
 
 </details>
-
-> 📸 **Screenshot to check:** since patch v403, **Next** sits in the bottom-right corner of this page. Retake the screenshot if it shows Next anywhere else.
 
 Choose which types of posts to scrape and apply filters before the scrape begins:
 
