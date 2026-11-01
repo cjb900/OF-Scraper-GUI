@@ -267,6 +267,7 @@ Bottom of the sidebar:
   - Save Location, Discord webhook, FFmpeg / CDM paths show `[Hidden for Privacy]`
   - **Select Models** list shows `[Hidden for Privacy]` instead of creator names/prices (search still works)
   - Table **UserName** column shows `[Hidden for Privacy]`
+  - **Download all purchased content**: the **Exclude creators** box and its **Pick…** list show `[Hidden for Privacy]` (search in Pick… still matches real names; the exclusions still apply)
   - **Download failures** dialog Model column and status lines like `Processing …` are masked
   - Console lines get extra cookie/path/webhook/username redaction
   - Avatars on the model list are suppressed while Privacy is on

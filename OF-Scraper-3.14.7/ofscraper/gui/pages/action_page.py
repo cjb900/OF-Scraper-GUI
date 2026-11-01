@@ -386,6 +386,10 @@ class ActionPage(QWidget):
             "Equivalent to the CLI '--excluded-username'."
         )
         row.addWidget(self._paid_all_exclude_input)
+        # Privacy mode shows a placeholder instead of the usernames.
+        from ofscraper.gui.utils.privacy_mode import MaskedPathFields
+
+        self._paid_all_exclude_mask = MaskedPathFields(self._paid_all_exclude_input)
         self._paid_all_pick_btn = QPushButton("Pick…")
         self._paid_all_pick_btn.setToolTip(
             "Choose from the creators OF-Scraper knows about: your loaded\n"
@@ -421,7 +425,7 @@ class ActionPage(QWidget):
             return
         excluded = gs.get("paid_all_excluded") or []
         if isinstance(excluded, list):
-            self._paid_all_exclude_input.setText(", ".join(str(x) for x in excluded))
+            self._set_paid_all_excluded_text(", ".join(str(x) for x in excluded))
         types = gs.get("paid_all_media_types")
         if isinstance(types, dict):
             for mt, cb in self._paid_all_type_checks.items():
@@ -442,7 +446,7 @@ class ActionPage(QWidget):
 
     def get_paid_all_options(self):
         """Return {"excluded": [lowercase names], "mediatypes": [...]}."""
-        text = self._paid_all_exclude_input.text()
+        text = self._paid_all_excluded_text()
         excluded = []
         for name in text.split(","):
             name = name.strip().lstrip("@").lower()
@@ -496,8 +500,16 @@ class ActionPage(QWidget):
         search.setPlaceholderText("Search…")
         lay.addWidget(search)
         lst = QListWidget()
+        try:
+            from ofscraper.gui.utils.privacy_mode import mask_username
+        except Exception:
+            mask_username = None
         for n in names:
-            item = QListWidgetItem(n)
+            # Privacy mode: show the placeholder; the real name stays in
+            # UserRole so search and the result still use it.
+            shown = (mask_username(n) if mask_username else None) or n
+            item = QListWidgetItem(shown)
+            item.setData(Qt.ItemDataRole.UserRole, n)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(
                 Qt.CheckState.Checked if n.lower() in current else Qt.CheckState.Unchecked
@@ -506,7 +518,9 @@ class ActionPage(QWidget):
         lay.addWidget(lst)
         search.textChanged.connect(
             lambda t: [
-                lst.item(i).setHidden(t.lower() not in lst.item(i).text().lower())
+                lst.item(i).setHidden(
+                    t.lower() not in str(lst.item(i).data(Qt.ItemDataRole.UserRole)).lower()
+                )
                 for i in range(lst.count())
             ]
         )
@@ -520,11 +534,25 @@ class ActionPage(QWidget):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         chosen = [
-            lst.item(i).text()
+            str(lst.item(i).data(Qt.ItemDataRole.UserRole))
             for i in range(lst.count())
             if lst.item(i).checkState() == Qt.CheckState.Checked
         ]
-        self._paid_all_exclude_input.setText(", ".join(chosen))
+        self._set_paid_all_excluded_text(", ".join(chosen))
+
+    def _paid_all_excluded_text(self):
+        """Real Exclude creators text, also while Privacy mode masks the box."""
+        mask = getattr(self, "_paid_all_exclude_mask", None)
+        if mask is None:
+            return self._paid_all_exclude_input.text()
+        return mask.value(self._paid_all_exclude_input)
+
+    def _set_paid_all_excluded_text(self, text):
+        mask = getattr(self, "_paid_all_exclude_mask", None)
+        if mask is None:
+            self._paid_all_exclude_input.setText(text)
+        else:
+            mask.set_value(self._paid_all_exclude_input, text)
 
     def _load_subscriptions_for_pick(self):
         """No names yet: offer to load the subscription list (the same
