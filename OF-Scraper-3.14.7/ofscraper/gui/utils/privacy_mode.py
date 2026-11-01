@@ -201,6 +201,15 @@ _EXTRA_REDACTIONS = [
         re.compile(r"(?i)\buser_name['\"]?\s*[:=]\s*['\"]?[A-Za-z0-9_.-]+"),
         "user_name={hidden}",
     ),
+    # Arg dumps with lists of usernames, e.g. 'url': ['name'] (check modes),
+    # 'usernames': ['a', 'b'], 'excluded_username': [...]
+    (
+        re.compile(
+            r"(?i)(['\"](?:usernames?|check_usernames|excluded_usernames?|urls?)['\"]\s*:\s*\[)"
+            r"[^\]]*[^\]\s][^\]]*(\])"
+        ),
+        r"\1'{hidden}'\2",
+    ),
 ]
 
 
