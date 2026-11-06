@@ -185,8 +185,36 @@ def test_sync_request_to_a_silent_server_times_out_and_retries(one_second_defaul
     assert result["seconds"] < 6
 
 
-# OFSC_READ_TIMEOUT=0 means "no limit". aiohttp already reads 0 that way, but
-# httpx reads 0 as "fail at once", so it's turned into None for both.
+# A read timeout of 0 means "no limit". aiohttp already reads 0 that way, but
+# httpx reads 0 as "fail at once", so the session turns any 0 into None.
+
+
+def test_zero_from_any_source_means_no_limit(monkeypatch):
+    # a 0 that reaches the session from of_env without the OFSC_ loader
+    real = of_env.getattr
+    monkeypatch.setattr(
+        of_env,
+        "getattr",
+        lambda k, d=None: 0 if k == "OF_READ_TIMEOUT" else real(k, d),
+    )
+    assert sessionManager()._read_timeout is None
+    # and a 0 passed to the session
+    monkeypatch.setattr(of_env, "getattr", real)
+    assert sessionManager(read_timeout=0)._read_timeout is None
+
+
+def test_zero_passed_to_the_session_means_no_limit_on_the_sync_path():
+    body = {}
+
+    def fetch(url):
+        with sessionManager(retries=1, read_timeout=0, log=QUIET) as c:
+            with c.requests(url) as r:
+                body["text"] = r.text_()
+
+    hung, result, attempts = run_with_cap(fetch, server_class=SlowServer)
+    assert not hung
+    assert result["error"] is None, result
+    assert body["text"] == "ok"
 
 
 def test_zero_means_no_limit_on_the_async_path(no_limit_default):

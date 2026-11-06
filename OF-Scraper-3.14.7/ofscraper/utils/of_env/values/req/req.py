@@ -23,9 +23,9 @@ def load_network_config():
     # OF_READ_TIMEOUT: Longest wait for the next piece of a response (seconds),
     # for requests that don't pass their own read timeout. It isn't a limit
     # on the whole response: a slow response that keeps sending is fine.
-    # 0 means no limit (None), as httpx would read 0 as "fail at once".
+    # 0 means no limit (the session manager turns it into None).
     # Default: 60
-    config["OF_READ_TIMEOUT"] = int(os.getenv("OFSC_READ_TIMEOUT", "60")) or None
+    config["OF_READ_TIMEOUT"] = int(os.getenv("OFSC_READ_TIMEOUT", "60"))
 
     # MAX_CONNECTIONS: Maximum number of simultaneous network connections.
     # Default: 200
