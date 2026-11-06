@@ -71,6 +71,8 @@ def _sanitize_ext_text(val: str, default: str) -> str:
 # as "500K"), but the page shows it in KB/s. 1 KB = 1000 bytes, as in
 # --download-limit 500K.
 _KB = 1000
+# the page's spin box range; Qt can't hold much more than 2.1e9 anyway
+_DOWNLOAD_LIMIT_MAX_KB = 999999
 
 
 def _download_limit_to_kb(stored) -> int:
@@ -83,7 +85,7 @@ def _download_limit_to_kb(stored) -> int:
     if limit <= 0:
         return 0
     # Never round a set limit down to 0, which would mean "unlimited"
-    return max(1, round(limit / _KB))
+    return min(_DOWNLOAD_LIMIT_MAX_KB, max(1, round(limit / _KB)))
 
 
 def _download_limit_from_kb(kb: int) -> int:
@@ -805,7 +807,7 @@ class ConfigPage(QWidget):
         scroll, form = self._create_scrollable_form()
         self._add_spin(form, "download_sems", "Download Semaphores", 1, 15, 6,
                        tooltip="Number of concurrent downloads per thread (1-15).\nHigher = more parallel downloads but may hit rate limits.")
-        self._add_spin(form, "download_limit", "Download Speed Limit (KB/s)", 0, 999999, 0,
+        self._add_spin(form, "download_limit", "Download Speed Limit (KB/s)", 0, _DOWNLOAD_LIMIT_MAX_KB, 0,
                        "0 = unlimited. 1 KB = 1000 bytes, as in --download-limit 500K.")
         return scroll
 
