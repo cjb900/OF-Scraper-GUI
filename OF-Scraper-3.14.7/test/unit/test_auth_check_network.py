@@ -38,6 +38,7 @@ import httpx
 import yarl
 
 import ofscraper.data.api.init as init
+import ofscraper.data.api.me as me
 import ofscraper.managers.manager as manager
 import ofscraper.utils.auth.file as auth_file
 import ofscraper.utils.auth.request as auth_requests
@@ -156,6 +157,9 @@ def offline(monkeypatch):
     monkeypatch.setattr(auth_requests, "curr_auth", None)
     monkeypatch.setattr(auth_requests, "last_check", None)
     monkeypatch.setattr(auth_requests.cache, "set", lambda *a, **k: None)
+    # scrape_user registers the user's id and names for log redaction, for
+    # the rest of the process; keep the test user out of other tests
+    monkeypatch.setattr(me.sensitive, "add_sensitive_pattern", lambda *a, **k: None)
     # traceback_ is added to loggers by the app's log setup
     monkeypatch.setattr(
         logging.getLogger("shared"), "traceback_", lambda *a, **k: None, raising=False
