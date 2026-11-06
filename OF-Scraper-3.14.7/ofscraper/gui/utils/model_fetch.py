@@ -18,6 +18,11 @@ import logging
 import threading
 from typing import Any, Iterable, Optional
 
+from ofscraper.gui.utils.auth_errors import (
+    NETWORK_PROBLEM_PREFIX,
+    network_problem_message,
+)
+
 log = logging.getLogger("shared")
 
 _FETCH_LOCK = threading.RLock()
@@ -405,12 +410,17 @@ def _fetch_subscription_models_locked(
     except asyncio.TimeoutError as e:
         breadcrumb("api_timeout", f"after={int(timeout)}s")
         raise Exception(
-            f"Model list fetch timed out after {int(timeout)}s. "
+            f"{NETWORK_PROBLEM_PREFIX}Model list fetch timed out after {int(timeout)}s. "
             "Check your network / Dynamic Mode and retry."
         ) from e
     except Exception as e:
         msg = str(e).strip() or e.__class__.__name__
         breadcrumb("api_error", f"{type(e).__name__}: {msg}")
+        # the page gets this as text, so mark a network or server problem
+        # for the dialog: it isn't a sign of bad auth
+        problem = network_problem_message(e)
+        if problem:
+            raise Exception(f"{NETWORK_PROBLEM_PREFIX}{problem}") from e
         raise Exception(f"Model list fetch failed: {msg}") from e
 
     breadcrumb("to_dicts_start")

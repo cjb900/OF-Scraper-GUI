@@ -31,6 +31,74 @@ curr_auth = None
 last_check = None
 
 
+class UnusableDynamicRule(Exception):
+    """A dynamic rule's content can't be used to sign requests."""
+
+
+class DynamicRuleUnavailable(Exception):
+    """No dynamic rule source gave a rule that can sign requests.
+
+    This says nothing about the auth: the rule hosts couldn't be reached,
+    had an error, or sent a rule that can't be used.
+    """
+
+    def __init__(self, failures):
+        self.failures = list(failures)
+        reasons = "; ".join(
+            f"{source}: {_failure_reason(e)}" for source, e in self.failures
+        )
+        super().__init__(
+            "Couldn't get a usable dynamic rule to sign requests"
+            + (f" ({reasons})" if reasons else "")
+            + ". This isn't a problem with your auth. Check your connection or "
+            "VPN, try another dynamic rule source (Dynamic Mode), or try again "
+            "later."
+        )
+
+
+def _failure_reason(e):
+    import httpx
+
+    if isinstance(e, UnusableDynamicRule):
+        return str(e)
+    host = "the rule host"
+    if isinstance(e, httpx.HTTPError):
+        try:
+            host = e.request.url.host
+        except RuntimeError:
+            pass
+    if isinstance(e, httpx.TimeoutException):
+        return f"couldn't reach {host} (timed out)"
+    if isinstance(e, httpx.TransportError):
+        return f"couldn't reach {host} (connection failed)"
+    if isinstance(e, httpx.HTTPStatusError):
+        return f"{host} returned {e.response.status_code}"
+    if isinstance(e, json.JSONDecodeError):
+        return "the reply isn't JSON"
+    return str(e) or type(e).__name__
+
+
+RULE_KEYS = ["static_param", "format", "checksum_indexes", "checksum_constant"]
+SUFFIX_RULE_KEYS = [
+    "static_param",
+    "prefix",
+    "suffix",
+    "checksum_indexes",
+    "checksum_constant",
+]
+
+
+def check_rule(content):
+    """Raise UnusableDynamicRule unless content has the keys signing reads."""
+    if not isinstance(content, dict):
+        found = "null" if content is None else type(content).__name__
+        raise UnusableDynamicRule(f"unusable rule: expected a JSON object, got {found}")
+    keys = SUFFIX_RULE_KEYS if content.get("suffix") else RULE_KEYS
+    missing = [key for key in keys if key not in content]
+    if missing:
+        raise UnusableDynamicRule(f"unusable rule: missing {', '.join(missing)}")
+
+
 def invalidate_auth_cache():
     """Clear in-memory + disk signing-rule cache so the next request re-fetches rules."""
     global curr_auth, last_check
@@ -50,11 +118,8 @@ def read_request_auth():
         "checksum_constant": "0",
     }
 
-    # *values, = get_request_auth()
-    result = get_request_auth()
-    if not result:
-        raise json.JSONDecodeError("No content")
-    (*values,) = result
+    # get_request_auth returns a checked rule or raises DynamicRuleUnavailable
+    (*values,) = get_request_auth()
 
     request_auth.update(zip(request_auth.keys(), values))
     return request_auth
@@ -78,52 +143,63 @@ def get_request_auth():
 
     dynamic = settings.get_settings().dynamic_rules
     auth = None
+    # (source, error) for each source that gave no rule, for the message
+    failures = []
     if dynamic in {"manual"}:
         try:
             auth = get_request_auth_dynamic_rule_manual()
-        except Exception:
-            pass
+        except Exception as e:
+            failures.append((dynamic, e))
     elif dynamic in {"generic"}:
         try:
             auth = get_request_auth_generic()
-        except Exception:
-            pass
+        except Exception as e:
+            failures.append((dynamic, e))
     elif (dynamic) in {"dc", "digital", "digitalcriminal", "digitalcriminals"}:
         try:
             auth = get_request_auth_digitalcriminals()
-        except Exception:
-            pass
+        except Exception as e:
+            failures.append((dynamic, e))
     elif (dynamic) in {"riley"}:
         try:
             auth = get_request_auth_riley()
-        except Exception:
-            pass
+        except Exception as e:
+            failures.append((dynamic, e))
     elif (dynamic) in {"datawhores"}:
         try:
             auth = get_request_auth_datawhores()
-        except Exception:
-            pass
+        except Exception as e:
+            failures.append((dynamic, e))
     elif (dynamic) in {"xagler"}:
         try:
             auth = get_request_auth_xagler()
-        except Exception:
-            pass
+        except Exception as e:
+            failures.append((dynamic, e))
     elif (dynamic) in {"rafa"}:
         try:
             auth = get_request_auth_rafa()
-        except Exception:
-            pass
+        except Exception as e:
+            failures.append((dynamic, e))
 
     # Fallbacks in case selected provider failed, returned 404, or returned invalid/obsolete rules
     if auth is None or (isinstance(auth, (tuple, list)) and len(auth) > 1 and "26974" in str(auth[1])):
-        for fallback_fn in [get_request_auth_digitalcriminals, get_request_auth_riley]:
+        for name, fallback_fn in [
+            ("digitalcriminals", get_request_auth_digitalcriminals),
+            ("riley", get_request_auth_riley),
+        ]:
             try:
                 cand = fallback_fn()
                 if cand and isinstance(cand, (tuple, list)) and len(cand) > 1 and "26974" not in str(cand[1]):
                     auth = cand
                     break
-            except Exception:
-                pass
+                failures.append((name, UnusableDynamicRule("sent an obsolete rule")))
+            except Exception as e:
+                failures.append((name, e))
+
+    if auth is None:
+        # Not cached, so the next request tries again. Callers that make
+        # several attempts (the auth check) fetch the rule once first.
+        raise DynamicRuleUnavailable(failures)
 
     cache.set("api_onlyfans_sign", auth, of_env.getattr("THIRTY_EXPIRY"))
     curr_auth = auth
@@ -272,6 +348,7 @@ def get_request_auth_digitalcriminals():
 
 
 def request_auth_helper_picker(content):
+    check_rule(content)
     token = content.get("app_token") or content.get("app-token")
     if token:
         import os

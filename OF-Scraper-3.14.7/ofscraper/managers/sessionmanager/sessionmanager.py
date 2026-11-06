@@ -285,11 +285,13 @@ class sessionManager:
             if total_timeout is not None
             else of_env.getattr("TOTAL_TIMEOUT")
         )
+        # 0 means no limit (None), wherever it comes from: aiohttp reads 0
+        # that way, but httpx reads 0 as "fail at once"
         self._read_timeout = (
             read_timeout
             if read_timeout is not None
             else of_env.getattr("OF_READ_TIMEOUT")
-        )
+        ) or None
         self._pool_connect_timeout = (
             pool_timeout
             if pool_timeout is not None
@@ -523,10 +525,10 @@ class sessionManager:
     ) -> Generator[httpx.Response, None, None]:
         actions = actions or []
         exceptions = exceptions or []
-        log = kwargs.get("log") or self._log
-        retries = kwargs.get("retries") or self._retries
-        wait_min = kwargs.get("wait_min") or self._wait_min
-        wait_max = kwargs.get("wait_max") or self._wait_max
+        log = log or self._log
+        retries = retries if retries is not None else self._retries
+        wait_min = wait_min if wait_min is not None else self._wait_min
+        wait_max = wait_max if wait_max is not None else self._wait_max
 
         for _ in Retrying(
             retry=retry_if_not_exception_type((KeyboardInterrupt, SystemExit)),
@@ -570,7 +572,9 @@ class sessionManager:
                             data=data,
                             timeout=httpx.Timeout(
                                 total_timeout or self._total_timeout,
-                                connect=connect_timeout,
+                                # the TLS handshake counts as connect time:
+                                # None here let a stalled handshake hang forever
+                                connect=connect_timeout or self._connect_timeout,
                                 pool=pool_connect_timeout or self._pool_connect_timeout,
                                 read=read_timeout or self._read_timeout,
                             ),
@@ -625,14 +629,24 @@ class sessionManager:
     ) -> AsyncGenerator[httpx.Response, None]:
         actions = actions or []
         exceptions = exceptions or []
-        retries = kwargs.get("retries") or self._retries
-        wait_min = kwargs.get("wait_min") or self._wait_min
-        wait_max = kwargs.get("wait_max") or self._wait_max
+        retries = retries if retries is not None else self._retries
+        wait_min = wait_min if wait_min is not None else self._wait_min
+        wait_max = wait_max if wait_max is not None else self._wait_max
 
+        # The retry loop only gets the response. The caller's code runs after
+        # it, at the yield below: an error there (e.g. a read timeout while
+        # streaming) must not land inside tenacity's attempt, which swallows
+        # every exception and would start a new request and yield again,
+        # leaving both responses' connections open.
+        r = None
         async for _ in AsyncRetrying(
             stop=tenacity.stop.stop_after_attempt(retries),
             wait=tenacity.wait_random(min=wait_min, max=wait_max),
-            retry=retry_if_not_exception_type((KeyboardInterrupt, SystemExit)),
+            # a cancel (Ctrl+C, a timeout around the call) stops the request:
+            # tenacity's attempt swallows it, so it must not count as a failure
+            retry=retry_if_not_exception_type(
+                (KeyboardInterrupt, SystemExit, asyncio.CancelledError)
+            ),
             reraise=True,
             before_sleep=lambda retry_state: (
                 self._log.debug(
@@ -686,13 +700,23 @@ class sessionManager:
                             )
                             raise SystemExit("OnlyFans Maintenance detected.")
                         r.raise_for_status()
-                    self._sem.release()
-                    yield r
-                    return
                 except Exception as E:
+                    if r is not None:
+                        r.close()
+                        r = None
                     await self._async_handle_error(E, exceptions)
-                    self._sem.release()
                     raise E
+                finally:
+                    self._sem.release()
+
+        try:
+            yield r
+        except BaseException:
+            # unread data stays in the socket buffer until the connection closes
+            r.close()
+            raise
+        else:
+            r.release()
 
     @property
     def sleep(self):
