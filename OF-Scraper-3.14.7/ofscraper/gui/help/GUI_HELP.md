@@ -1589,6 +1589,14 @@ OnlyFans **Wrong user** (API error **code 301**) means the API does not accept t
 5. Do not keep retrying the same cookies after Wrong user — obtain a fresh set.
 6. If credentials test OK but models still fail, continue with **§4** (Dynamic Mode / SSL Verify).
 
+### Age verification (code 117)
+
+In some countries OnlyFans asks you to verify your age after you log in. Until that step is finished, OnlyFans rejects the cookies with **400 Bad Request, code 117**, and **Test Credentials** shows **Credentials Invalid**. Import Cookies and the System / App Browser login don't pick up the verified session, and changing Dynamic Mode or SSL Verify doesn't help.
+
+1. Log into OnlyFans in your browser on this computer and finish the age verification.
+2. Follow **§2** above to copy the auth by hand, from a request made **after** the verification.
+3. Click **Save**, then **Test Credentials** again.
+
 ### 4. Credentials look correct but models still will not load
 
 - Try changing **Dynamic Mode** under **Configuration → Advanced** (signing-rules source).
