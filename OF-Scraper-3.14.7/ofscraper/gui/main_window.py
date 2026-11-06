@@ -872,7 +872,9 @@ class MainWindow(QMainWindow):
                     stream = open(log_path, "a", encoding="utf-8")
                     fh = _logging.StreamHandler(stream)
                     fh.setLevel(_logging.DEBUG)
-                    fh.setFormatter(_logging.Formatter(fmt, "%Y-%m-%d %H:%M:%S"))
+                    # same formatter as the normal log file: masks the
+                    # session cookie and other secrets, strips Rich markup
+                    fh.setFormatter(_log_class.LogFileFormatter(fmt, "%Y-%m-%d %H:%M:%S"))
                     setattr(fh, _GUI_VERBOSE_TAG, True)
                     fh._gui_verbose_stream = stream
                     logger.addHandler(fh)

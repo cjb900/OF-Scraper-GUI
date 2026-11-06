@@ -320,6 +320,22 @@ def enable_rhi_widgets(platform: str = sys.platform, docker: bool = False) -> No
         os.environ.setdefault("QT_WIDGETS_RHI", "1")
 
 
+def _make_gui_log_handler() -> GUILogHandler:
+    """Handler that forwards log lines to the GUI console.
+
+    Uses the same masking as the log file, so the session cookie and other
+    secrets are hidden in the console with Privacy mode on or off. The
+    handler strips Rich tags itself.
+    """
+    from ofscraper.utils.logs.classes.classes import SensitiveFormatter
+
+    handler = GUILogHandler()
+    handler.setFormatter(
+        SensitiveFormatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+    )
+    return handler
+
+
 def launch_gui(manager=None):
     """Launch the PyQt6 GUI application."""
     # Tell Windows to use our own AppUserModelID so the taskbar shows our
@@ -446,10 +462,7 @@ def launch_gui(manager=None):
         log.warning(f"Could not install GUI interaction event filter: {e}")
 
     # Attach GUI log handler to forward logs to the console widget
-    gui_handler = GUILogHandler()
-    gui_handler.setFormatter(
-        logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
-    )
+    gui_handler = _make_gui_log_handler()
     # Hook both loggers used by the scraper
     for logger_name in ["shared", "shared_other"]:
         target_logger = logging.getLogger(logger_name)
