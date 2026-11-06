@@ -67,6 +67,29 @@ def _sanitize_ext_text(val: str, default: str) -> str:
     return s or default
 
 
+# download_limit is stored in bytes per second (a bare number, or a size such
+# as "500K"), but the page shows it in KB/s. 1 KB = 1000 bytes, as in
+# --download-limit 500K.
+_KB = 1000
+
+
+def _download_limit_to_kb(stored) -> int:
+    try:
+        from humanfriendly import parse_size
+
+        limit = parse_size(str(stored).strip()) if stored not in (None, "") else 0
+    except Exception:
+        return 0
+    if limit <= 0:
+        return 0
+    # Never round a set limit down to 0, which would mean "unlimited"
+    return max(1, round(limit / _KB))
+
+
+def _download_limit_from_kb(kb: int) -> int:
+    return int(kb) * _KB
+
+
 def _display_fs_path(value: str) -> str:
     """Normalize Windows filesystem paths for GUI display; Linux unchanged."""
     try:
@@ -783,7 +806,7 @@ class ConfigPage(QWidget):
         self._add_spin(form, "download_sems", "Download Semaphores", 1, 15, 6,
                        tooltip="Number of concurrent downloads per thread (1-15).\nHigher = more parallel downloads but may hit rate limits.")
         self._add_spin(form, "download_limit", "Download Speed Limit (KB/s)", 0, 999999, 0,
-                       "0 = unlimited")
+                       "0 = unlimited. 1 KB = 1000 bytes, as in --download-limit 500K.")
         return scroll
 
     def _create_content_tab(self):
@@ -1173,6 +1196,8 @@ class ConfigPage(QWidget):
                         widget.setPlainText(json.dumps(val, indent=2) if val else "")
                     else:
                         widget.setPlainText(str(val).strip() if val else "")
+                elif isinstance(widget, QSpinBox) and key == "download_limit":
+                    widget.setValue(_download_limit_to_kb(val))
                 elif isinstance(widget, QSpinBox):
                     try:
                         widget.setValue(int(val) if val else 0)
@@ -1455,10 +1480,18 @@ class ConfigPage(QWidget):
                     pass
 
             # Performance
-            for k in ["download_sems", "download_limit"]:
-                w = self._widgets.get(k)
-                if w:
-                    set_nested(config, "performance_options", k, w.value())
+            w = self._widgets.get("download_sems")
+            if w:
+                set_nested(config, "performance_options", "download_sems", w.value())
+            w = self._widgets.get("download_limit")
+            if w:
+                # shown in KB/s, stored in bytes per second
+                set_nested(
+                    config,
+                    "performance_options",
+                    "download_limit",
+                    _download_limit_from_kb(w.value()),
+                )
 
             # Content
             w = self._widgets.get("block_ads")

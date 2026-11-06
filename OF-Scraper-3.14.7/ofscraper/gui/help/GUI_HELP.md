@@ -814,7 +814,7 @@ Note: older GUI builds incorrectly wrote `scripts_options` (typo). Saving from t
 
 - **Thread Count (`performance_options.thread_count`)**: Download threads.
 - **Download Semaphores (`performance_options.download_sems`)**: Limits concurrency inside the downloader.
-- **Download Speed Limit (KB/s) (`performance_options.download_limit`)**: 0 = unlimited.
+- **Download Speed Limit (KB/s) (`performance_options.download_limit`)**: 0 = unlimited. 1 KB = 1000 bytes. `config.json` stores the limit in bytes per second, so 500 here is saved as `500000`.
 
 <a id="config-content"></a>
 ### Content
