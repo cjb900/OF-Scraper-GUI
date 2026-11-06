@@ -288,8 +288,10 @@ def redact_log_message(message: str) -> str:
     """Extra redaction applied to GUI console lines when privacy mode is on."""
     if not is_privacy_mode() or not message:
         return message
-    out = redact_known_models(str(message))
-    out = redact_status_message(out)
+    out = str(message)
+    # The mask table (session cookie, user id, ...) runs first: a model id
+    # replaced inside the session value would split it so it no longer
+    # matches, and the rest of the value would show.
     try:
         from ofscraper.utils.logs.utils.sensitive import getSenstiveDict
 
@@ -300,6 +302,8 @@ def redact_log_message(message: str) -> str:
                 out = out.replace(str(pattern), str(replacement))
     except Exception:
         pass
+    out = redact_known_models(out)
+    out = redact_status_message(out)
     for regex, replacement in _EXTRA_REDACTIONS:
         try:
             out = regex.sub(replacement, out)

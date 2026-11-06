@@ -585,8 +585,11 @@ def _install_gui_log_handler():
     # Level 11 = TRACEBACK_ (DEBUG+1) — catches exceptions logged via
     # log.traceback_() which the scraper uses for all error reporting.
     _gui_log_handler.setLevel(logging.DEBUG + 1)
+    from ofscraper.utils.logs.classes.classes import SensitiveFormatter
+
+    # masks the session cookie and other secrets, with Privacy mode on or off
     _gui_log_handler.setFormatter(
-        logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+        SensitiveFormatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
     )
     logger = logging.getLogger("shared_other")
     logger.addHandler(_gui_log_handler)
