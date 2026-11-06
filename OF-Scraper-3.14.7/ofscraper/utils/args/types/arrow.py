@@ -16,18 +16,19 @@ class ArrowType(click.ParamType):
             t = arrow.get(str(out))
         except arrow.parser.ParserError:
             try:
+                # --before/--after document MM/DD/YYYY, which arrow.get() doesn't parse
+                t = arrow.get(str(out), ["MM/DD/YYYY", "M/D/YYYY"])
+            except arrow.parser.ParserError:
                 x = out
                 x = re.sub("\\byear\\b", "years", x)
                 x = re.sub("\\bday\\b", "days", x)
                 x = re.sub("\\bmonth\\b", "months", x)
                 x = re.sub("\\bweek\\b", "weeks", x)
-                x = re.sub("\\minute\\b", "minutes", x)
-                x = re.sub("\\second\\b", "seconds", x)
+                x = re.sub("\\bminute\\b", "minutes", x)
+                x = re.sub("\\bsecond\\b", "seconds", x)
 
                 arw = arrow.now()
                 t = arw.dehumanize(x)
-            except ValueError as E:
-                raise E
         return t
 
     @property
