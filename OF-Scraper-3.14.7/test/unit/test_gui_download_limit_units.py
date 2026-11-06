@@ -101,6 +101,11 @@ def test_a_saved_limit_is_shown_back_in_kb_per_second(page):
     assert show(page, 0) == 0
 
 
+def test_a_huge_stored_limit_is_shown_at_the_page_maximum(page):
+    # 10 TB/s is past what the page's spin box (and Qt's int) can hold
+    assert show(page, "10TB") == page._widgets["download_limit"].maximum()
+
+
 def test_an_old_bare_number_is_shown_as_the_limit_it_really_sets(page):
     # The old page saved 500 for "500 KB/s"; OF-Scraper reads that as
     # 500 bytes/s and raises it to 1024, about 1 KB/s. Show that, not 0
