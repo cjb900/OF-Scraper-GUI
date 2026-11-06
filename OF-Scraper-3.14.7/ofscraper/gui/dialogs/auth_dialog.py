@@ -2857,7 +2857,7 @@ def _validate_of_credentials(creds: dict) -> "tuple[bool | None, str]":
     import asyncio as _aio
 
     from ofscraper.gui.utils.auth_errors import (
-        format_cred_test_failure,
+        cred_test_failure,
         wrong_user_help_message,
     )
 
@@ -2910,9 +2910,12 @@ def _validate_of_credentials(creds: dict) -> "tuple[bool | None, str]":
         import ofscraper.data.api.me as _me
         user_info = None
         try:
+            # fetch the dynamic rule once, with its own retries. Otherwise
+            # each retry of /me fetches it again from every rule host
+            _auth_req.read_request_auth()
             user_info = _me.scrape_user()
         except Exception as e:
-            return False, format_cred_test_failure(e)
+            return cred_test_failure(e)
 
         if not user_info or not isinstance(user_info, dict):
             return False, wrong_user_help_message(
@@ -2969,7 +2972,7 @@ def _validate_of_credentials(creds: dict) -> "tuple[bool | None, str]":
             "Check your internet connection or try again."
         )
     except Exception as e:
-        return False, format_cred_test_failure(e)
+        return cred_test_failure(e)
 
     finally:
         # Always restore original auth.json ONLY IF test failed
@@ -2981,7 +2984,8 @@ def _validate_of_credentials(creds: dict) -> "tuple[bool | None, str]":
 
 
 class _CredTestWorker(QThread):
-    # success: True=valid, False=invalid, None=inconclusive
+    # success: True=valid, False=invalid, None=inconclusive,
+    # CRED_TEST_UNAVAILABLE=couldn't be checked (network or server problem)
     result_ready = pyqtSignal(object, str)
 
     def __init__(self, creds: dict, parent=None):
@@ -5138,6 +5142,8 @@ class AuthPage(QWidget):
         self._test_progress_dlg.exec()
 
     def _on_test_done(self, success, message: str):
+        from ofscraper.gui.utils.auth_errors import CRED_TEST_UNAVAILABLE
+
         # Close the progress dialog before showing the result.
         try:
             if hasattr(self, "_test_progress_dlg") and self._test_progress_dlg is not None:
@@ -5155,6 +5161,12 @@ class AuthPage(QWidget):
             # Inconclusive — credentials likely valid but session state mismatch
             app_signals.status_message.emit("Credentials test inconclusive — likely valid")
             QMessageBox.information(self, "Credentials Appear Valid", message)
+        elif success == CRED_TEST_UNAVAILABLE:
+            # a network or server problem: says nothing about the credentials
+            app_signals.status_message.emit(
+                "Couldn't check credentials — network or server problem"
+            )
+            QMessageBox.warning(self, "Couldn't Check Credentials", message)
         else:
             app_signals.status_message.emit(f"Credentials failed — {message}")
             QMessageBox.warning(self, "Credentials Invalid", message)
