@@ -476,13 +476,22 @@ def _strip_rich_stdout_handlers():
     Rich console I/O from download worker threads has caused Windows access
     violations mid-scrape (faulthandler cut off inside ``logging.flush``).
     GUI mode uses the Qt console bridge instead.
+
+    Subclasses count too: the terminal handlers are ``SafeRichHandler``,
+    which lives in ofscraper, not in the rich package.
     """
+    from rich.logging import RichHandler
+
     for name in ("shared", "shared_other"):
         lg = logging.getLogger(name)
         for h in list(lg.handlers):
             cls_name = type(h).__name__
             mod = getattr(type(h), "__module__", "") or ""
-            if cls_name == "RichHandler" or mod.startswith("rich"):
+            if (
+                isinstance(h, RichHandler)
+                or cls_name == "RichHandler"
+                or mod.startswith("rich")
+            ):
                 try:
                     lg.removeHandler(h)
                     h.close()
