@@ -49,6 +49,9 @@ def me_replies(monkeypatch):
     monkeypatch.setattr(auth_file, "read_auth", lambda: {})
     # signing isn't part of this test
     monkeypatch.setattr(auth_requests, "read_request_auth", lambda: {})
+    # scrape_user registers the user's id and names for log redaction, for
+    # the rest of the process; keep the test user out of other tests
+    monkeypatch.setattr(me.sensitive, "add_sensitive_pattern", lambda *a, **k: None)
     prompts = []
 
     def make_auth(*args, **kwargs):
