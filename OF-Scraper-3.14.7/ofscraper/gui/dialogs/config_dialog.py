@@ -808,7 +808,8 @@ class ConfigPage(QWidget):
         self._add_spin(form, "download_sems", "Download Semaphores", 1, 15, 6,
                        tooltip="Number of concurrent downloads per thread (1-15).\nHigher = more parallel downloads but may hit rate limits.")
         self._add_spin(form, "download_limit", "Download Speed Limit (KB/s)", 0, _DOWNLOAD_LIMIT_MAX_KB, 0,
-                       "0 = unlimited. 1 KB = 1000 bytes, as in --download-limit 500K.")
+                       "0 = unlimited. 1 KB = 1000 bytes, as in --download-limit 500K.\n"
+                       "One limit shared by all downloads, not set per thread.")
         return scroll
 
     def _create_content_tab(self):
