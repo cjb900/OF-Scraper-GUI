@@ -54,7 +54,8 @@ class scraperManager(CommandManager):
                 logger_mod.resetLogger()
             except Exception:
                 pass
-        check_auth()
+        # "Go to Main Menu" is only offered when the run came from the menu
+        check_auth(include_main_menu=menu)
         with scrape_context_manager():
             with progress_utils.stop_live_screen(clear="all"):
                 with progress_utils.setup_live("main_activity"):

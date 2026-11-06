@@ -12,7 +12,11 @@ class AuthCheckUnavailable(Exception):
     """The auth couldn't be checked (network, server or dynamic rule problem)."""
 
 
-def check_auth():
+class AuthCheckLeft(Exception):
+    """The user chose "Go to Main Menu" in the auth prompt."""
+
+
+def check_auth(include_main_menu=False):
     status = None
     log.info("checking auth status")
     while status != "UP":
@@ -29,6 +33,13 @@ def check_auth():
             if getattr(settings.get_args(), "gui", False):
                 log.debug("GUI mode: skipping interactive auth prompt on auth failure")
                 return
-            make.make_auth(auth=auth_file.read_auth())
+            _, choice = make.make_auth(
+                auth=auth_file.read_auth(), include_main_menu=include_main_menu
+            )
+            if choice == "quit":
+                raise SystemExit(0)
+            if choice == "main":
+                # the main menu catches this and shows itself again
+                raise AuthCheckLeft("back to the main menu")
         else:
             break
