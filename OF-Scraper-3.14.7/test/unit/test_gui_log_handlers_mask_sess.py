@@ -22,6 +22,7 @@ import ofscraper.utils.paths.common as common_paths  # noqa: E402
 from ofscraper.gui.main_window import MainWindow  # noqa: E402
 from ofscraper.gui.signals import app_signals  # noqa: E402
 from ofscraper.gui.utils import privacy_mode as pm  # noqa: E402
+from ofscraper.utils.logs.classes.classes import LogFileFormatter  # noqa: E402
 
 pytestmark = pytest.mark.unit
 
@@ -162,12 +163,30 @@ def test_verbose_log_file_masks_sess(verbose_log, line):
     assert "[bold]" not in text  # Rich markup stripped like the normal log file
 
 
-# -- Privacy mode: a model id inside the session value -----------------------
+# the normal log file's format, from utils/logs/other.py
+NORMAL_LOG_FMT = r" %(asctime)s:\[%(module)s.%(funcName)s:%(lineno)d]  %(message)s"
 
 
-@pytest.fixture
-def loaded_model(monkeypatch):
-    subs = {"realname": SimpleNamespace(id=MODEL_ID)}
+def test_verbose_log_keeps_the_location_like_the_normal_log(verbose_log):
+    handler, folder = verbose_log
+    rec = logging.LogRecord(
+        "shared", logging.DEBUG, "sessionmanager.py", 584, "a plain line", None, None,
+        func="requests",
+    )
+    handler.handle(rec)
+    handler.flush()
+    (path,) = folder.rglob("ofscraper_gui_verbose_*.log")
+    written = path.read_text(encoding="utf-8").splitlines()[-1]
+    assert "[sessionmanager.requests:584]" in written
+    normal = LogFileFormatter(NORMAL_LOG_FMT, "%Y-%m-%d %H:%M:%S").format(rec)
+    assert written == normal
+
+
+# -- Privacy mode: model names and ids ---------------------------------------
+
+
+def load_models(monkeypatch, subs):
+    monkeypatch.setattr(pm, "_KNOWN_CACHE", {"key": None, "names": None, "ids": None})
     monkeypatch.setattr(
         manager_mod,
         "Manager",
@@ -178,9 +197,14 @@ def loaded_model(monkeypatch):
     )
 
 
+@pytest.fixture
+def loaded_model(monkeypatch):
+    load_models(monkeypatch, {"realname": SimpleNamespace(id=MODEL_ID)})
+
+
 def test_model_id_inside_sess_does_not_split_it(loaded_model, privacy):
-    # the mask table runs before model ids are replaced, so the whole value
-    # is still there to match
+    # the id rule doesn't match next to a letter or digit, so the whole
+    # value is still there for the mask table
     privacy(True)
     out = pm.redact_log_message(DICT_LINE)
     assert "{sess}" in out
@@ -189,3 +213,50 @@ def test_model_id_inside_sess_does_not_split_it(loaded_model, privacy):
         assert part not in out
     # model ids elsewhere in the line are still hidden
     assert pm.redact_log_message(f"user {MODEL_ID}") == "user {model_id}"
+    assert pm.redact_log_message(f"/.data/{MODEL_ID}/user_data.db") == "/.data/{model_id}/user_data.db"
+
+
+CREATOR_LINES = [
+    "Downloading from {name}",
+    "saved to /data/{name}/Posts/Videos/clip.mp4",
+    "GET https://onlyfans.com/{name}/media",
+]
+
+
+@pytest.mark.parametrize("name", ["happiness_jo", "pippa.rose"])
+@pytest.mark.parametrize("line", CREATOR_LINES)
+def test_home_folder_name_inside_a_creator_name_doesnt_expose_it(
+    monkeypatch, privacy, name, line
+):
+    # home folder "pi": its mask matches anywhere, and used to cut into the
+    # creator name before the name rule could hide it
+    load_models(monkeypatch, {name: SimpleNamespace(id=55512345)})
+    monkeypatch.setattr(sensitive.paths, "get_username", lambda: "pi")
+    privacy(True)
+    out = pm.redact_log_message(line.format(name=name))
+    assert "{model}" in out
+    assert "{home_directory}" not in out
+    for piece in name.split("pi"):
+        if len(piece) >= 3:
+            assert piece not in out
+
+
+@pytest.mark.parametrize("line", CREATOR_LINES)
+def test_creator_name_holding_the_users_id_doesnt_expose_it(monkeypatch, privacy, line):
+    # me.py registers the user's own id as a plain pattern that matches anywhere
+    name = "creator123456789x"
+    load_models(monkeypatch, {name: SimpleNamespace(id=55512345)})
+    sensitive.add_sensitive_pattern(123456789, "userid")
+    privacy(True)
+    out = pm.redact_log_message(line.format(name=name))
+    assert "{model}" in out
+    assert "creator" not in out
+    assert "userid" not in out
+
+
+def test_handle_made_of_a_letter_and_the_model_id_is_still_hidden(monkeypatch, privacy):
+    # the id rule no longer matches next to a letter; the name rule covers it
+    load_models(monkeypatch, {"u1234567": SimpleNamespace(id=1234567)})
+    privacy(True)
+    assert pm.redact_log_message("Downloading from u1234567") == "Downloading from {model}"
+    assert pm.redact_log_message("model id 1234567 done") == "model id {model_id} done"

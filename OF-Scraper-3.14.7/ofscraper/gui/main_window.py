@@ -868,7 +868,9 @@ class MainWindow(QMainWindow):
                     log_dir.mkdir(parents=True, exist_ok=True)
                     log_path = log_dir / f"ofscraper_gui_verbose_{profile}_{timestamp}.log"
 
-                    fmt = r" %(asctime)s:[%(module)s.%(funcName)s:%(lineno)d]  %(message)s"
+                    # "\[" as in utils/logs/other.py: LogFileFormatter removes
+                    # Rich markup, and an unescaped "[" would drop the location
+                    fmt = r" %(asctime)s:\[%(module)s.%(funcName)s:%(lineno)d]  %(message)s"
                     stream = open(log_path, "a", encoding="utf-8")
                     fh = _logging.StreamHandler(stream)
                     fh.setLevel(_logging.DEBUG)
