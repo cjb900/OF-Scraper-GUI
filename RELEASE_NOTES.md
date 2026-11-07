@@ -4,7 +4,7 @@
 
 ## Unreleased (draft) — OF-Scraper GUI on OF-Scraper-Community 3.16.4
 
-The GUI moves from OF-Scraper 3.14.7 to [OF-Scraper-Community](https://github.com/cloakedkeys/OF-Scraper-Community) **3.16.4**, the maintained fork of OF-Scraper. New patch: **`patch_ofscraper_3.16.4_gui.py`** (patch **`20261107_gui_3_16_4_v419`**). The GUI itself is the same as `v419`. The 3.14.7 patch stays in the repository for existing installs.
+The GUI moves from OF-Scraper 3.14.7 to [OF-Scraper-Community](https://github.com/cloakedkeys/OF-Scraper-Community) **3.16.4**, the maintained fork of OF-Scraper. New patch: **`patch_ofscraper_3.16.4_gui.py`** (patch **`20261107_gui_3_16_4_v420`**). The GUI itself is `v419` plus the GUI fixes made for 3.14.7 at the same time (see "Kept from the GUI"). The 3.14.7 patch stays in the repository for existing installs.
 
 ### ⚠️ Changes to check before moving
 
@@ -31,6 +31,7 @@ The GUI moves from OF-Scraper 3.14.7 to [OF-Scraper-Community](https://github.co
 
 - The remote key helper (`cdrm`) still gets only the pssh and the licence URL, never your cookies (the fork sends them). Manual key mode is still recommended.
 - All GUI settings and behaviours, including the host allowlist, API path and endpoint overrides, signing rules in config, per-type file extensions and the DRM length threshold.
+- The GUI fixes made for 3.14.7 at the same time: **Test Credentials** explains age verification (code 117); Test Credentials and the model list say when a problem is the network or the server, not your auth; the **Download Speed Limit** on the Config page is really in KB/s; the session cookie is masked in the GUI console and the verbose log; a like that doesn't take shows as Failed; the Config page shows Dynamic Mode `digitalcriminals` as `digital` and offers Cache Mode `api_disabled`.
 
 ### Fixes found during the move
 

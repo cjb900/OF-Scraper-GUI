@@ -4,7 +4,7 @@
 
 # Versions
 
-Each patch script works with exactly one OF-Scraper version. To see which patch you have installed, click the version button at the bottom of the sidebar (**About → GUI patch**), e.g. `20261107_gui_3_16_4_v419`.
+Each patch script works with exactly one OF-Scraper version. To see which patch you have installed, click the version button at the bottom of the sidebar (**About → GUI patch**), e.g. `20261107_gui_3_16_4_v420`.
 
 > [!WARNING]
 > **3.16.4 is now the maintained patch.** It is for [OF-Scraper-Community](https://github.com/cloakedkeys/OF-Scraper-Community) 3.16.4, the maintained fork of OF-Scraper, which is on PyPI as [`ofscraper-community`](https://pypi.org/project/ofscraper-community/) (`pip install ofscraper-community==3.16.4`). Uninstall the older `ofscraper` package first: both use the same folder ([Install](install.md#moving-from-ofscraper-3147-or-a-git-install)). The 3.14.7 patch stays for existing OF-Scraper 3.14.7 installs. The 3.12.9, 3.14.3 and 3.14.5 patches have not been updated and may not work properly.
