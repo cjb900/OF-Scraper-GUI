@@ -1,0 +1,7 @@
+{
+  "name": "Live Stream Agora (experiment)",
+  "version": "0.2.0",
+  "author": "Pika experiment",
+  "description": "DEPRECATED — OF rejects agora_python_server_sdk (reason 10). Use Live Stream Monitor (Playwright). Kept for reference only.",
+  "api_version": 1
+}
