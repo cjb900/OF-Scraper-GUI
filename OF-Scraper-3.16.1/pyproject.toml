@@ -58,6 +58,10 @@ test = [
   "random-emoji~=1.0.15",
   "pytest-mock~=3.12.0",
 ]
+gui = [
+  "PyQt6>=6.5",
+  "PyQt6-WebEngine>=6.5",
+]
 docs = ["sphinx-argparse~=0.5.2"]
 ffmpeg = ["pyffmpeg>=2.5.2.3.1"]
 
@@ -92,3 +96,6 @@ filterwarnings = ["error"]
 testpaths = ["test"]
 # test/legacy targets the pre-3.12 module layout and no longer imports
 norecursedirs = ["legacy"]
+markers = [
+    "unit: fast isolated unit tests (the GUI tree's test/unit suite)",
+]
