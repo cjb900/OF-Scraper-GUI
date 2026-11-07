@@ -938,12 +938,13 @@ class ConfigPage(QWidget):
             form,
             "cache-mode",
             "Cache Mode",
-            ["sqlite", "json", "disabled"],
+            ["sqlite", "json", "disabled", "api_disabled"],
             tooltip=(
                 "Storage backend for OF-Scraper's local cache.\n"
                 "- sqlite: faster + more robust for larger caches\n"
                 "- json: simpler, sometimes slower\n"
-                "- disabled: attempt to disable caching (may reduce performance)\n\n"
+                "- disabled: turn the cache off, like --no-cache (may reduce performance)\n"
+                "- api_disabled: turn off only the API response cache, like --no-api-cache\n\n"
                 "Tip: For a one-off rescrape, use the GUI 'ignore cache' options."
             ),
         )
