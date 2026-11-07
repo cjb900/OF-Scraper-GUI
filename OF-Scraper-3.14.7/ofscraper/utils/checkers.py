@@ -11,6 +11,9 @@ log = logging.getLogger("shared")
 class AuthCheckUnavailable(Exception):
     """The auth couldn't be checked (network, server or dynamic rule problem)."""
 
+    # auth_status has logged the reason; run.main needn't repeat it
+    already_logged = True
+
 
 class AuthCheckLeft(Exception):
     """The user chose "Go to Main Menu" in the auth prompt."""

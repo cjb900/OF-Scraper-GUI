@@ -19,7 +19,10 @@ from ofscraper.managers.sessionmanager.sessionmanager import (
 # Imports for the new session classes
 import ofscraper.commands.scraper.actions.utils.globals as common_globals
 from ofscraper.commands.scraper.actions.utils.retries import get_download_req_retries
-from ofscraper.commands.scraper.actions.download.utils.leaky import LeakyBucket
+from ofscraper.commands.scraper.actions.download.utils.leaky import (
+    LeakyBucket,
+    warn_if_limit_looks_too_low,
+)
 import ofscraper.utils.settings as settings
 from ofscraper.commands.scraper.actions.download.utils.chunk import get_chunk_timeout
 from ofscraper.managers.sessionmanager.sleepers import (
@@ -160,6 +163,7 @@ class download_session(sessionManager):
         if read_timeout is None:
             read_timeout = get_chunk_timeout()
         log = kwargs.pop("log", None) or common_globals.log
+        warn_if_limit_looks_too_low()
         self.leaky_bucket = LeakyBucket(settings.get_settings().download_limit, 1)
 
         super().__init__(

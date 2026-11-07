@@ -30,6 +30,11 @@ def print_sign_status():
     status = getstatus()
     if status == "UP":
         console.get_shared_console().print("Status - [bold green]🟢 UP[/bold green]")
+    elif status == "UNAVAILABLE":
+        # auth_status has logged why; this says nothing about the auth
+        console.get_shared_console().print(
+            "Status - [bold yellow]🟡 Couldn't check[/bold yellow]"
+        )
     else:
         console.get_shared_console().print("Status - [bold red]🔴 DOWN[/bold red]")
 

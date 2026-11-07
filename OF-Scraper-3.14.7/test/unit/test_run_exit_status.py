@@ -29,3 +29,26 @@ def test_failed_run_exits_with_status_1_and_logs_the_error(monkeypatch):
 def test_successful_run_returns_normally(monkeypatch):
     monkeypatch.setattr(run, "start_manager", lambda: None)
     run.main()
+
+
+def test_a_failure_that_was_already_logged_is_not_logged_twice(monkeypatch):
+    class Logged(Exception):
+        already_logged = True
+
+    def fail():
+        raise Logged("simulated failure")
+
+    monkeypatch.setattr(run, "start_manager", fail)
+    monkeypatch.setattr(run.exit_manager, "shutdown", lambda: None)
+    records = []
+    handler = logging.Handler(level=logging.ERROR)
+    handler.emit = records.append
+    logger = logging.getLogger("shared")
+    logger.addHandler(handler)
+    try:
+        with pytest.raises(SystemExit) as exit_info:
+            run.main()
+    finally:
+        logger.removeHandler(handler)
+    assert exit_info.value.code == 1
+    assert records == []

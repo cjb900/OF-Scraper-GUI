@@ -2858,6 +2858,7 @@ def _validate_of_credentials(creds: dict) -> "tuple[bool | None, str]":
 
     from ofscraper.gui.utils.auth_errors import (
         cred_test_failure,
+        cred_test_timeout,
         wrong_user_help_message,
     )
 
@@ -2967,10 +2968,7 @@ def _validate_of_credentials(creds: dict) -> "tuple[bool | None, str]":
             )
 
     except _aio.TimeoutError:
-        return False, (
-            "Timed out waiting for model list — OnlyFans did not respond in 45 s.\n"
-            "Check your internet connection or try again."
-        )
+        return cred_test_timeout()
     except Exception as e:
         return cred_test_failure(e)
 

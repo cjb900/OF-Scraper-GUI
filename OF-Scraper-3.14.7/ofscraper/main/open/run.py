@@ -20,7 +20,8 @@ def main():
                 exit_manager.forcedShutDown()
     except Exception as E:
         logging.getLogger("shared").debug(traceback.format_exc())
-        logging.getLogger("shared").error(E)
+        if not getattr(E, "already_logged", False):
+            logging.getLogger("shared").error(E)
         try:
             with exit_context.DelayedKeyboardInterrupt():
                 exit_manager.shutdown()

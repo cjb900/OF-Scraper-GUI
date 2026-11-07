@@ -178,6 +178,14 @@ def network_problem_help_message(problem: str) -> str:
     )
 
 
+def cred_test_timeout() -> tuple:
+    """(result, text) when the model list didn't arrive during Test Credentials:
+    OnlyFans not answering says nothing about the credentials."""
+    return CRED_TEST_UNAVAILABLE, network_problem_help_message(
+        "Timed out waiting for model list — OnlyFans did not respond in 45 s."
+    )
+
+
 def cred_test_failure(exc) -> tuple:
     """(result, text) for a Test Credentials failure. result is
     CRED_TEST_UNAVAILABLE when the credentials couldn't be checked, else False."""

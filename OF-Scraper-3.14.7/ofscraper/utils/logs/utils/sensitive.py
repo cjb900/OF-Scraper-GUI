@@ -52,7 +52,13 @@ def getSenstiveDict() -> dict:
     # 2. Redact profile/download directory paths
     profile_dir = paths.get_username()
     if profile_dir:
-        # Escape the path for regex and replace it
-        combined_patterns.setdefault(re.escape(str(profile_dir)), "{home_directory}")
+        # Escape the name for regex and replace it where it's a whole name, not
+        # inside a longer word: a home folder called "dan" must not turn
+        # "danger" into "{home_directory}ger". "_" doesn't count as part of a
+        # word, so the name is still hidden in a file name like "dan_log.txt".
+        combined_patterns.setdefault(
+            rf"(?<![^\W_]){re.escape(str(profile_dir))}(?![^\W_])",
+            "{home_directory}",
+        )
 
     return combined_patterns
