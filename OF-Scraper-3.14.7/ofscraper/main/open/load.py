@@ -1,7 +1,10 @@
 import logging
 import os
 import platform
+import sys
 import traceback
+
+import click
 
 import ofscraper.main.open.run as run
 import ofscraper.utils.config.config as config_
@@ -39,6 +42,13 @@ def main():
         plugin_manager.discover_and_load()
 
         run.main()
+    except click.exceptions.ClickException as E:
+        # args are parsed with standalone_mode=False, so click raises usage
+        # errors instead of printing them; print them the way click normally
+        # does. Caught here, not in parse_args, so code that reads settings
+        # inside its own try/except still gets an ordinary exception
+        E.show()
+        sys.exit(E.exit_code)
     except Exception as E:
         print(E)
         print(traceback.format_exc())
