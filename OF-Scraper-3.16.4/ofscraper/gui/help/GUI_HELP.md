@@ -852,7 +852,7 @@ Power-user settings. These options mostly affect **network/signing**, **cache be
 
 - **Dynamic Mode (`advanced_options.dynamic-mode-default`)**: Controls which source provides the **request-signing rules** used to talk to OnlyFans.
   - If the OnlyFans API changes (auth/signature errors, 401/403 loops), switching this is one of the first things to try.
-  - **Valid values** (from code): `datawhores`, `digitalcriminals` (aliases: `dc`, `digital`, `digitals`), `xagler`, `rafa`, `generic`, `manual`
+  - **Valid values** (from code): `datawhores`, `digitalcriminals` (aliases: `dc`, `digital`, `digitals`, `digitalcriminal`; the Config page lists and saves it as `digital`), `xagler`, `rafa`, `generic`, `manual`
   - **Default fallback**: if an unknown value is set, the app falls back to the default rule source.
   - **Notes**:
     - `manual` uses **Manual Dynamic Rules** (below) or env `OFSC_DYNAMIC_RULE_MANUAL`.
@@ -898,9 +898,10 @@ Power-user settings. These options mostly affect **network/signing**, **cache be
   - If you see odd connection/proxy/TLS issues, switching backends can help.
 
 - **Cache Mode (`advanced_options.cache-mode`)**: Storage backend for the local cache.
-  - **Valid values** (from code): `sqlite`, `json`, `disabled`
+  - **Valid values** (from code): `sqlite`, `json`, `disabled`, `api_disabled`
   - `sqlite` is generally the best choice for larger caches.
-  - `disabled` attempts to turn caching off (useful for troubleshooting), but can reduce performance and may increase API calls.
+  - `disabled` turns caching off, like `--no-cache` (useful for troubleshooting), but can reduce performance and may increase API calls. It also turns off incremental downloads.
+  - `api_disabled` turns off only the API response cache, like `--no-api-cache`, and keeps sqlite storage for the rest.
   - Tip: for “fresh scrape” behavior, the GUI’s “ignore cache / rescrape” options are usually a better fit than disabling the cache globally.
 
 - **Code Execution (`advanced_options.code-execution`)**: Enables `eval()` for certain placeholder “custom values”.
