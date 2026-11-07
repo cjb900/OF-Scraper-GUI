@@ -4,7 +4,7 @@
 
 # GUI guide
 
-This guide describes the **3.14.7** patch. Older patches have fewer features; see [Versions](versions.md) for what each one includes.
+This guide describes the **3.16.1** patch (the 3.14.7 patch has the same pages). Older patches have fewer features; see [Versions](versions.md) for what each one includes.
 
 Every **?** button in the app opens the matching part of the built-in **Help / README** page, which has the full field-by-field reference.
 
@@ -30,7 +30,7 @@ Every **?** button in the app opens the matching part of the built-in **Help / R
 
 ### About & text size
 
-Click the sidebar version button (e.g. **`v3.14.7`**) — or **Help / README → About** — to open **About OF-Scraper**. Opening it again focuses the same window (it does not stack duplicates).
+Click the sidebar version button (e.g. **`v3.16.1`**) — or **Help / README → About** — to open **About OF-Scraper**. Opening it again focuses the same window (it does not stack duplicates).
 
 <details><summary>Screenshot</summary>
 

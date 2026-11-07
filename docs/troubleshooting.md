@@ -12,9 +12,9 @@ When reporting a problem, include your **GUI patch id** (sidebar version button 
 
 - **Python:** 3.11 and 3.12 are supported, and newer versions also work. **If you run into issues with a newer Python version, use Python [3.11.6](https://www.python.org/downloads/release/python-3116/).** See [Install → Python version](install.md#python-version)
 - **OF-Scraper not found:** the script asks how to install it, or use `--target /path/to/site-packages/ofscraper`. See [Install](install.md#if-of-scraper-is-not-detected)
-- **Broken or corrupt install** (e.g. after an interrupted install, or `ofscraper` / the GUI fails to start with import errors): run `python patch_ofscraper_3.14.7_gui.py --force`. It reinstalls OF-Scraper 3.14.7 and all GUI dependencies from scratch, then patches. See [Install → Repairing a broken install](install.md#repairing-a-broken-install---force)
-- **`ofscraper --gui` runs the wrong copy:** if you are inside a source folder such as `OF-Scraper-3.14.7/`, run it from another folder (e.g. your home folder)
-- **Undo the patch:** `python patch_ofscraper_3.14.7_gui.py --restore /path/to/backup` (the backup path is printed when you patch)
+- **Broken or corrupt install** (e.g. after an interrupted install, or `ofscraper` / the GUI fails to start with import errors): run `python patch_ofscraper_3.16.1_gui.py --force`. It reinstalls OF-Scraper 3.14.7 and all GUI dependencies from scratch, then patches. See [Install → Repairing a broken install](install.md#repairing-a-broken-install---force)
+- **`ofscraper --gui` runs the wrong copy:** if you are inside a source folder such as `OF-Scraper-3.16.1/`, run it from another folder (e.g. your home folder)
+- **Undo the patch:** `python patch_ofscraper_3.16.1_gui.py --restore /path/to/backup` (the backup path is printed when you patch)
 
 ## Login and authentication
 

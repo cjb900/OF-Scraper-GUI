@@ -2,6 +2,41 @@
 
 ---
 
+## Unreleased (draft) — OF-Scraper GUI on OF-Scraper-Community 3.16.1
+
+The GUI moves from OF-Scraper 3.14.7 to [OF-Scraper-Community](https://github.com/cloakedkeys/OF-Scraper-Community) **3.16.1**, the maintained fork of OF-Scraper. New patch: **`patch_ofscraper_3.16.1_gui.py`** (patch **`20261107_gui_3_16_1_v419`**). The GUI itself is the same as `v419`. The 3.14.7 patch stays in the repository for existing installs.
+
+### ⚠️ Changes to check before moving
+
+- **Install from GitHub.** OF-Scraper-Community is not on PyPI (PyPI's `ofscraper` is the older 3.14.7). The patch script installs it from GitHub with pip, pipx or uv, which needs **git**. If you install it yourself: `uv tool install git+https://github.com/cloakedkeys/OF-Scraper-Community@3.16.1` (or the same URL with `pipx install`).
+- **Python 3.11 to 3.15** are supported. Python 3.13 to 3.15 no longer fall back to 3.12.
+- **`filename_collision` now defaults to `"media_id"`** (it was `"overwrite"`): when two media get the same file name, both are kept, the second as `name_<media_id>`. This applies when the setting is missing from config.json; a config.json that already has it keeps its value. Set it to `"overwrite"` to keep the old behavior.
+- **Docker** builds 3.16.1 by default (`GUI_PATCH_VERSION: "3.16.1"`); rebuild the image.
+
+### New from OF-Scraper-Community
+
+- **Fansly**: posts, messages, purchases and livestream recording, from the command line (`site` setting). The GUI's pages are still OnlyFans-only.
+- **Downloads that don't hang**: requests and TLS handshakes time out instead of waiting forever, the download speed limit works, and a cancelled request is not retried.
+- **Clearer login problems**: a logged-out session shows as bad auth, network errors as network errors.
+- **Command line**: `--before` / `--after` take `MM/DD/YYYY` and dates like "3 weeks ago"; a bad option prints a short usage message; a failed run exits with status 1.
+- **Settings read as written**: `incremental_downloads: false`, `cache-mode`, `download_sems: 0`, upper-case user-list names and unknown dynamic rules now behave as the config says.
+- **Database**: table rebuilds and merges keep every row; stories are updated and messages keep their deleted flag.
+- The session cookie is masked in every log line.
+
+### Kept from the GUI
+
+- The remote key helper (`cdrm`) still gets only the pssh and the licence URL, never your cookies (the fork sends them). Manual key mode is still recommended.
+- The purchased-scan warning names the error without the request headers.
+- All GUI settings and behaviours, including the host allowlist, API path and endpoint overrides, signing rules in config, per-type file extensions and the DRM length threshold.
+
+### Fixes found during the move
+
+- The GUI no longer offers PyPI's 3.14.7 as an "update" to 3.16.1.
+- The patch script reads `pipx list --json` again (`json` was never imported, so it always fell back to slower checks).
+- Each scrape no longer leaves an unclosed event loop behind in the Discord log handler.
+
+---
+
 ## 2026-11-01 — Update (September–November 2026) — OF-Scraper GUI 3.14.7
 
 Everything since the **2026-08-29** release (patch `v365`, Live Stream Monitor `1.3.1`). GUI patch tip is now **`20261101_gui_3_14_7_v419`**; **Live Stream Monitor** is **`1.3.18`**. Only the **3.14.7** patch is maintained; the 3.12.9 / 3.14.3 / 3.14.5 patches are still in the repository but only got the installer fix below.
