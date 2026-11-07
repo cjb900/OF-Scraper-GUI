@@ -57,15 +57,22 @@ def _get_pipx_home() -> Path | None:
     return None
 
 
-def _find_pipx_ofscraper_pkg() -> Path | None:
+# OF-Scraper-Community (3.16.4 and later) is on PyPI as "ofscraper-community";
+# upstream and older installs are "ofscraper". pipx and uv name the tool's
+# venv after the package, so look for both.
+PACKAGE_NAMES = ("ofscraper-community", "ofscraper")
+
+
+def _find_pipx_ofscraper_pkg(name: str | None = None) -> Path | None:
     candidates = []
 
     pipx_home = _get_pipx_home()
     if pipx_home:
-        candidates.extend([
-            pipx_home / "venvs" / "ofscraper",
-            pipx_home / "pipx" / "venvs" / "ofscraper",
-        ])
+        for n in (name,) if name else PACKAGE_NAMES:
+            candidates.extend([
+                pipx_home / "venvs" / n,
+                pipx_home / "pipx" / "venvs" / n,
+            ])
 
     for venv_dir in candidates:
         if not venv_dir.is_dir():
@@ -107,16 +114,35 @@ def _get_uv_tool_dir() -> Path | None:
     return None
 
 
-def _find_uv_ofscraper_pkg() -> Path | None:
+def _find_uv_ofscraper_pkg(name: str | None = None) -> Path | None:
     uv_dir = _get_uv_tool_dir()
     if not uv_dir:
         return None
-    venv_dir = uv_dir / "ofscraper"
-    if not venv_dir.is_dir():
-        return None
-    matches = list(venv_dir.glob("**/site-packages/ofscraper/__main__.py"))
-    if matches:
-        return matches[0].parent
+    for n in (name,) if name else PACKAGE_NAMES:
+        venv_dir = uv_dir / n
+        if not venv_dir.is_dir():
+            continue
+        matches = list(venv_dir.glob("**/site-packages/ofscraper/__main__.py"))
+        if matches:
+            return matches[0].parent
+    return None
+
+
+def _installed_package_name(method: str) -> str | None:
+    """The PyPI name of the installed package ("ofscraper-community" or
+    "ofscraper"), or None if it can't be told."""
+    for name in PACKAGE_NAMES:
+        if method == "uv" and _find_uv_ofscraper_pkg(name):
+            return name
+        if method == "pipx" and _find_pipx_ofscraper_pkg(name):
+            return name
+        if method == "pip":
+            try:
+                import importlib.metadata as _meta
+                _meta.version(name)
+                return name
+            except Exception:
+                pass
     return None
 
 
@@ -132,14 +158,13 @@ def _detect_install_method() -> str:
             return "uv"
         if "pipx" in exe_lower:
             return "pipx"
-    try:
-        import importlib.metadata as _meta
-        _meta.version("ofscraper")
-        import ofscraper  # type: ignore
-        if getattr(ofscraper, "__path__", None):
-            return "pip"
-    except Exception:
-        pass
+    if _installed_package_name("pip"):
+        try:
+            import ofscraper  # type: ignore
+            if getattr(ofscraper, "__path__", None):
+                return "pip"
+        except Exception:
+            pass
     return "unknown"
 
 
@@ -257,45 +282,48 @@ def _run(cmd: list[str]) -> int:
 
 def _uninstall_ofscraper(method: str) -> bool:
     """Uninstall ofscraper using the detected package manager. Returns True on success."""
-    if method == "pipx":
-        rc = _run(["pipx", "uninstall", "ofscraper"])
+    name = _installed_package_name(method)
+    if method in ("pipx", "uv", "pip") and name:
+        if method == "pipx":
+            rc = _run(["pipx", "uninstall", name])
+        elif method == "uv":
+            rc = _run(["uv", "tool", "uninstall", name])
+        else:
+            rc = _run([sys.executable, "-m", "pip", "uninstall", "-y", name])
         return rc == 0
-    elif method == "uv":
-        rc = _run(["uv", "tool", "uninstall", "ofscraper"])
-        return rc == 0
-    elif method == "pip":
-        rc = _run([sys.executable, "-m", "pip", "uninstall", "-y", "ofscraper"])
-        return rc == 0
-    else:
-        print("  [!] Could not detect install method. Trying pipx, then uv, then pip...")
+    print("  [!] Could not detect the install. Trying pipx, then uv, then pip...")
+    for name in PACKAGE_NAMES:
         for cmd in [
-            ["pipx", "uninstall", "ofscraper"],
-            ["uv", "tool", "uninstall", "ofscraper"],
-            [sys.executable, "-m", "pip", "uninstall", "-y", "ofscraper"],
+            ["pipx", "uninstall", name],
+            ["uv", "tool", "uninstall", name],
+            [sys.executable, "-m", "pip", "uninstall", "-y", name],
         ]:
             try:
                 if _run(cmd) == 0:
                     return True
             except FileNotFoundError:
                 pass
-        return False
+    return False
 
 
-def _reinstall_stock(method: str) -> bool:
-    """Reinstall stock ofscraper (no GUI patch) from PyPI."""
-    print("\n  Reinstalling stock ofscraper from PyPI...")
+def _reinstall_stock(method: str, name: str | None = None) -> bool:
+    """Reinstall the same package without the GUI patch, from PyPI. name is the
+    package that was installed ("ofscraper-community" or "ofscraper"); look it
+    up before uninstalling, because the install can't be found afterwards."""
+    name = name or _installed_package_name(method) or PACKAGE_NAMES[0]
+    print(f"\n  Reinstalling {name} from PyPI without the GUI patch...")
     if method == "pipx":
-        rc = _run(["pipx", "install", "ofscraper"])
+        rc = _run(["pipx", "install", name])
         return rc == 0
     elif method == "uv":
-        rc = _run(["uv", "tool", "install", "ofscraper"])
+        rc = _run(["uv", "tool", "install", name])
         return rc == 0
     elif method == "pip":
-        rc = _run([sys.executable, "-m", "pip", "install", "ofscraper"])
+        rc = _run([sys.executable, "-m", "pip", "install", name])
         return rc == 0
     else:
         print("  [!] Could not determine install method — skipping reinstall.")
-        print("      Manually run: pipx install ofscraper  (or uv tool install ofscraper)")
+        print(f"      Manually run: pipx install {name}  (or uv tool install {name})")
         return False
 
 
@@ -476,9 +504,10 @@ def _run_action(choice: str, method: str, save_location: str | None) -> None:
         if not _confirm("  Continue?"):
             print("  Cancelled.")
             return
+        name = _installed_package_name(method)
         print("\n  Step 1: Uninstalling current ofscraper...")
         _uninstall_ofscraper(method)
-        _reinstall_stock(method)
+        _reinstall_stock(method, name)
         print("\n  Done. Stock ofscraper is now installed (no GUI patch).")
 
     elif choice == "3":

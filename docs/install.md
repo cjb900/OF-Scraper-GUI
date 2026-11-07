@@ -165,7 +165,7 @@ Enter choice (1-5):
 
 <img src="images/tools-menu.png" width="700" alt="OF-Scraper Tools main menu on Windows: detected install, config and download paths, Uninstall options 1-4, Data management options 5-7 and 0 to exit">
 
-A standalone maintenance and removal tool (`ofscraper_tools.py`) is included. It detects your install method automatically (uv / pipx / pip) and presents two groups of options.
+A standalone maintenance and removal tool (`ofscraper_tools.py`) is included. It detects your install method automatically (uv / pipx / pip) and whether you have `ofscraper-community` or `ofscraper`, and presents two groups of options.
 
 **Run it with:**
 
@@ -176,7 +176,7 @@ python ofscraper_tools.py
 ### Uninstall options
 
 1. **Just uninstall ofscraper** — removes the package only; config and downloaded content are kept
-2. **Just remove the GUI patch** — uninstalls the patched version and reinstalls stock ofscraper from PyPI; your config is kept
+2. **Just remove the GUI patch** — uninstalls the patched version and reinstalls the same package unpatched from PyPI (`ofscraper-community` or `ofscraper`, whichever you had); your config is kept
 3. **Remove ofscraper + all config files** — uninstalls ofscraper and deletes `~/.config/ofscraper/` (includes settings, auth, logs, and databases — everything ofscraper stores outside your download folder)
 4. **Purge everything** — uninstalls ofscraper, deletes config, and deletes your downloaded content. The download path is read from `file_options.save_location` in `config.json` **before** the config is deleted, so the correct path is always used regardless of where you saved content
 
