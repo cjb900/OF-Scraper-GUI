@@ -53,9 +53,12 @@ def test_pick_survives_no_manager(monkeypatch, no_saved_creators):
 def cred_env(tmp_path, monkeypatch):
     import ofscraper.data.api.me as me
     import ofscraper.data.models.utils.retriver as retriver
+    import ofscraper.utils.auth.request as auth_request
     import ofscraper.utils.paths.common as paths
 
     monkeypatch.setattr(paths, "get_auth_file", lambda *a, **k: tmp_path / "auth.json")
+    # Test Credentials fetches the dynamic rule before /me
+    monkeypatch.setattr(auth_request, "read_request_auth", lambda: {})
     monkeypatch.setattr(
         me, "scrape_user",
         lambda *a, **k: {"isAuth": True, "name": "Real Name", "username": "realhandle"},

@@ -89,6 +89,9 @@ def is_wrong_user_failure(exc=None, of_code=None, of_message=None, text: str | N
 
 def format_cred_test_failure(exc) -> str:
     """Turn credential-test exceptions into actionable GUI text."""
+    problem = network_problem_message(exc)
+    if problem:
+        return network_problem_help_message(problem)
     of_code, of_message, detail = extract_of_error(exc)
     if is_wrong_user_failure(exc, of_code, of_message):
         return wrong_user_help_message(detail=detail)
@@ -114,6 +117,15 @@ def format_cred_test_failure(exc) -> str:
 def model_load_failure_dialog_text(detail=None) -> tuple[str, str | None]:
     """Main + optional detailed text for Unable to Load Models dialogs."""
     detail_s = str(detail).strip() if detail else ""
+    if NETWORK_PROBLEM_PREFIX in detail_s:
+        problem = detail_s.split(NETWORK_PROBLEM_PREFIX, 1)[1]
+        return (
+            "Unable to get list of models: this is a network or server "
+            "problem, not a problem with your auth.\n\n"
+            f"{problem}\n\n"
+            "Check your connection or VPN, then click Retry.",
+            detail_s,
+        )
     if detail_s and is_wrong_user_failure(text=detail_s):
         return (
             "Unable to get list of models — OnlyFans rejected the session "
@@ -136,3 +148,75 @@ def model_load_failure_dialog_text(detail=None) -> tuple[str, str | None]:
         "For “Wrong user” / sess and auth_id mismatch, see Help → Auth Issues."
     )
     return main, (detail_s or None)
+
+
+# Marks a model-list failure that is a network or server problem: the model
+# list worker hands its error to the page as text.
+NETWORK_PROBLEM_PREFIX = "Network or server problem: "
+# Test Credentials result when the credentials couldn't be checked at all
+CRED_TEST_UNAVAILABLE = "unavailable"
+
+
+def network_problem_message(exc) -> str | None:
+    """The reason, if exc is a network, server or dynamic-rule problem
+    rather than rejected auth; else None."""
+    try:
+        from ofscraper.data.api.init import unavailable_message
+
+        message = unavailable_message(exc)
+    except Exception:
+        message = None
+    return message or _async_problem_message(exc)
+
+
+def _async_problem_message(exc) -> str | None:
+    """The same, for the aiohttp errors of the model list's async requests.
+
+    The scraper's unavailable_message only knows the httpx errors of its
+    sync requests (the auth check), so the GUI handles these itself.
+    """
+    try:
+        import aiohttp
+    except Exception:
+        return None
+    try:
+        if isinstance(exc, aiohttp.ClientResponseError):
+            host = exc.request_info.url.host
+        else:
+            host = getattr(exc, "host", None)
+    except (AttributeError, RuntimeError):
+        host = None
+    host = host or "the server"
+    if isinstance(exc, aiohttp.ClientConnectionError):
+        reason = (
+            "timed out"
+            if isinstance(exc, aiohttp.ServerTimeoutError)
+            else "connection failed"
+        )
+        return f"Couldn't reach {host} ({reason}). Check your connection or VPN."
+    if isinstance(exc, aiohttp.ClientResponseError):
+        if exc.status == 429:
+            return f"{host} is rate limiting requests. Try again later."
+        if exc.status >= 500:
+            return (
+                f"{host} returned {exc.status}: the server had an error. "
+                "Try again later."
+            )
+    return None
+
+
+def network_problem_help_message(problem: str) -> str:
+    return (
+        "Couldn't check the credentials: this is a network or server problem, "
+        "not a problem with your auth.\n\n"
+        f"{problem}\n\n"
+        "Check your connection or VPN, then Test Credentials again. If it "
+        "keeps failing, try another Dynamic Mode under Configuration → Advanced."
+    )
+
+
+def cred_test_failure(exc) -> tuple:
+    """(result, text) for a Test Credentials failure. result is
+    CRED_TEST_UNAVAILABLE when the credentials couldn't be checked, else False."""
+    result = CRED_TEST_UNAVAILABLE if network_problem_message(exc) else False
+    return result, format_cred_test_failure(exc)
