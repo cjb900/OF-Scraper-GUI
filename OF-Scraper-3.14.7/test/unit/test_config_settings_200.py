@@ -1,0 +1,212 @@
+"""config.json settings that were ignored, rewritten or misread.
+
+1. Given advanced_options.incremental_downloads is false, when the config is
+   read and rebuilt for saving, then it stays false.
+2. Given cache-mode "disabled" or "api_disabled", when settings are merged,
+   then the cache (or only the API cache) is off and the value is kept.
+3. Given responsetype.message is set, when a message post's folder name is
+   built, then it uses that value.
+4. Given download_sems is 0 or negative, when it is read, then the default
+   (at least 1) is used.
+5. Given list names or a dynamic-rule name in config.json, when they are
+   used, then list names match whatever their case, and every accepted name
+   picks the rule it names.
+"""
+
+import logging
+
+import pytest
+from diskcache import Disk
+
+pytestmark = pytest.mark.unit
+
+import ofscraper.utils.config.data as data  # noqa: E402
+import ofscraper.utils.config.file as config_file  # noqa: E402
+import ofscraper.utils.config.schema as schema  # noqa: E402
+import ofscraper.utils.settings as settings  # noqa: E402
+
+
+@pytest.fixture
+def config(monkeypatch):
+    cfg = {}
+    monkeypatch.setattr(config_file, "open_config", lambda *a, **k: cfg)
+    return cfg
+
+
+# 1. incremental_downloads false
+
+
+def test_incremental_downloads_false_is_kept():
+    cfg = {"advanced_options": {"incremental_downloads": False}}
+    assert data.get_incremental_downloads(config=cfg) is False
+    new = schema.get_current_config_schema(cfg)
+    assert new["advanced_options"]["incremental_downloads"] is False
+
+
+@pytest.mark.parametrize("value", [False, True])
+def test_incremental_downloads_legacy_key_is_kept(value):
+    cfg = {"advanced_options": {"enable_auto_after": value}}
+    assert data.get_incremental_downloads(config=cfg) is value
+    new = schema.get_current_config_schema(cfg)
+    assert new["advanced_options"]["incremental_downloads"] is value
+
+
+def test_incremental_downloads_missing_uses_default():
+    assert data.get_incremental_downloads(config={}) is True
+    new = schema.get_current_config_schema({})
+    assert new["advanced_options"]["incremental_downloads"] is True
+
+
+# 2. cache-mode disabled / api_disabled
+
+
+def test_cache_mode_api_disabled_is_kept_in_file():
+    cfg = {"advanced_options": {"cache-mode": "api_disabled"}}
+    assert data.cache_mode_helper(config=cfg) == "api_disabled"
+    new = schema.get_current_config_schema(cfg)
+    assert new["advanced_options"]["cache-mode"] == "api_disabled"
+    # the general cache stays in sqlite storage, as before
+    assert data.get_cache_mode(config=cfg) is Disk
+
+
+def test_cache_mode_disabled_turns_cache_off(config):
+    config["advanced_options"] = {"cache-mode": "disabled"}
+    merged = settings.merged_settings()
+    assert merged.cached_disabled is True
+    assert merged.api_cached_disabled is True
+    assert merged.incremental_downloads is False
+
+
+def test_cache_mode_api_disabled_turns_only_api_cache_off(config):
+    config["advanced_options"] = {"cache-mode": "api_disabled"}
+    merged = settings.merged_settings()
+    assert not merged.cached_disabled
+    assert merged.api_cached_disabled is True
+
+
+# 3. responsetype.message
+
+
+def test_responsetype_message_renames_message_folder(config):
+    import ofscraper.classes.of.posts as posts
+
+    config["responsetype"] = {"message": "Chats"}
+    post = posts.Post({"id": 1}, 1, "a_creator", responsetype="Messages")
+    assert post.modified_responsetype == "Chats"
+
+
+# 4. download_sems <= 0
+
+
+@pytest.mark.parametrize("value", [0, -3, "0"])
+def test_download_sems_below_one_falls_back_to_default(value):
+    cfg = {"performance_options": {"download_sems": value}}
+    sems = data.get_download_semaphores(config=cfg)
+    assert sems == int(data.of_env.getattr("DOWNLOAD_SEM_DEFAULT"))
+    assert sems >= 1
+
+
+# 5. list name case and dynamic-rule names
+
+
+def test_config_list_names_are_lowercased(config):
+    config["advanced_options"] = {
+        "default_user_list": "Favourites, VIP",
+        "default_black_list": ["Muted"],
+    }
+    merged = settings.merged_settings()
+    assert merged.userlist == ["favourites", "vip"]
+    assert merged.blacklist == ["muted"]
+    # the file keeps what the user wrote
+    new = schema.get_current_config_schema(config)
+    assert new["advanced_options"]["default_user_list"] == "Favourites, VIP"
+
+
+@pytest.mark.parametrize("name", ["dv", "dev"])
+def test_removed_deviint_names_are_rejected(name):
+    cfg = {"advanced_options": {"dynamic-mode-default": name}}
+    assert data.get_dynamic(config=cfg) == data.of_env.getattr("DYNAMIC_RULE_DEFAULT")
+
+
+def test_rejected_dynamic_rule_is_logged_once(config, caplog, monkeypatch):
+    monkeypatch.setattr(settings, "_warned_dynamic_rule", None)
+    config["advanced_options"] = {"dynamic-mode-default": "dv"}
+    with caplog.at_level(logging.WARNING, logger="shared"):
+        settings.merged_settings()
+        merged = settings.merged_settings()
+    default = data.of_env.getattr("DYNAMIC_RULE_DEFAULT")
+    assert merged.dynamic_rules == default
+    warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "dynamic-mode-default" in r.getMessage()
+    ]
+    assert len(warnings) == 1
+    assert "'dv'" in warnings[0].getMessage()
+    assert f"'{default}'" in warnings[0].getMessage()
+
+
+def test_accepted_dynamic_rule_is_not_logged(config, caplog):
+    config["advanced_options"] = {"dynamic-mode-default": "DC"}
+    with caplog.at_level(logging.WARNING, logger="shared"):
+        assert settings.merged_settings().dynamic_rules == "dc"
+    assert "dynamic-mode-default" not in caplog.text
+
+
+# The GUI's Config page
+
+
+@pytest.fixture
+def page(monkeypatch):
+    QtWidgets = pytest.importorskip("PyQt6.QtWidgets")
+    import ofscraper.gui.utils.config_validation as config_validation
+    import ofscraper.utils.config.config as config_mod
+    from ofscraper.gui.dialogs import config_dialog
+
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        app = QtWidgets.QApplication([])
+    elif not isinstance(app, QtWidgets.QApplication):
+        pytest.skip("a QCoreApplication from another test is already running")
+    saved = []
+    monkeypatch.setattr(config_file, "write_config", lambda c: saved.append(c))
+    monkeypatch.setattr(
+        config_validation, "show_config_validation_dialog", lambda *a, **k: True
+    )
+    # the page reports with modal message boxes; record them instead
+    messages = []
+
+    class Boxes:
+        StandardButton = QtWidgets.QMessageBox.StandardButton
+
+        @staticmethod
+        def _record(kind):
+            def box(parent, title, text, *a, **k):
+                messages.append((kind, title, text))
+                return QtWidgets.QMessageBox.StandardButton.Ok
+
+            return box
+
+    for kind in ("information", "warning", "critical", "question"):
+        setattr(Boxes, kind, staticmethod(Boxes._record(kind)))
+    monkeypatch.setattr(config_dialog, "QMessageBox", Boxes)
+    p = config_dialog.ConfigPage()
+    p.messages = messages
+
+    def load(cfg):
+        monkeypatch.setattr(config_mod, "read_config", lambda update=False: cfg)
+        monkeypatch.setattr(config_mod, "reset_config_cache", lambda: None)
+        p._load_config()
+
+    p.load = load
+    p.saved = saved
+    yield p
+    p.deleteLater()
+
+
+def test_gui_config_page_keeps_cache_mode_api_disabled(page):
+    page.load({"advanced_options": {"cache-mode": "api_disabled"}})
+    assert page._widgets["cache-mode"].currentText() == "api_disabled"
+    page._save_config()
+    assert page.saved, f"the page didn't save: {page.messages}"
+    assert page.saved[-1]["advanced_options"]["cache-mode"] == "api_disabled"
