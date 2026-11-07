@@ -3,6 +3,7 @@ This module provides a centralized way to access environment variables and
 default settings for the ofscraper application.
 """
 
+import contextlib
 import os
 import threading
 
@@ -153,6 +154,30 @@ def _configured_endpoint_overrides() -> dict[str, str]:
     finally:
         with _endpoint_overrides_lock:
             _resolving_endpoint_overrides = False
+
+
+@contextlib.contextmanager
+def builtin_defaults():
+    """
+    While the block runs, hide OFSC_* variables and variables named after a
+    setting, so getattr returns the built-in defaults. A new config.json is
+    written inside this, so environment values aren't saved as the user's
+    settings; they still apply at runtime once the block ends.
+    """
+    keys = set(get_all_configs())
+    hidden = {
+        name: value
+        for name, value in os.environ.items()
+        if name.startswith("OFSC_") or name in keys
+    }
+    for name in hidden:
+        del os.environ[name]
+    get_all_configs(forced=True)
+    try:
+        yield
+    finally:
+        os.environ.update(hidden)
+        get_all_configs(forced=True)
 
 
 def getattr(key, default=None):
