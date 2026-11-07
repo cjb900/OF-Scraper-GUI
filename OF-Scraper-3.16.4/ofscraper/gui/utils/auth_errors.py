@@ -22,6 +22,25 @@ def wrong_user_help_message(*, detail: str = "") -> str:
     )
 
 
+def age_verification_help_message(*, detail: str = "") -> str:
+    """User-facing text for OnlyFans code 117: age verification not finished."""
+    return (
+        "OnlyFans has not finished verifying your age (code 117).\n\n"
+        "In some countries OnlyFans asks you to verify your age after you log in.\n"
+        "Cookies captured before that step is finished are rejected.\n\n"
+        "How to fix:\n"
+        "1. Log into OnlyFans in your browser on this computer and finish the\n"
+        "   age verification.\n"
+        "2. Copy sess + auth_id (+ auth_uid* if present) + User-Agent + x-bc\n"
+        "   by hand from the SAME Network request, after the verification\n"
+        "   (Help → Auth Issues → manual copy).\n"
+        "   Import Cookies and the System/App Browser login don't pick up the\n"
+        "   verified session.\n"
+        "3. Click Save, then Test Credentials again.\n"
+        f"{detail}"
+    )
+
+
 def extract_of_error(exc) -> tuple[int | None, str | None, str]:
     """Return (code, message, detail_suffix) from an HTTP-ish exception if possible."""
     of_code = None
@@ -73,6 +92,8 @@ def format_cred_test_failure(exc) -> str:
     of_code, of_message, detail = extract_of_error(exc)
     if is_wrong_user_failure(exc, of_code, of_message):
         return wrong_user_help_message(detail=detail)
+    if str(of_code) == "117":
+        return age_verification_help_message(detail=detail)
 
     msg = str(exc)
     if "401" in msg or "unauthorized" in msg.lower():
