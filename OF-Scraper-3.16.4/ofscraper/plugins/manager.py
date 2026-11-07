@@ -16,6 +16,10 @@ from ofscraper.utils.paths.common import get_config_path
 import ofscraper.utils.dates as dates_manager
 import ofscraper.utils.config.data as config_data
 
+# pipx and uv name a tool's venv after the package: "ofscraper-community" for
+# the PyPI install, "ofscraper" for older (git) installs of the same project
+TOOL_VENV_NAMES = ("ofscraper-community", "ofscraper")
+
 
 def _sanitize_plugin_log_name(name: str) -> str:
     import re
@@ -612,12 +616,13 @@ class PluginManager:
         pipx_home = self._get_pipx_home()
         if not pipx_home:
             return None
-        venv_dir = pipx_home / "venvs" / "ofscraper"
-        if not venv_dir.is_dir():
-            return None
-        matches = list(venv_dir.glob("**/site-packages/ofscraper/__main__.py"))
-        if matches:
-            return matches[0].parent
+        for name in TOOL_VENV_NAMES:
+            venv_dir = pipx_home / "venvs" / name
+            if not venv_dir.is_dir():
+                continue
+            matches = list(venv_dir.glob("**/site-packages/ofscraper/__main__.py"))
+            if matches:
+                return matches[0].parent
         return None
 
     def _get_uv_tool_dir(self) -> Path | None:
@@ -646,12 +651,13 @@ class PluginManager:
         uv_dir = self._get_uv_tool_dir()
         if not uv_dir:
             return None
-        venv_dir = uv_dir / "ofscraper"
-        if not venv_dir.is_dir():
-            return None
-        matches = list(venv_dir.glob("**/site-packages/ofscraper/__main__.py"))
-        if matches:
-            return matches[0].parent
+        for name in TOOL_VENV_NAMES:
+            venv_dir = uv_dir / name
+            if not venv_dir.is_dir():
+                continue
+            matches = list(venv_dir.glob("**/site-packages/ofscraper/__main__.py"))
+            if matches:
+                return matches[0].parent
         return None
 
     def _plugin_venv_dir(self, plugin_dir: Path) -> Path:
@@ -730,16 +736,15 @@ class PluginManager:
         pipx_home = self._get_pipx_home()
         if not pipx_home:
             return None
-        venv_dir = pipx_home / "venvs" / "ofscraper"
-        pip_path = venv_dir / "bin" / "pip"
-        if pip_path.exists():
-            return str(pip_path)
-        pip_path3 = venv_dir / "bin" / "pip3"
-        if pip_path3.exists():
-            return str(pip_path3)
-        pip_path_win = venv_dir / "Scripts" / "pip.exe"
-        if pip_path_win.exists():
-            return str(pip_path_win)
+        for name in TOOL_VENV_NAMES:
+            venv_dir = pipx_home / "venvs" / name
+            for pip_path in (
+                venv_dir / "bin" / "pip",
+                venv_dir / "bin" / "pip3",
+                venv_dir / "Scripts" / "pip.exe",
+            ):
+                if pip_path.exists():
+                    return str(pip_path)
         return None
 
     def preload_for_windows_gui(self) -> None:

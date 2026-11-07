@@ -8,8 +8,8 @@ import re
 
 log = logging.getLogger("shared")
 
-PYPI_JSON_URL = "https://pypi.org/pypi/ofscraper/json"
-DEFAULT_PROJECT_URL = "https://pypi.org/project/ofscraper/"
+PYPI_JSON_URL = "https://pypi.org/pypi/ofscraper-community/json"
+DEFAULT_PROJECT_URL = "https://pypi.org/project/ofscraper-community/"
 
 UpdateKind = Literal[
     "up_to_date",
@@ -65,7 +65,7 @@ def _is_newer(latest: str, current: str) -> bool | None:
             pass
     # Without packaging, compare release numbers like the CLI does
     # (ofscraper.utils.logs.logs.is_newer): a git build's +g<hash> part
-    # doesn't make it older, and 3.16.1 is newer than PyPI's 3.14.7.
+    # doesn't make it older than the same release on PyPI.
     lr, cr = _release(latest), _release(current)
     if lr and cr:
         return lr > cr

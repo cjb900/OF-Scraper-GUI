@@ -1422,7 +1422,7 @@ class MainWindow(QMainWindow):
 
         latest = getattr(result, "latest", None) or ""
         current = getattr(result, "current", "") or ""
-        url = getattr(result, "project_url", None) or "https://pypi.org/project/ofscraper/"
+        url = getattr(result, "project_url", None) or "https://pypi.org/project/ofscraper-community/"
         msg = getattr(result, "message", None) or (
             f"A newer OF-Scraper version is available: {latest} (you have {current})."
         )

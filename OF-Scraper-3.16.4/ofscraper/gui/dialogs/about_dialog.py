@@ -29,7 +29,7 @@ from ofscraper.gui.utils.thread_worker import Worker
 from ofscraper.gui.widgets.styled_button import StyledButton
 
 DISCORD_URL = "https://discord.gg/wN7uxEVHRK"
-PYPI_URL = "https://pypi.org/project/ofscraper/"
+PYPI_URL = "https://pypi.org/project/ofscraper-community/"
 
 
 def _tool_version_line(binary_name: str, path: str | None) -> str:

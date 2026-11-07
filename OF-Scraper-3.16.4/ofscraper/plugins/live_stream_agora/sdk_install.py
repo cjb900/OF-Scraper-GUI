@@ -14,6 +14,9 @@ PKG = "agora_python_server_sdk>=2.4.9"
 RECOMMENDED_SDK_VERSION = "2.4.9"
 MIN_SDK_VERSION = "2.4.6"
 LogFn = Callable[[str], None]
+# pipx and uv name the venv after the package: "ofscraper-community" for the
+# PyPI install, "ofscraper" for older (git) installs of the same project
+TOOL_VENV_NAMES = ("ofscraper-community", "ofscraper")
 
 
 def installed_sdk_version() -> str | None:
@@ -86,9 +89,23 @@ def detect_ofscraper_install_method() -> str:
         xdg = os.environ.get("XDG_DATA_HOME", str(home / ".local" / "share"))
         uv_cands = [Path(xdg) / "uv" / "tools"]
     for d in uv_cands:
-        if (d / "ofscraper").is_dir():
+        if any((d / name).is_dir() for name in TOOL_VENV_NAMES):
             return "uv"
 
+    if _pipx_venv_name():
+        return "pipx"
+
+    exe = str(sys.executable).replace("\\", "/").lower()
+    if "uv" in exe and "tools" in exe:
+        return "uv"
+    if "pipx" in exe:
+        return "pipx"
+    return "pip"
+
+
+def _pipx_homes() -> list[Path]:
+    home = Path.home()
+    is_win = platform.system() == "Windows"
     pipx_env = os.environ.get("PIPX_HOME")
     if pipx_env:
         pipx_cands = [Path(pipx_env)]
@@ -103,16 +120,16 @@ def detect_ofscraper_install_method() -> str:
             home / ".local" / "share" / "pipx",
             home / ".local" / "pipx",
         ]
-    for d in pipx_cands:
-        if (d / "venvs" / "ofscraper").is_dir():
-            return "pipx"
+    return pipx_cands
 
-    exe = str(sys.executable).replace("\\", "/").lower()
-    if "uv" in exe and "tools" in exe:
-        return "uv"
-    if "pipx" in exe:
-        return "pipx"
-    return "pip"
+
+def _pipx_venv_name() -> str | None:
+    """Name of the pipx venv that holds ofscraper, or None if there is none."""
+    for d in _pipx_homes():
+        for name in TOOL_VENV_NAMES:
+            if (d / "venvs" / name).is_dir():
+                return name
+    return None
 
 
 def find_uv_binary() -> str | None:
@@ -166,7 +183,7 @@ def describe_install_plan() -> tuple[str, list[str], str]:
 
     Maps to how ofscraper itself was installed:
       - uv   → ``uv pip install … --python <ofscraper python>``
-      - pipx → ``pipx inject ofscraper …`` (fallback: pip into active venv)
+      - pipx → ``pipx inject ofscraper-community …`` (fallback: pip into active venv)
       - pip  → ``python -m pip install …`` into ``sys.executable``
     """
     method = detect_ofscraper_install_method()
@@ -190,8 +207,9 @@ def describe_install_plan() -> tuple[str, list[str], str]:
     if method == "pipx":
         pipx = find_pipx_binary()
         if pipx:
-            cmd = [pipx, "inject", "ofscraper", PKG]
-            return method, cmd, "pipx -> pipx inject ofscraper <pkg>"
+            venv = _pipx_venv_name() or TOOL_VENV_NAMES[0]
+            cmd = [pipx, "inject", venv, PKG]
+            return method, cmd, f"pipx -> pipx inject {venv} <pkg>"
         cmd = [sys.executable, "-m", "pip", "install", "--upgrade", PKG]
         return (
             method,
@@ -286,7 +304,7 @@ def install_agora_sdk(emit: LogFn | None = None) -> bool:
     log(
         "[SDK] Install failed. Manual options:\n"
         "  uv:   uv pip install agora_python_server_sdk --python <ofscraper python>\n"
-        "  pipx: pipx inject ofscraper agora_python_server_sdk\n"
+        "  pipx: pipx inject ofscraper-community agora_python_server_sdk\n"
         "  pip:  python -m pip install agora_python_server_sdk\n"
         f"  (this process python: {sys.executable})"
     )

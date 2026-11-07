@@ -137,7 +137,7 @@ Notes:
 <a id="getting-started-patch"></a>
 ### GUI patch
 
-This GUI is shipped as a **patch** applied into your OF-Scraper install (for example `patch_ofscraper_3.16.1_gui.py`). After applying a new patch and restarting:
+This GUI is shipped as a **patch** applied into your OF-Scraper install (for example `patch_ofscraper_3.16.4_gui.py`). After applying a new patch and restarting:
 
 - About → **GUI patch** shows the current patch id (e.g. `…_v365`).
 - Help / README text and new UI features come from that patch.
@@ -278,7 +278,7 @@ Bottom of the sidebar:
 <a id="about-text-size"></a>
 ### About & text size
 
-Click the sidebar version button (e.g. **`v3.16.1`**) or **Help → About** to open **About OF-Scraper**. Opening again focuses the same About window — it does not stack duplicates.
+Click the sidebar version button (e.g. **`v3.16.4`**) or **Help → About** to open **About OF-Scraper**. Opening again focuses the same About window — it does not stack duplicates.
 
 **About shows**
 
