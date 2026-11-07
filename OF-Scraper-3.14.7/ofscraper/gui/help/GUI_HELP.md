@@ -852,7 +852,7 @@ Power-user settings. These options mostly affect **network/signing**, **cache be
 
 - **Dynamic Mode (`advanced_options.dynamic-mode-default`)**: Controls which source provides the **request-signing rules** used to talk to OnlyFans.
   - If the OnlyFans API changes (auth/signature errors, 401/403 loops), switching this is one of the first things to try.
-  - **Valid values** (from code): `datawhores`, `digitalcriminals` (aliases: `dc`, `digital`, `digitals`), `xagler`, `rafa`, `generic`, `manual`
+  - **Valid values** (from code): `datawhores`, `digitalcriminals` (aliases: `dc`, `digital`, `digitals`, `digitalcriminal`; the Config page lists and saves it as `digital`), `xagler`, `rafa`, `generic`, `manual`
   - **Default fallback**: if an unknown value is set, the app falls back to the default rule source.
   - **Notes**:
     - `manual` uses **Manual Dynamic Rules** (below) or env `OFSC_DYNAMIC_RULE_MANUAL`.

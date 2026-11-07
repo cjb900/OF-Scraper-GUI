@@ -23,6 +23,7 @@ import arrow
 
 import ofscraper.utils.auth.file as auth_file
 import ofscraper.utils.cache.cache as cache
+import ofscraper.utils.const as const
 import ofscraper.utils.of_env.of_env as of_env
 import ofscraper.utils.settings as settings
 import ofscraper.managers.manager as manager
@@ -77,6 +78,7 @@ def get_request_auth():
         return curr_auth
 
     dynamic = settings.get_settings().dynamic_rules
+    dynamic = const.DYNAMIC_ALIASES.get(dynamic, dynamic)
     auth = None
     if dynamic in {"manual"}:
         try:

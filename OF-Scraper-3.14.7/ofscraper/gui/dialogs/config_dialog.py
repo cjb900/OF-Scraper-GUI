@@ -862,7 +862,9 @@ class ConfigPage(QWidget):
             form,
             "dynamic-mode-default",
             "Dynamic Mode",
-            ["datawhores", "digitalcriminals", "xagler", "rafa", "generic", "manual"],
+            # digitalcriminals is listed and saved as "digital", the name a
+            # new config.json holds; its other names select it on load
+            ["datawhores", "digital", "xagler", "rafa", "generic", "manual"],
             tooltip=(
                 "Controls where OF request-signing rules are fetched from.\n"
                 "If scraping breaks due to auth/signature issues, try switching this.\n\n"
@@ -1192,6 +1194,11 @@ class ConfigPage(QWidget):
                     else:
                         widget.setChecked(bool(val))
                 elif isinstance(widget, QComboBox):
+                    if key == "dynamic-mode-default":
+                        # "dc", "digitalcriminals" etc. are listed as "digital"
+                        from ofscraper.utils.const import dynamic_menu_name
+
+                        val = dynamic_menu_name(val) if val else val
                     idx = widget.findText(str(val))
                     if idx >= 0:
                         widget.setCurrentIndex(idx)
