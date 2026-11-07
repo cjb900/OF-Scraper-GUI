@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="OF-Scraper-Community 3.16.1" src="https://img.shields.io/badge/OF--Scraper--Community-3.16.1-3b82f6">
+  <img alt="OF-Scraper-Community 3.16.4" src="https://img.shields.io/badge/OF--Scraper--Community-3.16.4-3b82f6">
   <img alt="Python 3.11 to 3.15" src="https://img.shields.io/badge/Python-3.11%20to%203.15-3776ab?logo=python&logoColor=white">
   <img alt="PyQt6" src="https://img.shields.io/badge/GUI-PyQt6-41cd52?logo=qt&logoColor=white">
   <img alt="Windows, Linux, Docker" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux%20%7C%20Docker-6b7280">
@@ -30,10 +30,10 @@
 
 A self-contained Python script that patches an installed (non-binary) copy of [OF-Scraper-Community](https://github.com/cloakedkeys/OF-Scraper-Community), the maintained fork of [OF-Scraper](https://github.com/datawhores/OF-Scraper), to add a full **PyQt6 GUI**, opened with `ofscraper --gui`.
 
-**Supported version:** OF-Scraper-Community `3.16.1` (`patch_ofscraper_3.16.1_gui.py`).
+**Supported version:** OF-Scraper-Community `3.16.4` (`patch_ofscraper_3.16.4_gui.py`), the PyPI package [`ofscraper-community`](https://pypi.org/project/ofscraper-community/).
 
 > [!WARNING]
-> **3.16.1 is now the maintained patch.** The **3.14.7** patch (`patch_ofscraper_3.14.7_gui.py`, for OF-Scraper 3.14.7 from PyPI) stays in the repository for existing installs. The patches for **3.12.9**, **3.14.3** and **3.14.5** are still in the repository but have not been updated and may not work properly. See [Versions](docs/versions.md).
+> **3.16.4 is now the maintained patch.** The **3.14.7** patch (`patch_ofscraper_3.14.7_gui.py`, for OF-Scraper 3.14.7 from PyPI) stays in the repository for existing installs. The patches for **3.12.9**, **3.14.3** and **3.14.5** are still in the repository but have not been updated and may not work properly. See [Versions](docs/versions.md).
 
 <p align="center">
   <img src="docs/images/select-action.png" width="600" alt="Select Action: Download content from a user (with the User Lists box), like/unlike, download + like/unlike, scrape by URL, Update metadata, Download all purchased content, and the Check Modes">
@@ -82,7 +82,6 @@ The [GUI guide](docs/gui-guide.md) walks through every page.
 ❌ = not tested. Windows is tested on Windows 11; Linux on Debian-based distributions (Ubuntu, Debian, Mint, KDE neon, Pop!_OS, …).
 
 - **Python:** 3.11 to 3.15. **If you run into issues with a newer Python version, use Python [3.11.6](https://www.python.org/downloads/release/python-3116/)** (recommended).
-- **Git:** needed when the patch script installs OF-Scraper-Community for you, because it is installed from GitHub ([git-scm.com](https://git-scm.com/downloads), or `sudo apt install git` on Linux).
 - **FFmpeg** (needed for DRM videos): version 6 or newer works. **If you run into issues with a version above 7.1.1, use FFmpeg 7.1.1.**
 
 More detail: [Install](docs/install.md).
@@ -91,18 +90,27 @@ More detail: [Install](docs/install.md).
 
 **Prerequisites:** you need one of these:
 
-- **OF-Scraper-Community 3.16.1 already installed** ([OF-Scraper-Community on GitHub](https://github.com/cloakedkeys/OF-Scraper-Community); it is not on PyPI, so install it from GitHub, e.g. `uv tool install git+https://github.com/cloakedkeys/OF-Scraper-Community@3.16.1`), or
-- **If it is not installed:** **Python**, **git** and one of **pip**, **pipx** or **uv**, so the patch script can install it for you.
+- **OF-Scraper-Community 3.16.4 already installed.** It is on PyPI as [`ofscraper-community`](https://pypi.org/project/ofscraper-community/):
 
-The PyPI package `ofscraper` is the older upstream OF-Scraper (3.14.7); the 3.16.1 patch does not fit it.
+  ```bash
+  pip install ofscraper-community==3.16.4
+  # or
+  uv tool install ofscraper-community==3.16.4
+  # or
+  pipx install ofscraper-community==3.16.4
+  ```
+
+- **If it is not installed:** **Python** and one of **pip**, **pipx** or **uv**, so the patch script can install it for you.
+
+The PyPI package `ofscraper` is the older upstream OF-Scraper (3.14.7); the 3.16.4 patch does not fit it. Both packages use the same `ofscraper` folder, so **uninstall the old one first** (`pip uninstall ofscraper`, `uv tool uninstall ofscraper` or `pipx uninstall ofscraper`). Your config, profiles and downloads are kept. If the patch script finds the old package, it shows these commands and offers to run them.
 
 More detail: [Prerequisites](docs/install.md#prerequisites).
 
-1. Download `patch_ofscraper_3.16.1_gui.py` from this repository.
+1. Download `patch_ofscraper_3.16.4_gui.py` from this repository.
 2. Run it. It finds your OF-Scraper install (or offers to install it), backs up the files it changes, installs PyQt6, and applies the patch:
 
    ```bash
-   python patch_ofscraper_3.16.1_gui.py
+   python patch_ofscraper_3.16.4_gui.py
    ```
   <img src="docs/images/patch-success.png" width="700" alt="Patch script on Windows (pipx install): ofscraper 3.14.7 found, GUI dependencies already installed, &quot;Patch applied successfully.&quot; and the offer to launch the GUI">
 
@@ -115,7 +123,7 @@ More detail: [Prerequisites](docs/install.md#prerequisites).
 
 4. In the GUI: **Authentication** → log in or import cookies; **Configuration** → set your Save Location and FFmpeg path; then **Scraper** → pick an action and go.
 
-To update later, download the newer patch script and run it again. To undo the patch: `python patch_ofscraper_3.16.1_gui.py --restore /path/to/backup`. All options: [Install](docs/install.md).
+To update later, download the newer patch script and run it again. To undo the patch: `python patch_ofscraper_3.16.4_gui.py --restore /path/to/backup`. All options: [Install](docs/install.md).
 
 ## Docker
 

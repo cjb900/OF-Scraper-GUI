@@ -2,16 +2,18 @@
 
 ---
 
-## Unreleased (draft) — OF-Scraper GUI on OF-Scraper-Community 3.16.1
+## Unreleased (draft) — OF-Scraper GUI on OF-Scraper-Community 3.16.4
 
-The GUI moves from OF-Scraper 3.14.7 to [OF-Scraper-Community](https://github.com/cloakedkeys/OF-Scraper-Community) **3.16.1**, the maintained fork of OF-Scraper. New patch: **`patch_ofscraper_3.16.1_gui.py`** (patch **`20261107_gui_3_16_1_v419`**). The GUI itself is the same as `v419`. The 3.14.7 patch stays in the repository for existing installs.
+The GUI moves from OF-Scraper 3.14.7 to [OF-Scraper-Community](https://github.com/cloakedkeys/OF-Scraper-Community) **3.16.4**, the maintained fork of OF-Scraper. New patch: **`patch_ofscraper_3.16.4_gui.py`** (patch **`20261107_gui_3_16_4_v419`**). The GUI itself is the same as `v419`. The 3.14.7 patch stays in the repository for existing installs.
 
 ### ⚠️ Changes to check before moving
 
-- **Install from GitHub.** OF-Scraper-Community is not on PyPI (PyPI's `ofscraper` is the older 3.14.7). The patch script installs it from GitHub with pip, pipx or uv, which needs **git**. If you install it yourself: `uv tool install git+https://github.com/cloakedkeys/OF-Scraper-Community@3.16.1` (or the same URL with `pipx install`).
+- **New package name on PyPI: `ofscraper-community`.** PyPI's `ofscraper` is the older upstream OF-Scraper (3.14.7). Install with `pip install ofscraper-community==3.16.4` (or `uv tool install` / `pipx install` the same). The command is still `ofscraper`. The patch script installs it for you if it isn't there; git is not needed.
+- **Uninstall the old `ofscraper` first.** Both packages use the same `ofscraper` folder. Run `pip uninstall ofscraper` (or `uv tool uninstall ofscraper` / `pipx uninstall ofscraper`), then install `ofscraper-community`. Your config, profiles and downloads are kept. If the patch script finds the old package, it shows these commands and offers to run them.
 - **Python 3.11 to 3.15** are supported. Python 3.13 to 3.15 no longer fall back to 3.12.
 - **`filename_collision` now defaults to `"media_id"`** (it was `"overwrite"`): when two media get the same file name, both are kept, the second as `name_<media_id>`. This applies when the setting is missing from config.json; a config.json that already has it keeps its value. Set it to `"overwrite"` to keep the old behavior.
-- **Docker** builds 3.16.1 by default (`GUI_PATCH_VERSION: "3.16.1"`); rebuild the image.
+- **`metadata -ms`** now means `--mark-stray-locked` (as in OF-Scraper-Community); `-msl` still works, and `--mass-skip` keeps its long name there.
+- **Docker** builds 3.16.4 by default (`GUI_PATCH_VERSION: "3.16.4"`); rebuild the image.
 
 ### New from OF-Scraper-Community
 
@@ -21,17 +23,20 @@ The GUI moves from OF-Scraper 3.14.7 to [OF-Scraper-Community](https://github.co
 - **Command line**: `--before` / `--after` take `MM/DD/YYYY` and dates like "3 weeks ago"; a bad option prints a short usage message; a failed run exits with status 1.
 - **Settings read as written**: `incremental_downloads: false`, `cache-mode`, `download_sems: 0`, upper-case user-list names and unknown dynamic rules now behave as the config says.
 - **Database**: table rebuilds and merges keep every row; stories are updated and messages keep their deleted flag.
-- The session cookie is masked in every log line.
+- The session cookie is masked in every log line, including the log header.
+- **Resuming downloads (3.16.2 to 3.16.4)**: a resumed `.part` keeps the right size and isn't joined to a changed file; a server error or an empty reply is no longer saved as the media file or marked as downloaded; a download without a file size finishes; a retry keeps the `.part`.
+- **Quieter console (3.16.2 to 3.16.4)**: `--output LOW` and `PROMPT` quiet the console; `SUPRESS_*_DISPLAY` values are read as true/false.
 
 ### Kept from the GUI
 
 - The remote key helper (`cdrm`) still gets only the pssh and the licence URL, never your cookies (the fork sends them). Manual key mode is still recommended.
-- The purchased-scan warning names the error without the request headers.
 - All GUI settings and behaviours, including the host allowlist, API path and endpoint overrides, signing rules in config, per-type file extensions and the DRM length threshold.
 
 ### Fixes found during the move
 
-- The GUI no longer offers PyPI's 3.14.7 as an "update" to 3.16.1.
+- The GUI's update check and links use `ofscraper-community` on PyPI, so upstream's 3.14.7 is never offered as an "update".
+- The patch script and plugin installer find pipx and uv installs under the new venv name (`ofscraper-community`) as well as the old one.
+- The patch script no longer takes a pip or venv install on Windows for a pipx install just because the `ofscraper` command is on PATH.
 - The patch script reads `pipx list --json` again (`json` was never imported, so it always fell back to slower checks).
 - Each scrape no longer leaves an unclosed event loop behind in the Discord log handler.
 
