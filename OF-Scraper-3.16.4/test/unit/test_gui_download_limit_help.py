@@ -1,8 +1,8 @@
-"""The download-limit help must say the limit is shared by all downloads.
+"""The GUI's download-limit help must say the limit is shared by all downloads.
 
-The CLI config prompt said "for each thread", and the Config page and its
-help page didn't say either way. One limit is shared by every download in
-the download session.
+The Config page and its help page didn't say either way. One limit is
+shared by every download in the download session. The CLI config prompt
+is covered by test/test_download_limit_help.py.
 """
 
 import sys
@@ -16,11 +16,7 @@ import ofscraper.main.open.load  # noqa: E402,F401
 import pytest
 
 pytestmark = pytest.mark.unit
-import inspect
 import pathlib
-import re
-
-import ofscraper.prompts.prompt_groups.config as config_prompts
 
 HELP = (
     pathlib.Path(__file__).resolve().parents[2]
@@ -29,15 +25,6 @@ HELP = (
     / "help"
     / "GUI_HELP.md"
 )
-
-
-def test_cli_prompt_says_shared():
-    source = inspect.getsource(config_prompts)
-    lines = [line for line in source.splitlines() if "download speed" in line]
-    assert len(lines) == 2, lines  # the config overview and the prompt
-    for line in lines:
-        assert not re.search(r"each\s+thread", line), line
-        assert "shared by all downloads" in line, line
 
 
 def test_gui_help_says_shared():
