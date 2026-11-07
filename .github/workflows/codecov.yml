@@ -16,13 +16,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.11/3.12: what the README supports for the patch install.
-        # 3.13/3.14: allowed for source installs since requires-python <3.16.
-        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        # OF-Scraper-Community 3.16.1 supports Python 3.11 to 3.15
+        # (requires-python >=3.11, <3.16).
+        python-version: ["3.11", "3.12", "3.13", "3.14", "3.15"]
     defaults:
       run:
         # the project (pyproject.toml, uv.lock) lives in the version folder
-        working-directory: OF-Scraper-3.14.7
+        working-directory: OF-Scraper-3.16.1
     steps:
       - name: Checkout
         uses: actions/checkout@v7
