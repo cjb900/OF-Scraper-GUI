@@ -33,6 +33,7 @@ import ofscraper.utils.live.updater as progress_updater
 
 from ofscraper.commands.scraper.actions.download.managers.downloadmanager import (
     DownloadManager,
+    StartOver,
 )
 from ofscraper.commands.scraper.actions.download.utils.retries import (
     download_retry,
@@ -122,6 +123,7 @@ class AltDownloadManager(DownloadManager):
         ).init()
         item["path"] = placeholderObj.tempfilepath
         item["total"] = None
+        item["validator"] = None
 
         _attempt = self._alt_attempt_get(item)
         _attempt.set(0)
@@ -131,10 +133,8 @@ class AltDownloadManager(DownloadManager):
                 try:
                     _attempt = self._alt_attempt_get(item)
                     _attempt.set(_attempt.get(0) + 1)
-                    if _attempt.get() > 1:
-                        pathlib.Path(placeholderObj.tempfilepath).unlink(
-                            missing_ok=True
-                        )
+                    # a retry keeps the part and resumes it (#268): the saved
+                    # size checks it, as on the next run
                     data = await self._get_data(ele, item)
                     status = False
                     if data:
@@ -181,7 +181,14 @@ class AltDownloadManager(DownloadManager):
             common_globals.log.debug(
                 f"{get_medialog(ele)} [attempt {_attempt.get()}/{get_download_retries()}] download temp path {placeholderObj.tempfilepath}"
             )
-            return await self._send_req_inner(c, ele, item, placeholderObj)
+            try:
+                return await self._send_req_inner(c, ele, item, placeholderObj)
+            except StartOver as E:
+                # the part was deleted; ask for the whole track, without a range
+                common_globals.log.debug(f"{get_medialog(ele)} {E}")
+                item["total"] = None
+                item["validator"] = None
+                return await self._send_req_inner(c, ele, item, placeholderObj)
         except OSError as E:
             raise E
         except Exception as E:
@@ -192,9 +199,10 @@ class AltDownloadManager(DownloadManager):
         try:
 
             resume_size = self._get_resume_size(placeholderObj)
-            # Prefer known full size from item for Range requests.
-            known_total = item.get("total")
-            headers = self._get_resume_header(resume_size, known_total)
+            saved_total = item.get("total")
+            headers = self._get_resume_header(
+                resume_size, saved_total, item.get("validator")
+            )
             # reset total
             total = None
             common_globals.log.debug(f"{get_medialog(ele)} resume header {headers}")
@@ -204,32 +212,57 @@ class AltDownloadManager(DownloadManager):
 
             url = ensure_allowed_download_url(url, kind="drm-media")
             # Merge Range (if any) with CDN cookie header.
-            req_headers = {
-                "Cookie": f"{ele.hls_header}{auth_requests.get_cookies_str()}"
+            headers = {
+                **(headers or {}),
+                "Cookie": f"{ele.hls_header}{auth_requests.get_cookies_str()}",
             }
-            if headers:
-                req_headers.update(headers)
             common_globals.log.debug(
                 f"{get_medialog(ele)} [attempt {self._alt_attempt_get(item).get()}/{get_download_retries()}] Downloading media with url  {url}"
             )
             async with c.requests_async(
                 url=url,
                 stream=True,
-                headers=req_headers,
+                headers=headers,
                 params=params,
                 total_timeout=None,
                 read_timeout=get_chunk_timeout(),
             ) as l:
-                expected_full, body_len, resume_size = self._resolve_download_totals(
-                    l, resume_size, placeholderObj.tempfilepath
-                )
-                item["total"] = expected_full
-                total = expected_full
-
+                self._check_status(l, ele, headers)
                 content_type = (l.headers.get("content-type") or "").lower()
+                asked = resume_size
+                try:
+                    total, resume_size = self._full_size_from_reply(
+                        l, resume_size, placeholderObj.tempfilepath, saved_total
+                    )
+                except (TypeError, ValueError):
+                    total = None
+                item["total"] = total
+                self._check_same_file(
+                    l, resume_size, placeholderObj.tempfilepath, item.get("validator")
+                )
+
+                if any(
+                    x in content_type
+                    for x in ("dash+xml", "mpegurl", "application/xml", "text/xml")
+                ):
+                    raise Exception(
+                        f"{get_medialog(ele)} DRM segment returned playlist "
+                        f"content-type={content_type!r} url={url}"
+                    )
+                if total is not None and total <= 0:
+                    raise Exception(
+                        f"{get_medialog(ele)} DRM segment empty size "
+                        f"(content-type={content_type or 'unknown'}, url={url})"
+                    )
+
                 data = {
                     "content-total": total,
                     "content-type": l.headers.get("content-type"),
+                    # the validator of the reply that started the part: a
+                    # resume keeps the saved one
+                    "validator": (
+                        item.get("validator") if resume_size else self._validator(l)
+                    ),
                 }
 
                 common_globals.log.debug(
@@ -238,39 +271,33 @@ class AltDownloadManager(DownloadManager):
                 common_globals.log.debug(
                     f"{get_medialog(ele)} total from request {format_size(data.get('content-total')) if data.get('content-total') else 'unknown'}"
                 )
-                # Never treat playlist/manifest responses or empty sizes as a
-                # successful DRM segment (previously force-marked downloaded).
-                if any(
-                    token in content_type
-                    for token in (
-                        "dash+xml",
-                        "mpegurl",
-                        "application/xml",
-                        "text/xml",
-                    )
-                ):
-                    raise Exception(
-                        f"{get_medialog(ele)} DRM segment URL returned playlist "
-                        f"content-type '{content_type}' instead of media "
-                        f"(url={url})"
-                    )
-                if not total or int(total) <= 0:
-                    raise Exception(
-                        f"{get_medialog(ele)} DRM segment reported empty size "
-                        f"(content-type={content_type or 'unknown'}, url={url})"
-                    )
-                await self._set_data(ele, item, data)
-
                 temp_file_logger(placeholderObj, ele)
                 if await self._check_forced_skip(ele, total) == 0:
+                    if asked and not resume_size:
+                        # a whole-file reply to a resume: the part is stale
+                        pathlib.Path(placeholderObj.tempfilepath).unlink(
+                            missing_ok=True
+                        )
+                    await self._set_data(ele, item, data)
                     item["total"] = 0
                     total = item["total"]
                     return item
                 elif total != resume_size:
-                    await self._download_fileobject_writer(
-                        total, l, ele, placeholderObj, item
+                    # the part and its saved size and validator are replaced
+                    # only once the reply's first bytes arrive (#271)
+                    written = await self._download_fileobject_writer(
+                        total,
+                        l,
+                        ele,
+                        placeholderObj,
+                        item,
+                        resume_size,
+                        partial(self._set_data, ele, item, data),
                     )
-                    await self._total_change_helper(body_len or total)
+                    if total is None:
+                        total = self._size_written(ele, written)
+                        item["total"] = total
+                    await self._total_change_helper(total)
 
             await self._size_checker(placeholderObj.tempfilepath, ele, total)
             return item
@@ -278,44 +305,32 @@ class AltDownloadManager(DownloadManager):
             await self._total_change_helper(0)
             raise E
 
-    async def _download_fileobject_writer(self, total, l, ele, placeholderObj, item):
+    async def _download_fileobject_writer(
+        self, total, l, ele, placeholderObj, item, resume_size=0, on_first_chunk=None
+    ):
         common_globals.log.debug(
             f"{get_medialog(ele)} [attempt {self._alt_attempt_get(item).get()}/{get_download_retries()}] writing media to disk"
         )
-        await self._download_fileobject_writer_streamer(ele, total, l, placeholderObj)
+        written = await self._download_fileobject_writer_streamer(
+            ele, total, l, placeholderObj, resume_size, on_first_chunk
+        )
         common_globals.log.debug(
             f"{get_medialog(ele)} [attempt {self._alt_attempt_get(item).get()}/{get_download_retries()}] finished writing media to disk"
         )
-
-    async def _download_fileobject_writer_reader(self, ele, total, res, placeholderObj):
-        task1 = await self._add_download_job_task(
-            ele, total=total, placeholderObj=placeholderObj
-        )
-        fileobject = await aiofiles.open(placeholderObj.tempfilepath, "ab").__aenter__()
-        try:
-            await fileobject.write(await res.read_())
-        except Exception as E:
-            raise E
-        finally:
-            try:
-                await fileobject.close()
-            except Exception as E:
-                raise E
-            try:
-                await self._remove_download_job_task(task1, ele)
-            except Exception as E:
-                raise E
+        return written
 
     async def _download_fileobject_writer_streamer(
-        self, ele, total, res, placeholderObj
+        self, ele, total, res, placeholderObj, resume_size=0, on_first_chunk=None
     ):
+        """Write the reply to the part and return the bytes written. The part
+        is opened on the first chunk: appended to when resuming, else
+        replaced from 0. Until then the part on disk is left as it was, so a
+        reply with no data doesn't cost it (#271). on_first_chunk runs once
+        the first chunk is written."""
         task1 = await self._add_download_job_task(ele, total, placeholderObj)
         fileobject = None
-        bytes_written = 0
+        written = 0
         try:
-            fileobject = await aiofiles.open(
-                placeholderObj.tempfilepath, "ab"
-            ).__aenter__()
             chunk_iter = res.iter_chunked(get_chunk_size())
 
             while True:
@@ -330,13 +345,20 @@ class AltDownloadManager(DownloadManager):
                     except Exception:
                         pass
                     chunk = await self._next_chunk(chunk_iter, ele)
+                    first = fileobject is None
+                    if first:
+                        fileobject = await aiofiles.open(
+                            placeholderObj.tempfilepath, "ab" if resume_size else "wb"
+                        ).__aenter__()
                     await fileobject.write(chunk)
-                    bytes_written += len(chunk)
+                    written += len(chunk)
+                    if first and on_first_chunk:
+                        await on_first_chunk()
                     send_chunk_msg(ele, total, placeholderObj)
                 except StopAsyncIteration:
                     break  # Exit loop when no more chunks
 
-            if total and bytes_written == 0:
+            if total and written == 0:
                 raise Exception(
                     f"{get_medialog(ele)} incomplete download: "
                     f"wrote 0 bytes (expected file size {total})"
@@ -365,6 +387,7 @@ class AltDownloadManager(DownloadManager):
                     f"Error removing download job task for {ele}: {E}"
                 )
                 raise E
+        return written
 
     async def _handle_result_alt(
         self, sharedPlaceholderObj, ele, audio, video, username, model_id
@@ -507,6 +530,7 @@ class AltDownloadManager(DownloadManager):
         )
         total = int(data.get("content-total")) if data.get("content-total") else None
         item["total"] = total
+        item["validator"] = data.get("validator")
         resume_size = self._get_resume_size(placeholderObj)
         resume_size = self._resume_cleaner(
             resume_size, total, placeholderObj.tempfilepath
