@@ -203,8 +203,8 @@ def load_main_config():
     ).lower() in ("true", "1")
 
     # LABELS_CONCURRENCY: How many labels are paged at the same time.
-    # Default: 2
-    config["LABELS_CONCURRENCY"] = int(os.getenv("OFSC_LABELS_CONCURRENCY", "2"))
+    # Default: 5 (this GUI's earlier fixed limit)
+    config["LABELS_CONCURRENCY"] = int(os.getenv("OFSC_LABELS_CONCURRENCY", "5"))
 
     # DISCORD_THREAD_OVERRIDE: Whether to override Discord threading.
     # Default: False
