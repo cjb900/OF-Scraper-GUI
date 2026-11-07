@@ -1,0 +1,45 @@
+name: Docker Purge
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Only log what would be deleted"
+        type: boolean
+        default: true
+  schedule:
+    - cron: "0 0 * * *" # every day at midnight
+permissions: read-all
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      # This is used to complete the identity challenge
+      # with sigstore/fulcio when running outside of PRs.
+      id-token: write
+
+    steps:
+      - name: Main purger
+        uses: snok/container-retention-policy@v3.1.0
+        with:
+          image-names: of-scraper
+          timestamp-to-use: created_at
+          account: user
+          token: ${{ secrets.DOCKER_DELETE}}
+          # Manual runs default to a dry run; the nightly schedule deletes
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          image-tags: "sha*"
+          tag-selection: tagged
+          cut-off: 1s
+      - name: Delete untagged
+        uses: snok/container-retention-policy@v3.1.0
+        with:
+          image-names: of-scraper
+          cut-off: 1s
+          account: user
+          token: ${{ secrets.DOCKER_DELETE}}
+          # Manual runs default to a dry run; the nightly schedule deletes
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          tag-selection: untagged

@@ -1,0 +1,1 @@
+AMOUNT_PER_PAGE =  100
