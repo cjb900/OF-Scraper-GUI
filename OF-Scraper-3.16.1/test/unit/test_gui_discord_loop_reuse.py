@@ -17,7 +17,7 @@ def test_handlers_on_one_thread_share_one_loop(monkeypatch):
     second = discord.DiscordHandler()
     second.close()
     assert first.loop is second.loop
-    assert asyncio.get_event_loop_policy().get_event_loop() is second.loop
+    assert asyncio.get_event_loop() is second.loop  # still the thread's loop
 
 
 def test_a_closed_loop_is_replaced(monkeypatch):
