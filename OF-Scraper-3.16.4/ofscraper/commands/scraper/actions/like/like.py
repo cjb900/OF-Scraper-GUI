@@ -144,6 +144,8 @@ def _toggle_like_requests(c, post: Post, model_id):
         favorited, _ = _like_request(c, id, model_id)
         if not favorited:
             post.mark_post_liked(success=False)
+            if _GUI_LIKE_TRACKER is not None:
+                _GUI_LIKE_TRACKER[id] = "Failed"
             return 3
         log.debug(f"ID: {id} restored to liked")
         post.mark_post_liked()
@@ -174,6 +176,8 @@ def _toggle_unlike_requests(c, post: Post, model_id):
         favorited, _ = _like_request(c, id, model_id)
         if favorited is not False:
             post.mark_post_unliked(success=False)
+            if _GUI_LIKE_TRACKER is not None:
+                _GUI_LIKE_TRACKER[id] = "Failed"
             return 3
         log.debug(f"ID: {id} restored to unlike")
         post.mark_post_unliked()
