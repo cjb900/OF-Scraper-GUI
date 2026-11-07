@@ -1,4 +1,5 @@
 from typing import Iterable
+import copy
 import logging
 import ofscraper.filters.media.filters as helpers
 import ofscraper.utils.settings as settings
@@ -8,10 +9,28 @@ from ofscraper.classes.of.media import Media
 log = logging.getLogger("shared")
 
 
+def _format_length_display(value):
+    """Format duration into DD:HH:MM:SS for GUI display."""
+    if value in (None, '', 'N/A'):
+        return 'N/A'
+    try:
+        total_seconds = int(float(value))
+    except Exception:
+        return str(value)
+    days = total_seconds // 86400
+    hours = (total_seconds % 86400) // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    return f"{days:02d}:{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
 class PostCollection:
     """
-    Manages a de-duplicated collection of Post objects. It orchestrates
-    the filtering and preparation of posts and their media for various actions.
+    Manages a collection of Post objects for GUI/table building and downloads.
+
+    Important: when GUI "allow duplicates" is enabled, we preserve repeated
+    post instances for table/display purposes so reposts and paid/locked rows
+    remain visible the way older GUI builds exposed them.
     """
 
     def __init__(self, model_id=None, username=None, mode="download"):
@@ -28,6 +47,8 @@ class PostCollection:
         self.mode = mode
         # Internal dictionary to store posts, using post_id as the key for de-duplication
         self._posts_map = {}
+        # Ordered raw list preserving all added post instances for GUI/table use.
+        self._raw_posts = []
         log.info(f"Initialized PostCollection for {username}")
 
     @property
@@ -36,12 +57,22 @@ class PostCollection:
         return list(self._posts_map.values())
 
     @property
+    def raw_posts(self) -> list[Post]:
+        """Returns posts in insertion order, preserving duplicates/reposts."""
+        return list(self._raw_posts)
+
+    @property
     def all_media(self) -> list:
         """
-        Collects EVERY media item from EVERY post in the collection,
-        regardless of filtering. This is useful for creating a master list.
+        Collects EVERY media item from EVERY unique post in the collection.
+        This is the canonical list used by the core processing pipeline.
         """
         return [media for post in self.posts for media in post.all_media]
+
+    @property
+    def raw_all_media(self) -> list:
+        """Collects media from all inserted posts, preserving duplicates/reposts."""
+        return [media for post in self.raw_posts for media in post.all_media]
 
     @property
     def all_unique_media(self) -> list:
@@ -100,14 +131,21 @@ class PostCollection:
             items = [items]
         actions = actions or []
         new_posts_added = 0
+        added_posts_list = []
         for item in items:
             # Call the single-item processor
             post = self._process_and_add_post(item, actions, overwrite)
             if post:  # You can track how many were successfully added
                 new_posts_added += 1
+                added_posts_list.append(post)
 
         if new_posts_added > 0:
             log.info(f"Added {new_posts_added} posts to the collection")
+            try:
+                from ofscraper.plugins.manager import plugin_manager
+                plugin_manager.dispatch_event("on_posts_collected", added_posts_list, self.username)
+            except Exception as e:
+                log.warning(f"Failed to dispatch on_posts_collected to plugins: {e}")
 
     def get_media_to_download(self) -> list:
         """
@@ -120,7 +158,13 @@ class PostCollection:
 
         log.info("Applying final 'download' mode filters to media list...")
         all_media = helpers.seperate_self(all_media)
-        all_media = helpers.dupefiltermedia(all_media)
+        # When allow_dupe_downloads is on, skip full media_id collapse so reposts
+        # are preserved — but still optionally drop Messages↔Purchased overlap.
+        allow_dupes = bool(getattr(settings.get_settings(), "allow_dupe_downloads", False))
+        if not allow_dupes:
+            all_media = helpers.dupefiltermedia(all_media)
+        else:
+            all_media = helpers.apply_allow_dupe_media_policy(all_media)
         all_media = helpers.previous_download_filter(
             all_media, username=self.username, model_id=self.model_id
         )
@@ -225,6 +269,35 @@ class PostCollection:
         )
         return posts_for_text
 
+    def get_rows_for_gui_table(self) -> list:
+        """
+        Build GUI table row dicts from this collection's media list.
+        Shows ALL rows including duplicates (same media appearing in multiple API
+        areas like Timeline + Archived) and locked/paid items that won't download.
+        Also computes the duplicate count and stores it in the postcollection module
+        so the Scrape Summary can report it as "| duplicates: N".
+        Delegates to the GUI workflow builder; returns [] when GUI is not active.
+        """
+        try:
+            from ofscraper.gui.utils.workflow import _build_media_rows
+            global _gui_duplicate_count
+            raw = self.raw_all_media
+            # Compute duplicate count for Scrape Summary (raw rows minus unique by media_id)
+            seen = set()
+            unique_count = 0
+            for m in raw:
+                mid = getattr(m, "id", None)
+                key = mid if mid is not None else id(m)
+                if key not in seen:
+                    seen.add(key)
+                    unique_count += 1
+            _gui_duplicate_count = len(raw) - unique_count
+            return _build_media_rows(raw, self.username or "")
+        except Exception as e:
+            log.debug(f"get_rows_for_gui_table failed: {e}")
+            return []
+
+
     def update_info(self, username: str = None, model_id: str = None):
         if username:
             self.username = username
@@ -251,16 +324,88 @@ class PostCollection:
         """
         Private helper to get download candidates, run per-post filtering,
         and return the aggregated list of media before final filtering.
+
+        When allow_dupe_downloads is True, ``raw_posts`` is used so the same
+        *media_id* on different posts (true reposts) can generate separate
+        download entries (``_dup_seq`` avoids temp-name collisions).
+
+        The same post_id is often appended to ``raw_posts`` once per API area
+        (e.g. Messages + Purchased). Those are not real reposts — they must not
+        create a second download of the identical (media_id, post_id) pair.
         """
-        candidate_posts = [post for post in self.posts if post.is_download_candidate]
+        allow_dupes = bool(getattr(settings.get_settings(), "allow_dupe_downloads", False))
+        keep_msg_paid = bool(
+            getattr(settings.get_settings(), "keep_message_purchased_dupes", False)
+        )
+        if allow_dupes:
+            candidate_posts = [
+                post for post in self.raw_posts if post.is_download_candidate
+            ]
+            # Same post_id scraped from multiple areas lands in raw_posts repeatedly
+            # (often as the *same* Post object). Unless the user explicitly wants
+            # Messages+Purchased copies, collapse to one post per id before media
+            # aggregation — otherwise Allow duplicates double-downloads into the
+            # first area's folder (usually Messages).
+            if not keep_msg_paid:
+                seen_post_ids = set()
+                unique_posts = []
+                for post in candidate_posts:
+                    pid = getattr(post, "id", None)
+                    if pid is not None and pid in seen_post_ids:
+                        continue
+                    if pid is not None:
+                        seen_post_ids.add(pid)
+                    unique_posts.append(post)
+                candidate_posts = unique_posts
+        else:
+            candidate_posts = [post for post in self.posts if post.is_download_candidate]
         log.info(f"Found {len(candidate_posts)} posts marked as download candidates.")
 
+        prepared_ids = set()
         for post in candidate_posts:
-            post.prepare_media_for_download()
+            if id(post) not in prepared_ids:
+                post.prepare_media_for_download()
+                prepared_ids.add(id(post))
 
-        all_media = [
-            media for post in candidate_posts for media in post.media_to_download
-        ]
+        from ofscraper.filters.media.message_purchased_dupes import media_response_bucket
+
+        seen_media_ids = set()
+        seen_media_post_pairs = set()
+        all_media = []
+        skipped_exact = 0
+        for post in candidate_posts:
+            for media in post.media_to_download:
+                media_key = media.id if media.id is not None else id(media)
+                post_id = getattr(media, "post_id", None)
+                # When keeping Messages+Purchased copies, distinguish by area bucket
+                # so the same post_id can download once per area folder.
+                if keep_msg_paid:
+                    pair = (
+                        media_key,
+                        post_id,
+                        media_response_bucket(getattr(media, "responsetype", None)),
+                    )
+                else:
+                    pair = (media_key, post_id)
+                if pair in seen_media_post_pairs:
+                    skipped_exact += 1
+                    continue
+                seen_media_post_pairs.add(pair)
+
+                if media_key not in seen_media_ids:
+                    seen_media_ids.add(media_key)
+                    all_media.append(media)
+                else:
+                    if not (getattr(media, "url", None) or getattr(media, "mpd", None)):
+                        continue
+                    dup = copy.copy(media)
+                    dup._dup_seq = len(all_media)
+                    all_media.append(dup)
+        if skipped_exact:
+            log.debug(
+                f"Skipped {skipped_exact} exact (media_id, post_id) duplicate(s) "
+                f"from multi-area raw_posts"
+            )
         log.debug(f"Aggregated {len(all_media)} media items before final filtering.")
         return all_media
 
@@ -317,6 +462,33 @@ class PostCollection:
             self._posts_map[post_id] = post_object
 
         existing_post = self._posts_map[post_id]
+        to_append = existing_post
+        # Messages + Purchased often share the same post id. Keep the first Post in
+        # _posts_map, but when the user opts to keep both area copies, also append
+        # the incoming Post (different responsetype) to raw_posts for download.
+        if (
+            isinstance(post_to_process, Post)
+            and post_to_process is not existing_post
+        ):
+            try:
+                keep_both = bool(
+                    getattr(
+                        settings.get_settings(), "keep_message_purchased_dupes", False
+                    )
+                )
+            except Exception:
+                keep_both = False
+            if keep_both:
+                from ofscraper.filters.media.message_purchased_dupes import (
+                    media_response_bucket,
+                )
+
+                in_b = media_response_bucket(post_to_process.responsetype)
+                ex_b = media_response_bucket(existing_post.responsetype)
+                if {in_b, ex_b} == {"messages", "purchased"}:
+                    to_append = post_to_process
+
+        self._raw_posts.append(to_append)
 
         # Set eligibility flags
         if "like" in actions:
@@ -328,3 +500,7 @@ class PostCollection:
         if "metadata" in actions:
             existing_post.is_metadata_candidate = True
         return existing_post
+
+
+# Module-level counter written by get_rows_for_gui_table(); read by Scrape Summary.
+_gui_duplicate_count = 0

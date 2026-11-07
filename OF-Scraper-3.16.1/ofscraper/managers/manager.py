@@ -44,8 +44,47 @@ class mainManager:
         self._stats_manager: Union[None, StatsManager] = None
         self._profile_manager: Union[None, ProfileManager] = None
         self._session: Union[None, SessionHandler] = None
+        self._model_manager: Union[None, ModelManager] = None
 
     def start(self):
+        import ofscraper.utils.args.accessors.read as read_args
+        args = read_args.retriveArgs()
+        if getattr(args, "gui", False):
+            # On Windows, pre-load plugin DLLs (e.g. torch/c10.dll) before
+            # PyQt6 is imported.  PyQt6.QtCore's Python extension initializer
+            # (SIP) modifies process state that breaks torch's DllMain when it
+            # runs later.  Loading the DLLs first avoids WinError 1114.
+            try:
+                import sys as _sys
+                if _sys.platform == "win32":
+                    from ofscraper.plugins.manager import plugin_manager as _pm
+                    _pm.preload_for_windows_gui()
+            except Exception:
+                pass
+            try:
+                from ofscraper.gui.app import launch_gui
+            except ModuleNotFoundError as e:
+                msg = str(e) or repr(e)
+                if "PyQt6" in msg:
+                    print(
+                        "ERROR: GUI requested but PyQt6 is not installed.\n\n"
+                        "Install it with:\n"
+                        "  python -m pip install PyQt6\n\n"
+                        "Then re-run:\n"
+                        "  ofscraper --gui\n"
+                    )
+                    return
+                raise
+            except ImportError as e:
+                msg = str(e) or repr(e)
+                print(
+                    "ERROR: GUI requested but the GUI could not be imported.\n"
+                    f"Details: {msg}\n\n"
+                    "Try reinstalling dependencies, then re-run `ofscraper --gui`.\n"
+                )
+                return
+            launch_gui(self)
+            return
         self.initLogs()
         time.sleep(3)
         self.print_name()
@@ -132,3 +171,13 @@ class mainManager:
         If a manager for this profile doesn't exist, it creates one.
         """
         return self.profile_manager.current_model_manager
+
+    @property
+    def model_manager(self) -> ModelManager:
+        """
+        Lazily initializes and returns the ModelManager instance.
+        Used by the GUI to access and manage fetched model/account data.
+        """
+        if self._model_manager is None:
+            self._model_manager = ModelManager()
+        return self._model_manager

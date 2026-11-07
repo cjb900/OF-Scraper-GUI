@@ -332,6 +332,27 @@ async def process_profile(username) -> list:
         return [], profile.API
 
 
+async def resolve_paid_username(model_id):
+    """
+    Username for a creator in the paid-content list, including deleted accounts:
+    their recorded name if we know them, else DELETED_MODEL_PLACEHOLDER_<id>.
+    """
+    placeholder = of_env.getattr("DELETED_MODEL_PLACEHOLDER")
+    username = profile.scrape_profile(model_id).get("username")
+    # Check if the scraped username is the placeholder
+    if username == placeholder:
+        # Now, check if this model is already known to us
+        if await check_profile_table_exists(model_id=model_id, username=username):
+            # Case 1: Known deleted model. Get its unique name from our records.
+            username = (
+                await get_profile_info(model_id=model_id, username=username)
+                or f"{placeholder}_{model_id}"
+            )
+        else:
+            username = f"{placeholder}_{model_id}"
+    return username
+
+
 @free.space_checker
 @run
 async def process_all_paid():

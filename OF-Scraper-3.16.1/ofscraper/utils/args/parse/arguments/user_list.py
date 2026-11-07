@@ -68,7 +68,8 @@ free_trial_option = click.option(
 )
 
 promo_option = click.option(
-    "-po/-ps",
+    # not "-ps": that is --post-script
+    "-po/-psk",
     "--promo-only/--promo-skip",
     "promo",
     help="""

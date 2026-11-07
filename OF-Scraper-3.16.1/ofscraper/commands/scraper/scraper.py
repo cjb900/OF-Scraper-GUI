@@ -49,6 +49,12 @@ class scraperManager(CommandManager):
 
     @exit.exit_wrapper
     def runner(self, menu=False):
+        if getattr(settings.get_settings(), "daemon", False):
+            try:
+                import ofscraper.utils.logs.logger as logger_mod
+                logger_mod.resetLogger()
+            except Exception:
+                pass
         check_auth(include_main_menu=menu)
         if live.once_enabled():
             # Fansly --live: record who is live now, then do the other actions
@@ -112,49 +118,83 @@ class scraperManager(CommandManager):
             media = postcollection.get_media_for_processing()
             like_posts = postcollection.get_posts_to_like()
             posts = postcollection.get_posts_for_text_download()
-            for action in actions:
-                try:
-                    if action == "download":
-                        await downloader(
-                            posts=posts,
-                            media=media,
-                            model_id=model_id,
-                            username=username,
-                        )
-                        manager.Manager.stats_manager.update_and_print_stats(
-                            username, "download", media
-                        )
-                    elif action == "like":
-                        like_action.process_like(
-                            ele=ele,
-                            posts=like_posts,
-                            media=media,
-                            model_id=model_id,
-                            username=username,
-                        )
-                        manager.Manager.stats_manager.update_and_print_stats(
-                            username, "like", like_posts
-                        )
-                    elif action == "unlike":
-                        like_action.process_unlike(
-                            ele=ele,
-                            posts=like_posts,
-                            media=media,
-                            model_id=model_id,
-                            username=username,
-                        )
-                        manager.Manager.stats_manager.update_and_print_stats(
-                            username, "unlike", like_posts
-                        )
-                    manager.Manager.current_model_manager.mark_as_processed(
-                        username, activity=action
-                    )
-                    ACTION_SCRIPTS.get(action)(username, media, posts, action=action)
+            _fail_before = 0
+            _action_error = ""
+            try:
+                from ofscraper.gui.utils.failure_tracker import failure_count_for_user
+                from ofscraper.gui.utils.host_callbacks import get_host
 
-                except Exception as E:
-                    log.debug(f"Unable to complete {action} for {username}")
-                    log.traceback_(E)
-                    log.traceback_(traceback.format_exc())
+                _fail_before = failure_count_for_user(username)
+                get_host().on_item_started(username)
+            except Exception:
+                pass
+            try:
+                for action in actions:
+                    try:
+                        try:
+                            from ofscraper.gui.utils.host_callbacks import get_host
+
+                            if get_host().is_cancelled():
+                                raise KeyboardInterrupt()
+                        except KeyboardInterrupt:
+                            raise
+                        except Exception:
+                            pass
+                        if action == "download":
+                            await downloader(
+                                posts=posts,
+                                media=media,
+                                model_id=model_id,
+                                username=username,
+                            )
+                            manager.Manager.stats_manager.update_and_print_stats(
+                                username, "download", media
+                            )
+                        elif action == "like":
+                            like_action.process_like(
+                                ele=ele,
+                                posts=like_posts,
+                                media=media,
+                                model_id=model_id,
+                                username=username,
+                            )
+                            manager.Manager.stats_manager.update_and_print_stats(
+                                username, "like", like_posts
+                            )
+                        elif action == "unlike":
+                            like_action.process_unlike(
+                                ele=ele,
+                                posts=like_posts,
+                                media=media,
+                                model_id=model_id,
+                                username=username,
+                            )
+                            manager.Manager.stats_manager.update_and_print_stats(
+                                username, "unlike", like_posts
+                            )
+                        manager.Manager.current_model_manager.mark_as_processed(
+                            username, activity=action
+                        )
+                        ACTION_SCRIPTS.get(action)(username, media, posts, action=action)
+
+                    except Exception as E:
+                        _action_error = str(E)
+                        log.debug(f"Unable to complete {action} for {username}")
+                        log.traceback_(E)
+                        log.traceback_(traceback.format_exc())
+            finally:
+                try:
+                    from ofscraper.gui.utils.failure_tracker import failure_count_for_user
+                    from ofscraper.gui.utils.host_callbacks import get_host
+
+                    _fail_after = failure_count_for_user(username)
+                    _ok = (not _action_error) and (_fail_after <= _fail_before)
+                    _err = _action_error
+                    if not _ok and not _err and _fail_after > _fail_before:
+                        _err = f"{_fail_after - _fail_before} download failure(s)"
+                    get_host().on_item_result(username, _ok, _err)
+                except Exception:
+                    pass
 
     @exit.exit_wrapper
     @run_async
@@ -239,6 +279,8 @@ def daemon_process():
                 jobqueue.task_done()
     except KeyboardInterrupt as E:
         wakeup.stopped = True
+        # Ctrl+C, or SIGTERM from docker stop / kill (via sigterm_as_keyboard_interrupt)
+        log.warning("Stop requested: shutting down the daemon")
         try:
             with exit.DelayedKeyboardInterrupt():
                 schedule.clear()

@@ -80,7 +80,16 @@ def get_config_path():
 
 def getlogpath():
     path = None
-    if data.get_rotate_logs():
+    is_daemon = False
+    try:
+        import ofscraper.utils.args.accessors.read as read_args
+        args = read_args.retriveArgs()
+        if args and getattr(args, "daemon", False):
+            is_daemon = True
+    except Exception:
+        pass
+
+    if data.get_rotate_logs() or is_daemon:
         path = (
             get_log_folder()
             / f'{data.get_main_profile()}_{dates_manager.getLogDate().get("day")}'
@@ -94,6 +103,7 @@ def getlogpath():
     path = pathlib.Path(path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
 
 
 def get_log_folder():
@@ -123,6 +133,18 @@ def get_save_location(config=None):
         or config.get("file_options", {}).get("save_location")
         or of_env.getattr("SAVE_PATH_DEFAULT")
     )
+
+
+def assert_path_under_root(path, root=None, *, label: str = "path"):
+    """Ensure *path* resolves under *root* (default: Save Location).
+
+    Returns the resolved path. Raises ValueError if it escapes the root
+    (absolute templates, ``..`` segments, or naming-script overrides).
+    """
+    from ofscraper.utils.hardening import assert_path_under_root as _assert
+
+    root_path = root if root is not None else get_save_location()
+    return _assert(path, root_path, label=label)
 
 
 def get_config_folder():

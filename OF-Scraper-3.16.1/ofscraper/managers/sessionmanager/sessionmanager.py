@@ -453,6 +453,7 @@ class sessionManager:
                     limit=self._connect_limit,
                     ssl=ssl_context,  # Passed to TCPConnector
                 ),
+                cookie_jar=aiohttp.DummyCookieJar(),
                 timeout=aiohttp.ClientTimeout(
                     total=self._total_timeout,
                     connect=self._connect_timeout,

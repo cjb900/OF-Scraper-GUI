@@ -26,6 +26,14 @@ console = Console()
 log = logging.getLogger("shared")
 
 
+def _is_gui_mode() -> bool:
+    try:
+        import ofscraper.utils.args.accessors.read as read_args
+        return getattr(read_args.retriveArgs(), "gui", False)
+    except Exception:
+        return False
+
+
 def handle_auth_errors(e: Exception,include_main_menu:bool=False) -> str | None:
     """
     Handles auth file errors by prompting the user.
@@ -39,6 +47,25 @@ def handle_auth_errors(e: Exception,include_main_menu:bool=False) -> str | None:
                     or None if the user fixes the issue and the operation should be retried.
     """
     if isinstance(e, FileNotFoundError):
+        # In GUI mode, create an empty auth.json so the while-True retry loop in
+        # file.py can read it successfully and break.  Without this the loop spins
+        # forever because handle_auth_errors returns None (= retry) but auth.json
+        # never gets created, producing thousands of log lines on startup.
+        if _is_gui_mode():
+            try:
+                import ofscraper.utils.paths.common as _cp
+                import ofscraper.utils.auth.utils.dict as _ad
+                _auth_path = _cp.get_auth_file()
+                _auth_path.parent.mkdir(parents=True, exist_ok=True)
+                if not _auth_path.exists():
+                    import json as _json
+                    with open(_auth_path, "w") as _f:
+                        _f.write(_json.dumps(_ad.get_empty(), indent=4))
+                    log.info(f"GUI mode: created empty auth.json at {_auth_path}")
+            except Exception as _ce:
+                log.warning(f"GUI mode: could not create auth.json ({_ce}); returning quit to break retry loop")
+                return "quit"
+            return None
         console.print("You don't seem to have an `auth.json` file. Creating one for you.")
         # make_auth will guide the user. It returns "quit" or "main" if the user backs out.
         _,result = make.make_auth(include_main_menu=include_main_menu)
@@ -46,6 +73,10 @@ def handle_auth_errors(e: Exception,include_main_menu:bool=False) -> str | None:
             return result
 
     elif isinstance(e, json.JSONDecodeError):
+        # In GUI mode, skip interactive repair prompts; the GUI auth dialog handles it
+        if _is_gui_mode():
+            log.warning("GUI mode: skipping interactive auth repair for malformed auth.json")
+            return None
         console.print(f"[bold red]Error:[/bold red] Your 'auth.json' file has a syntax error at line {e.lineno}, column {e.colno}.")
         while True:
             try:

@@ -5,6 +5,7 @@ from ofscraper.utils.args.parse.arguments.logging import (
     console_rich_toggle,
     discord_log_level_option,
     log_level_option,
+    discord_ping_option,
 )
 
 logging_options_desc = "Logging Options"
@@ -14,6 +15,7 @@ logging_options_tuple = (
     console_rich_toggle,
     discord_log_level_option,
     log_level_option,
+    discord_ping_option,
 )
 
 # Create the option group

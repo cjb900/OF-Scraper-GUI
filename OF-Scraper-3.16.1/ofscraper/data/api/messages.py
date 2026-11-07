@@ -163,11 +163,13 @@ async def get_split_array(model_id, username, after):
 
     # Read the cache from Oldest to Newest. Find the first message that is NEWER than our 'before' limit.
     # This guarantees the API sweeps perfectly over the 'before' boundary without missing a gap.
+    # Strictly newer: the API returns messages older than the anchor, and a message
+    # exactly at 'before' is in range (see the filter below)
     anchor_id = next(
         (
             m.get("post_id")
             for m in reversed(postsDataArray)
-            if float(m.get("created_at") or 0) >= before
+            if float(m.get("created_at") or 0) > before
         ),
         None,
     )

@@ -318,6 +318,15 @@ async def process_tasks_get_posts_for_labels(generators, labels):
     trace_log_raw(f"{API} content final", list(responseDict.values()), final_count=True)
     progress_utils.api.remove_overall_task(page_task)
 
+    # Warn about labels that came back empty — usually means rate-limit exhaustion
+    for _lbl_key, _lbl_val in responseDict.items():
+        if len(_lbl_val.get("posts", [])) == 0:
+            log.warning(
+                f"[WARN] Label '{_lbl_val.get('name', _lbl_key)}'"
+                f" (id={_lbl_key}) returned 0 posts after all retries"
+                f" — possible rate-limit failure; content count may be lower than expected"
+            )
+
     return list(responseDict.values())
 
 

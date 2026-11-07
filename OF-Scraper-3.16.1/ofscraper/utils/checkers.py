@@ -4,6 +4,7 @@ import ofscraper.data.api.init as init
 import ofscraper.sites as sites
 import ofscraper.utils.auth.file as auth_file
 import ofscraper.utils.auth.make as make
+import ofscraper.utils.settings as settings
 
 log = logging.getLogger("shared")
 
@@ -31,6 +32,10 @@ def check_auth(include_main_menu=False):
             raise AuthCheckUnavailable("couldn't check the auth, see the error above")
         if status != "UP":
             log.info("Auth Failed")
+            # In GUI mode skip interactive prompts; the GUI auth dialog handles re-auth
+            if getattr(settings.get_args(), "gui", False):
+                log.debug("GUI mode: skipping interactive auth prompt on auth failure")
+                return
             if sites.is_fansly():
                 fansly_auth.make_auth()
                 continue

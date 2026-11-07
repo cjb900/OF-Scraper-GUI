@@ -12,6 +12,9 @@ from ofscraper.managers.sessionmanager.sleepers import (
 import ofscraper.utils.config.data as data
 import ofscraper.utils.of_env.of_env as of_env
 
+# One handler-made event loop per thread (see DiscordHandler.__init__)
+_thread_loops = threading.local()
+
 
 class DiscordHandler(logging.Handler):
     def __init__(self):
@@ -40,7 +43,14 @@ class DiscordHandler(logging.Handler):
         try:
             self.loop = asyncio.get_running_loop()
         except Exception:
-            self.loop = system.new_event_loop()
+            # GUI tree: the GUI resets the logger before every scrape, which
+            # builds a new handler each time. Reuse the loop the last handler
+            # made on this thread instead of leaving the old one unclosed.
+            loop = getattr(_thread_loops, "loop", None)
+            if loop is None or loop.is_closed():
+                loop = system.new_event_loop()
+                _thread_loops.loop = loop
+            self.loop = loop
             asyncio.set_event_loop(self.loop)
 
     def _worker(self):

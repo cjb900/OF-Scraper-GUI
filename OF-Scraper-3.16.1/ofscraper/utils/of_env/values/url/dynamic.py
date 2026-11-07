@@ -54,8 +54,9 @@ def load_dynamic_url_config():
     )
 
     # DYNAMIC_GENERIC_URL: None
-    # Environment variable: OF_DYNAMIC_GENERIC_URL
-    # Note: os.getenv returns None by default if the environment variable is not set
-    config["DYNAMIC_GENERIC_URL"] = os.getenv("OF_DYNAMIC_GENERIC_URL", None)
+    # Environment variables: OF_DYNAMIC_GENERIC_URL, OFSC_DYNAMIC_GENERIC_URL
+    config["DYNAMIC_GENERIC_URL"] = os.getenv("OF_DYNAMIC_GENERIC_URL") or os.getenv(
+        "OFSC_DYNAMIC_GENERIC_URL", None
+    )
 
     return config

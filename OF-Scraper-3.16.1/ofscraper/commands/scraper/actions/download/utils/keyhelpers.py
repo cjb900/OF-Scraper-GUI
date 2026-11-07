@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import pathlib
 import re
 import struct
@@ -10,7 +11,6 @@ from pywidevine.device import Device
 from pywidevine.pssh import PSSH
 
 import ofscraper.commands.scraper.actions.utils.globals as common_globals
-import ofscraper.utils.auth.request as auth_requests
 import ofscraper.utils.cache.cache as cache
 import ofscraper.utils.of_env.of_env as of_env
 import ofscraper.utils.settings as settings
@@ -24,10 +24,74 @@ import ofscraper.managers.manager as manager
 
 log = None
 
+# Remote key modes that share the minimal CDRM payload (no session cookies).
+_REMOTE_CDRM_MODES = frozenset({"cdrm", "cdrm2", "keydb"})
+
 
 def setLog(input_):
     global log
     log = input_
+
+
+class CdmFilesMissing(Exception):
+    """Manual key mode can't work without the CDM files; retrying won't help."""
+
+    no_retry = True
+
+
+_cdm_problem_logged = False
+
+
+def manual_cdm_problem(client_id=None, private_key=None):
+    """Return a plain message when manual key mode can't load its CDM files, else None.
+
+    A blank path would otherwise become Path("") == "." and fail with
+    "Is a directory: '.'" for every DRM video.
+    """
+    if client_id is None and private_key is None:
+        s = settings.get_settings()
+        client_id, private_key = s.client_id, s.private_key
+    problems = []
+    for label, value in (("client-id", client_id), ("private-key", private_key)):
+        value = str(value or "").strip()
+        if not value:
+            problems.append(f"{label} is not set")
+        elif not pathlib.Path(value).is_file():
+            problems.append(f"{label} file not found: {value}")
+    if not problems:
+        return None
+    return (
+        "Key Mode is manual but the CDM files can't be used ("
+        + "; ".join(problems)
+        + "). Set client-id and private-key under cdm_options in config.json "
+        "(GUI: Configuration → CDM / DRM Key Creation), or choose another Key Mode. "
+        "DRM videos are skipped until then."
+    )
+
+
+async def has_cached_key(ele):
+    if not of_env.getattr("USE_WIV_CACHE_KEY"):
+        return False
+    return bool(
+        await asyncio.get_event_loop().run_in_executor(
+            common_globals.thread, partial(cache.get, ele.license)
+        )
+    )
+
+
+async def check_manual_cdm(ele):
+    """Raise CdmFilesMissing before a DRM download that could never be decrypted."""
+    global _cdm_problem_logged
+    keymode = str(settings.get_settings().key_mode or "manual").lower().strip()
+    if keymode != "manual":
+        return
+    problem = manual_cdm_problem()
+    if not problem or await has_cached_key(ele):
+        return
+    if not _cdm_problem_logged:
+        _cdm_problem_logged = True
+        logging.getLogger("shared").error(problem)
+    raise CdmFilesMissing(problem)
 
 
 def strip_pssh(path):
@@ -75,7 +139,7 @@ async def un_encrypt(item, c, ele, input_=None):
     try:
         setLog(input_ or common_globals.log)
         key = None
-        keymode = settings.get_settings().key_mode
+        keymode = str(settings.get_settings().key_mode or "manual").lower().strip()
         past_key = (
             await asyncio.get_event_loop().run_in_executor(
                 common_globals.thread, partial(cache.get, ele.license)
@@ -85,22 +149,22 @@ async def un_encrypt(item, c, ele, input_=None):
         )
         if past_key:
             key = past_key
-            log.debug(f"{get_medialog(ele)} got key rom cache: {key}")
+            log.debug(f"{get_medialog(ele)} got key from cache (present)")
         elif keymode == "manual":
             key = await key_helper_manual(c, item["pssh"], ele.license, ele.id)
-        elif keymode == "cdrm":
+        elif keymode in _REMOTE_CDRM_MODES:
             key = await key_helper_cdrm(c, item["pssh"], ele.license, ele.id)
         if not key:
             raise Exception(f"{get_medialog(ele)} Could not get key")
         key = key.strip()
-        log.debug(f"{get_medialog(ele)} retrive new key: {key}")
+        log.debug(f"{get_medialog(ele)} retrieved new key (present)")
         newpath = pathlib.Path(
             re.sub(
                 r"\.part$", f".{item['ext']}", str(item["path"]), flags=re.IGNORECASE
             )
         )
         ffmpeg_key = get_ffmpeg_key(key)
-        log.debug(f"{get_medialog(ele)} got ffmpeg key {ffmpeg_key}")
+        log.debug(f"{get_medialog(ele)} got ffmpeg key (present)")
         log.debug(
             f"{get_medialog(ele)}  renaming {pathlib.Path(item['path']).absolute()} -> {newpath}"
         )
@@ -154,19 +218,17 @@ def get_ffmpeg_key(key):
 
 
 async def key_helper_cdrm(c, pssh, licence_url, id):
+    """Post only pssh + license URL to the remote helper — never cookies / sign / x-bc."""
     key = None
-    log.debug(f"ID:{id} using cdrm auto key helper")
+    log.debug(f"ID:{id} using cdrm auto key helper (minimal payload; no session cookies)")
     try:
         log.debug(f"ID:{id} pssh: {pssh is not None}")
-        log.debug(f"ID:{id} licence: {licence_url}")
-        headers = auth_requests.make_headers()
-        headers["cookie"] = auth_requests.get_cookies_str()
-        auth_requests.create_sign(licence_url, headers)
+        log.debug(f"ID:{id} licence url present: {bool(licence_url)}")
+        # GUI tree: the session cookies, sign and x-bc stay on this machine.
+        # The fork (3.16.0+) sends them so cdrm-project can fetch the license;
+        # the GUI keeps its rule instead and recommends manual key mode.
         json_data = {
             "licurl": licence_url,
-            # cdrm-project parses this field with ast.literal_eval, which
-            # needs a python dict literal rather than JSON
-            "headers": repr(dict(headers)),
             "pssh": pssh,
         }
         async with c.requests_async(
@@ -180,13 +242,18 @@ async def key_helper_cdrm(c, pssh, licence_url, id):
             skip_expection_check=True,
         ) as r:
             data = await r.json_()
-            log.debug(f"cdrm json {data}")
+            # Do not log full response — may contain content keys.
+            log.debug(f"ID:{id} cdrm response keys: {list(data) if isinstance(data, dict) else type(data).__name__}")
             key = data["message"]
         return key
     except Exception as E:
         log.traceback_(E)
         log.traceback_(traceback.format_exc())
-        raise E
+        raise Exception(
+            f"ID:{id} remote key helper failed without session cookies. "
+            "Switch Key Mode to manual and use local CDM files "
+            "(Configuration → CDM / DRM Key Creation)."
+        ) from E
 
 
 async def key_helper_manual(c, pssh, licence_url, id):
@@ -200,6 +267,8 @@ async def key_helper_manual(c, pssh, licence_url, id):
         pssh_obj = PSSH(pssh)
 
         # load device
+        if problem := manual_cdm_problem():
+            raise CdmFilesMissing(problem)
         private_key = pathlib.Path(settings.get_settings().private_key).read_bytes()
         client_id = pathlib.Path(settings.get_settings().client_id).read_bytes()
         device = Device(
@@ -218,6 +287,9 @@ async def key_helper_manual(c, pssh, licence_url, id):
 
         keys = None
         challenge = cdm.get_license_challenge(session_id, pssh_obj)
+        from ofscraper.utils.host_allowlist import ensure_allowed_download_url
+
+        licence_url = ensure_allowed_download_url(licence_url, kind="drm-license")
         async with manager.Manager.session.get_cdm_session_manual() as c:
             async with c.requests_async(
                 url=licence_url,

@@ -23,6 +23,20 @@ log = logging.getLogger("shared")
 config = None
 
 
+def reset_config_cache():
+    """Clear in-memory config caches so the next read_config() re-reads from disk.
+
+    Clears both the ``config`` module cache and ``file._cached_config``. Reload /
+    external edits to config.json were no-ops when only the first was cleared.
+    """
+    global config
+    config = None
+    try:
+        config_file._cached_config = None
+    except Exception:
+        pass
+
+
 def read_config(update=True):
     global config
     if config:

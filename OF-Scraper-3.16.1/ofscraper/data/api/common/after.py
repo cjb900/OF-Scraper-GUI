@@ -22,5 +22,11 @@ def get_after_pre_checks(model_id, api):
     # scan action
     for setting in settings.get_settings().actions:
         if setting in {"like", "unlike"}:
+            # In GUI mode, skip the forced full scan to avoid multi-hour stuck runs.
+            # The GUI manages the scan range through its own controls.
+            import ofscraper.utils.args.accessors.read as read_args
+            if getattr(read_args.retriveArgs(), "gui", False):
+                log.debug(f"{api}: GUI mode, skipping forced full scan for like/unlike")
+                break
             log.debug(f"{api}: doing full scan for action like/unlike")
             return 0

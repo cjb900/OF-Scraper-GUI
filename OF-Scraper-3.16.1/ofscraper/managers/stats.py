@@ -122,11 +122,8 @@ class DownloadStats:
         return self.total_count > 0 or self.skipped_count > 0 or self.failed_count > 0
 
     def __str__(self):
-        # Format size
-        if self.total_bytes > 1024 * 1024 * 1024:
-            size_str = f"{self.total_bytes / (1024**3):.2f} GB"
-        else:
-            size_str = f"{self.total_bytes / (1024**2):.2f} MB"
+        # same units as the global totals (print_global_summary)
+        size_str = format_size(self.total_bytes)
 
         # Apply formatting conditionally
         size_str = f"[bold]{size_str}[/bold]" if self.total_bytes > 0 else size_str

@@ -14,7 +14,6 @@ import ofscraper.commands.scraper.actions.utils.globals as common_globals
 import ofscraper.commands.scraper.actions.utils.paths as common_paths
 import ofscraper.commands.scraper.actions.utils.log as common_logs
 import ofscraper.utils.dates as dates
-import ofscraper.utils.system.system as system
 import ofscraper.utils.cache.cache as cache
 import ofscraper.utils.settings as settings
 from ofscraper.utils.system.ffprobe import verify_media_integrity
@@ -35,6 +34,19 @@ from ofscraper.commands.scraper.actions.utils.chunk import send_chunk_msg
 
 from ofscraper.classes.of.media import Media
 from ofscraper.db.operations_.media import mark_media_as_downloaded
+
+
+def _find_unique_path(path):
+    """Return path with (1), (2), ... suffix until a non-existing path is found."""
+    if not path.exists():
+        return path
+    stem, suffix, parent = path.stem, path.suffix, path.parent
+    counter = 1
+    while True:
+        candidate = parent / f"{stem}({counter}){suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
 
 
 class MainDownloadManager(DownloadManager):
@@ -71,7 +83,7 @@ class MainDownloadManager(DownloadManager):
     async def _main_download_downloader(self, c, ele):
         self._downloadspace()
         tempholderObj = await placeholder.tempFilePlaceholder(
-            ele, f"{ele.filename}_{ele.id}_{ele.post_id}.part"
+            ele, f"{ele.filename}_{ele.id}_{ele.post_id}" + (f"_{ele._dup_seq}" if hasattr(ele, '_dup_seq') else "") + ".part"
         ).init()
 
         common_globals.attempt.set(0)
@@ -147,19 +159,25 @@ class MainDownloadManager(DownloadManager):
         try:
             resume_size = self._get_resume_size(tempholderObj)
             headers = self._get_resume_header(resume_size, total)
-            total = None
             common_globals.log.debug(
-                f"{common_logs.get_medialog(ele)} [attempt {common_globals.attempt.get()}/{get_download_retries()}] Downloading media with url {ele.url}"
+                f"{common_logs.get_medialog(ele)} [attempt {common_globals.attempt.get()}/{get_download_retries()}] Downloading media with url {common_logs.get_url_log(ele)}"
             )
 
+            from ofscraper.utils.host_allowlist import ensure_allowed_download_url
+
+            media_url = ensure_allowed_download_url(ele.url, kind="media")
+
             async with c.requests_async(
-                url=ele.url,
+                url=media_url,
                 stream=True,
                 headers=headers,
                 total_timeout=None,
                 read_timeout=get_chunk_timeout(),
             ) as r:
-                total = int(r.headers["content-length"])
+                expected_full, body_len, resume_size = self._resolve_download_totals(
+                    r, resume_size, tempholderObj.tempfilepath
+                )
+                total = expected_full
                 data = {
                     "content-total": total,
                     "content-type": r.headers.get("content-type"),
@@ -183,11 +201,10 @@ class MainDownloadManager(DownloadManager):
                     total = 0
                     return (total, tempholderObj.tempfilepath, placeholderObj)
                 elif total != resume_size:
-                    self._resume_cleaner(resume_size, total, tempholderObj.tempfilepath)
                     await self._download_fileobject_writer(
                         r, ele, tempholderObj, placeholderObj, total
                     )
-                    await self._total_change_helper(total)
+                    await self._total_change_helper(body_len or total)
             await self._size_checker(tempholderObj.tempfilepath, ele, total)
             return (total, tempholderObj.tempfilepath, placeholderObj)
         except Exception as E:
@@ -236,6 +253,7 @@ class MainDownloadManager(DownloadManager):
             ele, total=total, tempholderObj=tempholderObj, placeholderObj=placeholderObj
         )
         fileobject = None
+        bytes_written = 0
         try:
             fileobject = await aiofiles.open(
                 tempholderObj.tempfilepath, "ab"
@@ -244,18 +262,34 @@ class MainDownloadManager(DownloadManager):
 
             while True:
                 try:
-                    chunk = await chunk_iter.__anext__()
+                    try:
+                        from ofscraper.gui.utils.workflow import is_gui_cancelled
+
+                        if is_gui_cancelled():
+                            raise KeyboardInterrupt()
+                    except KeyboardInterrupt:
+                        raise
+                    except Exception:
+                        pass
+                    chunk = await self._next_chunk(chunk_iter, ele)
                     await fileobject.write(chunk)
+                    bytes_written += len(chunk)
                     send_chunk_msg(ele, total, tempholderObj)
                 except StopAsyncIteration:
                     break
 
-        # Catch native aiohttp socket read timeouts
+            if total and bytes_written == 0:
+                raise Exception(
+                    f"{common_logs.get_medialog(ele)} incomplete download: "
+                    f"wrote 0 bytes (expected file size {total})"
+                )
+
+        # Catch native aiohttp socket read timeouts / inactivity watchdog
         except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as E:
             common_globals.log.info(
                 f"{common_logs.get_medialog(ele)}⚠️ CDN went silent (sock_read timeout). Connection stalled, forcing retry!"
             )
-            raise Exception("Chunk download timed out")
+            raise Exception("Chunk download timed out") from E
         except Exception as E:
             common_globals.log.info(f"An error occurred during download for {ele}: {E}")
             raise E
@@ -277,6 +311,11 @@ class MainDownloadManager(DownloadManager):
     async def _handle_result_main(self, result, ele, username, model_id):
         total, temp, placeholderObj = result
         path_to_file = placeholderObj.trunicated_filepath
+        if (
+            getattr(settings.get_settings(), "allow_dupe_downloads", False)
+            and path_to_file.exists()
+        ):
+            path_to_file = _find_unique_path(path_to_file)
 
         # 1. Check that the file size matches the API reported size
         await self._size_checker(temp, ele, total)
@@ -337,6 +376,21 @@ class MainDownloadManager(DownloadManager):
         # 6. Run Post-Download Scripts
         await self._after_download_script(path_to_file)
 
+        # 7. Dispatch plugin event
+        try:
+            from ofscraper.plugins.manager import plugin_manager
+
+            _n = len(plugin_manager.plugins)
+            _name = pathlib.Path(str(path_to_file)).name
+            common_globals.log.info(
+                f"[PluginManager] on_item_downloaded ({_n} plugin(s)) -> {_name}"
+            )
+            plugin_manager.dispatch_event("on_item_downloaded", ele, str(path_to_file))
+        except Exception as e:
+            common_globals.log.warning(
+                f"[PluginManager] on_item_downloaded failed: {e}"
+            )
+
         return ele.mediatype, total
 
     async def _get_data(self, ele):
@@ -355,7 +409,7 @@ class MainDownloadManager(DownloadManager):
 
     async def _fresh_data_handler_main(self, ele, tempholderObj):
         common_globals.log.debug(
-            f"{common_logs.get_medialog(ele)} [attempt {common_globals.attempt.get()}/{get_download_retries()}] fresh download for media {ele.url}"
+            f"{common_logs.get_medialog(ele)} [attempt {common_globals.attempt.get()}/{get_download_retries()}] fresh download for media {common_logs.get_url_log(ele)}"
         )
         resume_size = self._get_resume_size(tempholderObj)
         common_globals.log.debug(

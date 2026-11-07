@@ -61,6 +61,29 @@ class ModelManager:
             if name in self._all_subs_dict
         }
 
+    @property
+    def all_subs_obj(self) -> List["Model"]:
+        """Alias for all_subs — used by the GUI to retrieve the model list."""
+        return self.all_subs
+
+    @property
+    def all_subs_dict(self) -> Dict[str, "Model"]:
+        """Public accessor for the internal model dict."""
+        return self._all_subs_dict
+
+    @all_subs_dict.setter
+    def all_subs_dict(self, data) -> None:
+        """Allow the GUI to set fetched model data directly."""
+        if isinstance(data, dict):
+            self._all_subs_dict = data
+        elif isinstance(data, list):
+            self._all_subs_dict = {m.name: m for m in data if m}
+
+    def all_subs_retriver(self) -> List["Model"]:
+        """Fetch all subscriptions from the API (used by the GUI model loader)."""
+        self._fetch_all_subs(force_refetch=True)
+        return self.all_subs
+
     # =========================================================================
     # 2. PRIMARY ORCHESTRATORS (The Main Entry Points)
     # =========================================================================
@@ -82,10 +105,25 @@ class ModelManager:
         # Load all base data into memory first
         self._load_all_subs_if_needed()
 
+        # GUI guard: the same ModelManager is reused across runs. A previous run
+        # may have only loaded one model (via individual lookup), so any username
+        # requested for THIS run may be missing from the cache. Fetch missing ones.
+        if getattr(settings.get_args(), "gui", False):
+            requested = [
+                u for u in (settings.get_settings().usernames or [])
+                if u and u != "ALL"
+            ]
+            missing = [u for u in requested if u not in self._all_subs_dict]
+            if missing:
+                log.info(
+                    f"GUI mode: {missing} not in model cache — fetching individually."
+                )
+                self._fetch_users_by_name(missing)
+
         # --- Step 2: Select Models Based on Mode ---
-        if settings.get_args().daemon:
-            # DAEMON MODE: Silent, no prompts.
-            log.info("Daemon mode active. Calling select_models to get model list.")
+        if settings.get_args().daemon or getattr(settings.get_args(), "gui", False):
+            # DAEMON / GUI MODE: Silent, no prompts.
+            log.info("Daemon/GUI mode active. Calling select_models to get model list.")
             final_selection = self._select_models_scraper()
         else:
             # INTERACTIVE MODE: Check if we have a leftover queue from a previous run
@@ -571,6 +609,18 @@ class ModelManager:
             return string_to_activity(activity)
         elif isinstance(activity, (EActivity.ScrapeActivity, EActivity.PaidActivity)):
             return activity
+
+    def _fetch_users_by_name(self, usernames: List[str]) -> None:
+        """Temporarily set args.usernames to fetch specific users not yet in the cache."""
+        args = settings.get_args()
+        original_usernames = args.usernames
+        args.usernames = usernames
+        settings.update_args(args)
+        self._fetch_all_subs_async()
+        if self._last_fetched:
+            self._update_all_subs(self._last_fetched)
+        args.usernames = original_usernames
+        settings.update_args(args)
 
     def _get_models_from_usernames(self, usernames: List[str]) -> List["Model"]:
         """Private helper to fetch Model objects from a list of usernames, preserving order."""

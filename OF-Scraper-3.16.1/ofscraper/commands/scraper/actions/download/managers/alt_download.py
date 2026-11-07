@@ -26,7 +26,7 @@ import ofscraper.utils.auth.request as auth_requests
 import ofscraper.utils.cache.cache as cache
 import ofscraper.utils.dates as dates
 import ofscraper.utils.of_env.of_env as of_env
-import ofscraper.utils.system.system as system
+import ofscraper.utils.settings as settings
 from ofscraper.utils.system.subprocess import async_run
 from ofscraper.utils.system.ffprobe import verify_media_integrity
 import ofscraper.utils.live.updater as progress_updater
@@ -50,6 +50,19 @@ from ofscraper.classes.of.media import Media
 from ofscraper.db.operations_.media import mark_media_as_downloaded
 
 
+def _find_unique_path(path):
+    """Return path with (1), (2), ... suffix until a non-existing path is found."""
+    if not path.exists():
+        return path
+    stem, suffix, parent = path.stem, path.suffix, path.parent
+    counter = 1
+    while True:
+        candidate = parent / f"{stem}({counter}){suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 class AltDownloadManager(DownloadManager):
 
     async def alt_download(self, c, ele: Media, username, model_id):
@@ -59,6 +72,14 @@ class AltDownloadManager(DownloadManager):
             common_globals.log.debug(
                 f"{common_logs.get_medialog(ele)} Downloading with protected media downloader"
             )
+
+            from ofscraper.utils.host_allowlist import ensure_allowed_download_url
+
+            if getattr(ele, "mpd", None):
+                ensure_allowed_download_url(ele.mpd, kind="drm-mpd")
+
+            # don't download a DRM video that can't be decrypted
+            await keyhelpers.check_manual_cdm(ele)
 
             sharedPlaceholderObj = await placeholder.Placeholders(ele, "mp4").init()
             common_globals.log.debug(
@@ -97,7 +118,7 @@ class AltDownloadManager(DownloadManager):
     async def _alt_download_downloader(self, item, c, ele):
         self._downloadspace()
         placeholderObj = await placeholder.tempFilePlaceholder(
-            ele, f"{item['name']}.part"
+            ele, f"{item['name']}" + (f"_{ele._dup_seq}" if hasattr(ele, '_dup_seq') else "") + ".part"
         ).init()
         item["path"] = placeholderObj.tempfilepath
         item["total"] = None
@@ -171,46 +192,41 @@ class AltDownloadManager(DownloadManager):
         try:
 
             resume_size = self._get_resume_size(placeholderObj)
-            headers = self._get_resume_header(resume_size, item["total"])
+            # Prefer known full size from item for Range requests.
+            known_total = item.get("total")
+            headers = self._get_resume_header(resume_size, known_total)
             # reset total
             total = None
             common_globals.log.debug(f"{get_medialog(ele)} resume header {headers}")
             params = get_alt_params(ele)
             url = _mpd_segment_url(ele.mpd, item["origname"])
-            headers = {"Cookie": f"{ele.hls_header}{auth_requests.get_cookies_str()}"}
+            from ofscraper.utils.host_allowlist import ensure_allowed_download_url
+
+            url = ensure_allowed_download_url(url, kind="drm-media")
+            # Merge Range (if any) with CDN cookie header.
+            req_headers = {
+                "Cookie": f"{ele.hls_header}{auth_requests.get_cookies_str()}"
+            }
+            if headers:
+                req_headers.update(headers)
             common_globals.log.debug(
                 f"{get_medialog(ele)} [attempt {self._alt_attempt_get(item).get()}/{get_download_retries()}] Downloading media with url  {url}"
             )
             async with c.requests_async(
                 url=url,
                 stream=True,
-                headers=headers,
+                headers=req_headers,
                 params=params,
                 total_timeout=None,
                 read_timeout=get_chunk_timeout(),
             ) as l:
+                expected_full, body_len, resume_size = self._resolve_download_totals(
+                    l, resume_size, placeholderObj.tempfilepath
+                )
+                item["total"] = expected_full
+                total = expected_full
+
                 content_type = (l.headers.get("content-type") or "").lower()
-                cl_raw = l.headers.get("content-length")
-                try:
-                    total = int(cl_raw) if cl_raw is not None else None
-                except (TypeError, ValueError):
-                    total = None
-                item["total"] = total
-
-                if any(
-                    x in content_type
-                    for x in ("dash+xml", "mpegurl", "application/xml", "text/xml")
-                ):
-                    raise Exception(
-                        f"{get_medialog(ele)} DRM segment returned playlist "
-                        f"content-type={content_type!r} url={url}"
-                    )
-                if not total or total <= 0:
-                    raise Exception(
-                        f"{get_medialog(ele)} DRM segment empty size "
-                        f"(content-type={content_type or 'unknown'}, url={url})"
-                    )
-
                 data = {
                     "content-total": total,
                     "content-type": l.headers.get("content-type"),
@@ -222,6 +238,27 @@ class AltDownloadManager(DownloadManager):
                 common_globals.log.debug(
                     f"{get_medialog(ele)} total from request {format_size(data.get('content-total')) if data.get('content-total') else 'unknown'}"
                 )
+                # Never treat playlist/manifest responses or empty sizes as a
+                # successful DRM segment (previously force-marked downloaded).
+                if any(
+                    token in content_type
+                    for token in (
+                        "dash+xml",
+                        "mpegurl",
+                        "application/xml",
+                        "text/xml",
+                    )
+                ):
+                    raise Exception(
+                        f"{get_medialog(ele)} DRM segment URL returned playlist "
+                        f"content-type '{content_type}' instead of media "
+                        f"(url={url})"
+                    )
+                if not total or int(total) <= 0:
+                    raise Exception(
+                        f"{get_medialog(ele)} DRM segment reported empty size "
+                        f"(content-type={content_type or 'unknown'}, url={url})"
+                    )
                 await self._set_data(ele, item, data)
 
                 temp_file_logger(placeholderObj, ele)
@@ -233,7 +270,7 @@ class AltDownloadManager(DownloadManager):
                     await self._download_fileobject_writer(
                         total, l, ele, placeholderObj, item
                     )
-                    await self._total_change_helper(total)
+                    await self._total_change_helper(body_len or total)
 
             await self._size_checker(placeholderObj.tempfilepath, ele, total)
             return item
@@ -274,6 +311,7 @@ class AltDownloadManager(DownloadManager):
     ):
         task1 = await self._add_download_job_task(ele, total, placeholderObj)
         fileobject = None
+        bytes_written = 0
         try:
             fileobject = await aiofiles.open(
                 placeholderObj.tempfilepath, "ab"
@@ -282,18 +320,34 @@ class AltDownloadManager(DownloadManager):
 
             while True:
                 try:
-                    chunk = await chunk_iter.__anext__()
+                    try:
+                        from ofscraper.gui.utils.workflow import is_gui_cancelled
+
+                        if is_gui_cancelled():
+                            raise KeyboardInterrupt()
+                    except KeyboardInterrupt:
+                        raise
+                    except Exception:
+                        pass
+                    chunk = await self._next_chunk(chunk_iter, ele)
                     await fileobject.write(chunk)
+                    bytes_written += len(chunk)
                     send_chunk_msg(ele, total, placeholderObj)
                 except StopAsyncIteration:
                     break  # Exit loop when no more chunks
 
-        # Catch native aiohttp socket read timeouts
+            if total and bytes_written == 0:
+                raise Exception(
+                    f"{get_medialog(ele)} incomplete download: "
+                    f"wrote 0 bytes (expected file size {total})"
+                )
+
+        # Catch native aiohttp socket read timeouts / inactivity watchdog
         except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as E:
             common_globals.log.info(
                 f"{common_logs.get_medialog(ele)}⚠️ CDN went silent (sock_read timeout). Connection stalled, forcing retry!"
             )
-            raise Exception("Chunk download timed out")
+            raise Exception("Chunk download timed out") from E
         except Exception as E:
             common_globals.log.info(f"An error occurred during download for {ele}: {E}")
             raise E
@@ -316,7 +370,7 @@ class AltDownloadManager(DownloadManager):
         self, sharedPlaceholderObj, ele, audio, video, username, model_id
     ):
         tempPlaceholder = await placeholder.tempFilePlaceholder(
-            ele, f"temp_{ele.id or await ele.final_filename}.mp4"
+            ele, f"temp_{ele.id or await ele.final_filename}" + (f"_{ele._dup_seq}" if hasattr(ele, '_dup_seq') else "") + ".mp4"
         ).init()
         temp_path = tempPlaceholder.tempfilepath
         temp_path.unlink(missing_ok=True)
@@ -370,8 +424,15 @@ class AltDownloadManager(DownloadManager):
             temp_path.unlink(missing_ok=True)
             raise Exception("Merged DRM media failed integrity check")
 
+        alt_path_to_file = sharedPlaceholderObj.trunicated_filepath
+        if (
+            getattr(settings.get_settings(), "allow_dupe_downloads", False)
+            and alt_path_to_file.exists()
+        ):
+            alt_path_to_file = _find_unique_path(alt_path_to_file)
+
         common_globals.log.debug(
-            f"Moving intermediate path {temp_path} to {sharedPlaceholderObj.trunicated_filepath}"
+            f"Moving intermediate path {temp_path} to {alt_path_to_file}"
         )
 
         # Thread executor for disk I/O move operation; the file can end up
@@ -381,7 +442,7 @@ class AltDownloadManager(DownloadManager):
             partial(
                 common_paths.moveHelper,
                 temp_path,
-                sharedPlaceholderObj.trunicated_filepath,
+                alt_path_to_file,
                 ele,
             ),
         )
@@ -415,6 +476,22 @@ class AltDownloadManager(DownloadManager):
         ele.add_filepath(final_path)
 
         await self._after_download_script(final_path)
+
+        try:
+            from ofscraper.plugins.manager import plugin_manager
+
+            _final = final_path
+            _final_s = str(pathlib.Path(_final)) if _final is not None else _final
+            _n = len(plugin_manager.plugins)
+            _name = pathlib.Path(_final_s).name if _final_s else "?"
+            common_globals.log.info(
+                f"[PluginManager] on_item_downloaded alt ({_n} plugin(s)) -> {_name}"
+            )
+            plugin_manager.dispatch_event("on_item_downloaded", ele, _final_s)
+        except Exception as e:
+            common_globals.log.warning(
+                f"[PluginManager] on_item_downloaded (alt) failed: {e}"
+            )
 
         audio_total = audio["total"] if audio else 0
         video_total = video["total"] if video else 0
