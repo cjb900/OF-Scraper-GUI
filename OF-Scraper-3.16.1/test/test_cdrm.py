@@ -1,4 +1,3 @@
-import ast
 import asyncio
 import contextlib
 import logging
@@ -43,18 +42,9 @@ class _Session:
         return False
 
 
-def test_cdrm_headers_are_a_python_literal(monkeypatch):
-    monkeypatch.setattr(
-        keyhelpers.auth_requests,
-        "make_headers",
-        lambda: {"user-agent": "ua", "x-bc": "abc"},
-    )
-    monkeypatch.setattr(keyhelpers.auth_requests, "get_cookies_str", lambda: "a=1; b=2")
-    monkeypatch.setattr(
-        keyhelpers.auth_requests,
-        "create_sign",
-        lambda url, headers: headers.update({"sign": "s"}),
-    )
+def test_cdrm_sends_only_pssh_and_license_url(monkeypatch):
+    # GUI tree: unlike the fork (which sends the session headers, #43), the
+    # remote key helper never gets the OnlyFans cookies, sign or x-bc
     monkeypatch.setattr(keyhelpers, "get_cmd_download_req_retries", lambda: 1)
     monkeypatch.setattr(keyhelpers, "log", logging.getLogger("test"))
     session = _Session()
@@ -62,14 +52,7 @@ def test_cdrm_headers_are_a_python_literal(monkeypatch):
     key = asyncio.run(keyhelpers.key_helper_cdrm(session, "pssh", "https://lic", 1))
 
     assert key == "kid:key"
-    sent = session.calls[0]["json"]["headers"]
-    # cdrm-project reads this field with ast.literal_eval (#43)
-    assert ast.literal_eval(sent) == {
-        "user-agent": "ua",
-        "x-bc": "abc",
-        "cookie": "a=1; b=2",
-        "sign": "s",
-    }
+    assert session.calls[0]["json"] == {"licurl": "https://lic", "pssh": "pssh"}
 
 
 @pytest.mark.parametrize("status,ok", [(200, True), (405, True), (404, False), (500, False)])

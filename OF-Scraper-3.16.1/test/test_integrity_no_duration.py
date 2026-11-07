@@ -12,7 +12,12 @@ import ofscraper.utils.system.ffprobe as ffprobe
 
 
 @pytest.fixture
-def media_of_length(monkeypatch):
+def media_of_length(monkeypatch, tmp_path):
+    # GUI tree: the integrity check also rejects missing or tiny (< 1 KB)
+    # files, so the test needs a real file of a plausible size
+    (tmp_path / "video.mp4").write_bytes(b"\0" * 2048)
+    monkeypatch.chdir(tmp_path)
+
     def set_length(seconds):
         monkeypatch.setattr(ffprobe, "get_media_duration", lambda path: seconds)
 

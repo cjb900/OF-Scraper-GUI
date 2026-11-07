@@ -80,6 +80,36 @@ Every key `config.json` holds, in the order the file is written (`ofscraper/util
 - **CLI override:** `--original`
 - When true, final file paths longer than the operating system's limit are shortened to fit. The -g/--original flag turns truncation off for a run.
 
+### `file_options.override_image_extension`
+
+- **Default:** `false` · **Read by:** `get_override_image_extension()` in `ofscraper/utils/config/data.py`
+- GUI tree: when true, {ext} for images is image_extension instead of the extension from the media URL. The file's content is not converted.
+
+### `file_options.override_video_extension`
+
+- **Default:** `false` · **Read by:** `get_override_video_extension()` in `ofscraper/utils/config/data.py`
+- GUI tree: when true, {ext} for videos is video_extension instead of the extension from the media URL. The file's content is not converted.
+
+### `file_options.override_audio_extension`
+
+- **Default:** `false` · **Read by:** `get_override_audio_extension()` in `ofscraper/utils/config/data.py`
+- GUI tree: when true, {ext} for audio is audio_extension instead of the extension from the media URL. The file's content is not converted.
+
+### `file_options.image_extension`
+
+- **Default:** `"jpg"` · **Read by:** `get_image_extension()` in `ofscraper/utils/config/data.py`
+- GUI tree: extension written for images when override_image_extension is on (default jpg). Only letters and digits are kept.
+
+### `file_options.video_extension`
+
+- **Default:** `"mp4"` · **Read by:** `get_video_extension()` in `ofscraper/utils/config/data.py`
+- GUI tree: extension written for videos when override_video_extension is on (default mp4). Only letters and digits are kept.
+
+### `file_options.audio_extension`
+
+- **Default:** `"mp3"` · **Read by:** `get_audio_extension()` in `ofscraper/utils/config/data.py`
+- GUI tree: extension written for audio when override_audio_extension is on (default mp3). Only letters and digits are kept.
+
 ### `file_options.filename_collision`
 
 - **Default:** `"media_id"` · **Read by:** `get_filename_collision()` in `ofscraper/utils/config/data.py`
@@ -124,6 +154,11 @@ Every key `config.json` holds, in the order the file is written (`ofscraper/util
 - **Default from:** [`VERIFY_ALL_INTEGRITY`](env.md#verify_all_integrity)
 - When true, ordinary (non-DRM) video and audio downloads and Fansly streams are checked with ffprobe against the expected duration, and a truncated file is deleted and reported as failed. Requires ffprobe; there is no CLI option for it.
 
+### `download_options.drm_duration_match_threshold`
+
+- **Default:** `0.98` · **Read by:** `get_drm_duration_match_threshold()` in `ofscraper/utils/config/data.py`
+- GUI tree: how close a checked file's length must be to the expected length to pass the integrity check, as a fraction (default 0.98); a value above 1 is read as a percent. A file at most 1 second short also passes.
+
 ## `binary_options`
 
 ### `binary_options.ffmpeg`
@@ -148,10 +183,10 @@ Every key `config.json` holds, in the order the file is written (`ofscraper/util
 
 ### `cdm_options.key-mode-default`
 
-- **Default:** `"cdrm"` · **Read by:** `get_key_mode()` in `ofscraper/utils/config/data.py`
+- **Default:** `"manual"` · **Read by:** `get_key_mode()` in `ofscraper/utils/config/data.py`
 - **Default from:** [`KEY_DEFAULT`](env.md#key_default), [`KEY_OPTIONS`](env.md#key_options)
 - **CLI override:** `--key-mode`
-- How DRM content keys are obtained: 'manual' uses the local CDM files in private-key and client-id; 'cdrm' asks cdrm-project.com and sends it the request headers, cookies included. Other values fall back to the default. The -k/--key-mode option overrides it.
+- How DRM content keys are obtained: 'manual' uses the local CDM files in private-key and client-id; 'cdrm' asks cdrm-project.com and, in the GUI tree, sends it only the pssh and the licence URL (no cookies or other request headers). Other values fall back to the default. The -k/--key-mode option overrides it.
 
 ## `performance_options`
 
@@ -217,6 +252,26 @@ Every key `config.json` holds, in the order the file is written (`ofscraper/util
 - **Default from:** [`DYNAMIC_OPTIONS_ALL`](env.md#dynamic_options_all), [`DYNAMIC_RULE_DEFAULT`](env.md#dynamic_rule_default)
 - **CLI override:** `--dynamic-rules`
 - Which source of OnlyFans request-signing rules to use: datawhores, xagler, rafa, digitalcriminals (aliases dc, digital, digitals, digitalcriminal; the config menu lists and saves it as digital), generic (needs OFSC_DYNAMIC_GENERIC_URL) or manual (needs OFSC_DYNAMIC_RULE_MANUAL). Unknown values fall back to the default with a warning in the log, and anything that yields no rule falls back to datawhores. The -dr/--dynamic-rules option overrides it.
+
+### `advanced_options.api_path`
+
+- **Default:** `"/api2/v2"` · **Read by:** `get_api_path()` in `ofscraper/utils/config/data.py`
+- GUI tree: path prefix of the OnlyFans API (default /api2/v2), put in front of every OnlyFans API URL so a changed path can be followed without an update.
+
+### `advanced_options.dynamic_rules_manual`
+
+- **Default:** `""` · **Read by:** `get_dynamic_rules_manual()` in `ofscraper/utils/config/data.py`
+- GUI tree: signing rules as JSON text for dynamic mode 'manual', used when OFSC_DYNAMIC_RULE_MANUAL is not set.
+
+### `advanced_options.dynamic_rules_url`
+
+- **Default:** `""` · **Read by:** `get_dynamic_rules_url()` in `ofscraper/utils/config/data.py`
+- GUI tree: URL of a signing-rules JSON file for dynamic mode 'generic', used when OFSC_DYNAMIC_GENERIC_URL is not set.
+
+### `advanced_options.media_host_suffixes`
+
+- **Default:** `""` · **Read by:** `get_media_host_suffixes()` in `ofscraper/utils/config/data.py`
+- GUI tree: extra host-name endings that media and DRM licence downloads may come from, comma-separated, added to the built-in OnlyFans and CloudFront hosts (and OFSC_MEDIA_HOST_SUFFIXES). Downloads from other hosts are refused.
 
 ### `advanced_options.skip_unavailable_content`
 
@@ -311,7 +366,7 @@ Every key `config.json` holds, in the order the file is written (`ofscraper/util
 
 - **Default:** `null` · **Read by:** `get_after_action_script()` in `ofscraper/utils/config/data.py`
 - **Default from:** [`AFTER_ACTION_SCRIPT_DEFAULT`](env.md#after_action_script_default)
-- **Also reads:** `advanced_options`
+- **Also reads:** `advanced_options`, `scripts_options`
 - **CLI override:** `--after-action-script`
 - Executable run after each user is processed by the like, unlike or download actions (and after scrape-paid, check and manual downloads). It receives JSON with the username, media and posts on stdin. The -aas/--after-action-script option overrides it.
 
@@ -319,7 +374,7 @@ Every key `config.json` holds, in the order the file is written (`ofscraper/util
 
 - **Default:** `null` · **Read by:** `get_post_script()` in `ofscraper/utils/config/data.py`
 - **Default from:** [`POST_SCRIPT_DEFAULT`](env.md#post_script_default)
-- **Also reads:** `advanced_options`, `scripts`
+- **Also reads:** `advanced_options`, `scripts`, `scripts_options`
 - **CLI override:** `--post-script`
 - Executable run once when the program finishes. It receives JSON on stdin listing processed and unprocessed users for the like, unlike, download and scrape-paid activities. The -ps/--post-script option overrides it.
 
@@ -327,7 +382,7 @@ Every key `config.json` holds, in the order the file is written (`ofscraper/util
 
 - **Default:** `null` · **Read by:** `get_naming_script()` in `ofscraper/utils/config/data.py`
 - **Default from:** [`NAMING_SCRIPT_DEFAULT`](env.md#naming_script_default)
-- **Also reads:** `advanced_options`, `scripts`
+- **Also reads:** `advanced_options`, `scripts`, `scripts_options`
 - **CLI override:** `--naming-script`
 - Executable run for each download to choose its path. It receives JSON about the media, post and current formats on stdin; non-empty stdout is used as the full file path in place of dir_format and file_format. The -ns/--naming-script option overrides it.
 
@@ -335,7 +390,7 @@ Every key `config.json` holds, in the order the file is written (`ofscraper/util
 
 - **Default:** `null` · **Read by:** `get_after_download_script()` in `ofscraper/utils/config/data.py`
 - **Default from:** [`AFTER_DOWNLOAD_SCRIPT_DEFAULT`](env.md#after_download_script_default)
-- **Also reads:** `advanced_options`, `scripts`
+- **Also reads:** `advanced_options`, `scripts`, `scripts_options`
 - **CLI override:** `--after-download-script`
 - Executable run after each file is downloaded (including text files), with the final file path on stdin. The -adl/--after-download-script option overrides it.
 
@@ -343,7 +398,7 @@ Every key `config.json` holds, in the order the file is written (`ofscraper/util
 
 - **Default:** `null` · **Read by:** `get_skip_download_script()` in `ofscraper/utils/config/data.py`
 - **Default from:** [`SKIP_DOWNLOAD_SCRIPT_DEFAULT`](env.md#skip_download_script_default)
-- **Also reads:** `advanced_options`, `scripts`
+- **Also reads:** `advanced_options`, `scripts`, `scripts_options`
 - **CLI override:** `--skip-download-script`
 - Executable run before each download with JSON about the media, post and total size on stdin. If it prints 'false' or nothing, the download is skipped; any other output lets it proceed. The -sdl/--skip-download-script option overrides it.
 

@@ -45,8 +45,25 @@ These are read with `os.getenv` where they're used, not through `of_env.getattr`
 
 | Variable | Default | Read in | Description |
 |---|---|---|---|
+| `ANDROID_SDK_HOME` | `''` | `ofscraper/gui/scripts/drm_keydive.py` | GUI CDM key tool: extra folder searched for Android emulator images. |
+| `APPDATA` | `''` | `ofscraper/gui/dialogs/auth_dialog.py` | GUI on Windows: where the login window looks for Firefox profiles and browser data to import cookies from. |
+| `LOCALAPPDATA` | `''` | `ofscraper/gui/dialogs/auth_dialog.py` | GUI on Windows: where the login window looks for Chromium-based browser data to import cookies from. |
+| `OFSCRAPER_WEBENGINE_DEBUG_PORT` | `None` | `ofscraper/gui/app.py` | GUI: port for the embedded browser's remote debugging, used by the login window to read cookies; a random port from 9200 to 9299 when unset. |
+| `OFSC_CONFIG_DIR` | `'.config/ofscraper'` | `ofscraper/utils/of_env/of_env.py` | GUI tree: config folder under the home folder (default .config/ofscraper), read only to find config.json for advanced_options.api_path before settings exist. |
+| `OFSC_CONFIG_FILE_NAME` | `'config.json'` | `ofscraper/utils/of_env/of_env.py` | GUI tree: config file name (default config.json) for the same early api_path lookup. |
+| `OFSC_CONFIG_PATH` | `None` | `ofscraper/utils/of_env/of_env.py` | GUI tree: full path to config.json, or the folder that holds it, for the same early api_path lookup. |
 | `OFSC_FANSLY_API_BASE` | `f'https://{API_HOST}/api/v1/'` | `ofscraper/sites/fansly/constants.py` | Base URL of the Fansly API that Fansly requests go to. |
 | `OFSC_FANSLY_AUTH_FILE_NAME` | `'fansly_auth.json'` | `ofscraper/sites/fansly/constants.py` | Name of the Fansly credentials file in the profile folder. |
+| `OFSC_LIVE_AGORA_BACKEND` | `None` | `ofscraper/plugins/live_stream_agora/capture_backend.py` | GUI live-stream plugin: forces the capture backend, 'playwright' or 'agora'; otherwise it is chosen by operating system. |
+| `OFSC_MEDIA_HOST_SUFFIXES` | `''` | `ofscraper/utils/host_allowlist.py` | GUI tree: extra allowed media and DRM licence host-name endings, comma-separated; added to advanced_options.media_host_suffixes. |
+| `OFSC_METADATA_OVERRIDE` | `None` | `ofscraper/utils/config/file.py` | GUI tree: when set, replaces the metadata (database folder) value of the loaded config. |
+| `OF_CONFIG_PATH` | `None` | `ofscraper/utils/of_env/of_env.py` | GUI tree: older name of OFSC_CONFIG_PATH, read when that is unset. |
+| `PATH` | `''` | `ofscraper/plugins/manager.py` | GUI plugins on Windows: the PyTorch library folder is added to it so its DLLs load. |
+| `PIPX_HOME` | `None` | `ofscraper/plugins/live_stream_agora/sdk_install.py` | GUI plugins: where a pipx install of OF-Scraper is looked for, so plugin packages go into the same environment. |
+| `QTWEBENGINE_CHROMIUM_FLAGS` | `''` | `ofscraper/gui/app.py` | GUI: extra flags for the embedded browser; in Docker the GUI adds --disable-gpu, --no-sandbox and --disable-dev-shm-usage. |
+| `USERNAME` | `None` | `ofscraper/utils/auth/cookie_allowlist.py` | Windows user name, used to limit access to the saved auth file to the current user (icacls). |
+| `UV_TOOL_DIR` | `None` | `ofscraper/plugins/live_stream_agora/sdk_install.py` | GUI plugins: where a uv tool install of OF-Scraper is looked for. |
+| `XDG_DATA_HOME` | `str(home / '.local' / 'share')` | `ofscraper/plugins/live_stream_agora/sdk_install.py` | GUI plugins on Linux and macOS: base folder of uv tool installs (default ~/.local/share). |
 
 ## `ofscraper/utils/of_env/values/action/download.py`
 
@@ -208,7 +225,7 @@ These are read with `os.getenv` where they're used, not through `of_env.getattr`
 | <a id="suppress_log_level"></a>`SUPPRESS_LOG_LEVEL` | `OFSC_SUPPRESS_LOG_LEVEL` | `21` | Log level to suppress output (integer representing level). |
 | <a id="resume_default"></a>`RESUME_DEFAULT` | `OFSC_RESUME_DEFAULT` | `True` | Whether to resume downloads by default. |
 | <a id="cachedefault"></a>`CACHEDEFAULT` | `OFSC_CACHE_DEFAULT` | `'sqlite'` | Default caching mechanism (e.g., "sqlite"). |
-| <a id="key_default"></a>`KEY_DEFAULT` | `OFSC_KEY_DEFAULT` | `'cdrm'` | Default key mode for content decryption. |
+| <a id="key_default"></a>`KEY_DEFAULT` | `OFSC_KEY_DEFAULT` | `'manual'` | Default key mode for content decryption. |
 | <a id="key_options"></a>`KEY_OPTIONS` | none (bare key only) | `['cdrm', 'manual']` | The allowed `cdm_options.key-mode-default` values, from `ofscraper/utils/const.py`; not read from the environment. |
 | <a id="file_size_max_default"></a>`FILE_SIZE_MAX_DEFAULT` | `OFSC_FILE_SIZE_MAX_DEFAULT` | `0` | Default maximum file size allowed (bytes, 0 for no limit). |
 | <a id="file_size_min_default"></a>`FILE_SIZE_MIN_DEFAULT` | `OFSC_FILE_SIZE_MIN_DEFAULT` | `0` | Default minimum file size allowed (bytes, 0 for no limit). |
@@ -667,6 +684,8 @@ These are read with `os.getenv` where they're used, not through `of_env.getattr`
 | <a id="chunk_file_split"></a>`CHUNK_FILE_SPLIT` | `OFSC_CHUNK_FILE_SPLIT` | `64` | Ideal file split size for chunk processing (e.g., in MB). |
 | <a id="max_read_size"></a>`MAX_READ_SIZE` | `OFSC_MAX_READ_SIZE` | `16777216` | Maximum size to read at once (bytes). |
 | <a id="chunk_timeout_sec"></a>`CHUNK_TIMEOUT_SEC` | `OFSC_CHUNK_TIMEOUT_SEC` | `30` | Timeout for individual chunk downloads (seconds). |
+| <a id="part_size_tolerance"></a>`PART_SIZE_TOLERANCE` | `OFSC_PART_SIZE_TOLERANCE` | `64` | Allowed byte slack when finalizing .part files vs expected size. |
+| <a id="media_host_suffixes"></a>`MEDIA_HOST_SUFFIXES` | `OFSC_MEDIA_HOST_SUFFIXES` | `''` | Extra allowed download/CDN host suffixes (comma-separated). |
 
 ### Semaphore and Concurrency Configuration
 
@@ -748,7 +767,7 @@ These are read with `os.getenv` where they're used, not through `of_env.getattr`
 | <a id="datawhores_url"></a>`DATAWHORES_URL` | `OF_DATAWHORES_URL` | `'https://raw.githubusercontent.com/datawhores/onlyfans-dynamic-rules/main/dynamicRules.json'` | "https://raw.githubusercontent.com/datawhores/onlyfans-dynamic-rules/main/dynamicRules.json" |
 | <a id="deviint_url"></a>`DEVIINT_URL` | `OF_DEVIINT_URL` | `'https://raw.githubusercontent.com/deviint/onlyfans-dynamic-rules/main/dynamicRules.json'` | Dynamic rules URL for Deviint |
 | <a id="riley_url"></a>`RILEY_URL` | `OF_RILEY_URL` | `'https://raw.githubusercontent.com/riley-access-labs/onlyfans-dynamic-rules-1/refs/heads/main/dynamicRules.json'` | Dynamic rules URL for Riley Access Labs |
-| <a id="dynamic_generic_url"></a>`DYNAMIC_GENERIC_URL` | `OF_DYNAMIC_GENERIC_URL` | `None` | None |
+| <a id="dynamic_generic_url"></a>`DYNAMIC_GENERIC_URL` | `OF_DYNAMIC_GENERIC_URL`, `OFSC_DYNAMIC_GENERIC_URL` | `None` | None |
 
 ## `ofscraper/utils/of_env/values/url/other_url.py`
 

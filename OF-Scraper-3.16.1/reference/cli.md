@@ -12,49 +12,49 @@ Run `OF-Scraper [OPTIONS] [COMMAND] [COMMAND OPTIONS]`.
 
 No subcommand. Entry is ofscraper/__main__.py, then Manager.pick() calls commands/scraper/scraper.main(): it cleans temp files and the DB, checks the CDM, then: with --daemon, prompts for actions if none were given and reruns on a schedule; with --action or --scrape-paid, runs those actions once (repeating with prompts if the infinite-loop config is on); with only Fansly --live/--live-watch, records livestreams; otherwise opens the interactive menu (Action, Auth (edit auth.json), Config (edit config.json), Profile, Merge databases, Quit). Reads auth.json and config.json from the profile, writes media under save_location and rows to each creator's user_data.db.
 
-Accepts 101 options. Its `--help` summary: OF-Scraper Options.
+Accepts 105 options. Its `--help` summary: OF-Scraper Options.
 
 ### `manual`
 
 ofscraper manual -u URL... or -f FILE (one is required). Downloads specific posts given as OnlyFans URLs (post, chat message, story, highlight) or bare post ids; a bare id is looked up on the timeline, then in that creator's purchases. Forces force_all, so existing files are downloaded again; writes posts and media to the creator's user_data.db and media under save_location, then runs the after-download script.
 
-Accepts 50 options. Its `--help` summary: Manually download media by providing a list of urls or IDs.
+Accepts 54 options. Its `--help` summary: Manually download media by providing a list of urls or IDs.
 
 ### `msg_check`
 
 ofscraper msg_check -u ITEM... or -f FILE. Each item is a creator username, or any text containing a number, which is taken as the model id (e.g. a chat URL). Fetches the creator's messages and purchases (from the check cache unless --force; the cache expires after 3 days), writes them to user_data.db, and opens an interactive table of the media where unlocked rows can be queued for download; a background thread downloads them.
 
-Accepts 50 options. Its `--help` summary: The msg_check subcommand gathers information on media content from messages It presents this data in a table format with filtering options for focused searches Allows unlocked media entries to be directly downloaded through the table.
+Accepts 54 options. Its `--help` summary: The msg_check subcommand gathers information on media content from messages It presents this data in a table format with filtering options for focused searches Allows unlocked media entries to be directly downloaded through the table.
 
 ### `story_check`
 
 ofscraper story_check -u USERNAME... (or -f). Fetches the creators' stories and highlights from the API (no check cache), writes them to user_data.db and opens the same downloadable media table.
 
-Accepts 48 options. Its `--help` summary: The story_check subcommand gathers information on media content from stories and highlights It presents this data in a table format with filtering options for focused searches Allows unlocked media entries to be directly downloaded through the table.
+Accepts 52 options. Its `--help` summary: The story_check subcommand gathers information on media content from stories and highlights It presents this data in a table format with filtering options for focused searches Allows unlocked media entries to be directly downloaded through the table.
 
 ### `paid_check`
 
 ofscraper paid_check -u USERNAME_OR_ID... (or -f). Fetches each creator's purchased content (check cache unless --force; a deleted creator, named DELETED_MODEL_PLACEHOLDER, is read from all purchases), writes it to user_data.db and opens the media table.
 
-Accepts 50 options. Its `--help` summary: The paid_check subcommand gathers information on media content from purchases It presents this data in a table format with filtering options for focused searches Allows unlocked media entries to be directly downloaded through the table.
+Accepts 54 options. Its `--help` summary: The paid_check subcommand gathers information on media content from purchases It presents this data in a table format with filtering options for focused searches Allows unlocked media entries to be directly downloaded through the table.
 
 ### `post_check`
 
 ofscraper post_check -u URL_OR_USERNAME... or -f FILE. Takes onlyfans.com/<username> URLs or bare usernames, fetches the areas in --check-area (default Timeline, Pinned, Archived, Streams; Labels also available) from the check cache unless --force, writes them to user_data.db and opens the media table. All check commands set force_all and after=0.
 
-Accepts 52 options. Its `--help` summary: The post_check subcommand gathers information on media content from posts It presents this data in a table format with filtering options for focused searches Allows unlocked media entries to be directly downloaded through the table.
+Accepts 56 options. Its `--help` summary: The post_check subcommand gathers information on media content from posts It presents this data in a table format with filtering options for focused searches Allows unlocked media entries to be directly downloaded through the table.
 
 ### `metadata`
 
 ofscraper metadata --metadata check|update|complete with the usual user and area options (--scrape-paid takes a mode too). Uses the API to update the creators' user_data.db without downloading: check refreshes metadata fields only; update also sets download status and file names from the files actually on disk; complete marks media downloaded and takes a new filename if there is one. --mark-stray marks DB media missing from the scrape (within --after/--before) as locked; --anon uses anonymous credentials.
 
-Accepts 85 options. Its `--help` summary: Uses API to modify db files without the need for downloading.
+Accepts 89 options. Its `--help` summary: Uses API to modify db files without the need for downloading.
 
 ### `db`
 
 ofscraper db with user selection, area (-o) and media filters (type, size, length, downloaded, locked, preview, protected, post/media ids, dates), sorting and a hard limit. Reads media rows from each selected creator's user_data.db and prints them as a table; -ep/--export PATH also writes a .csv. Makes no API calls for the media itself. With several creators each one rewrites the same CSV path, so only the last creator's rows remain.
 
-Accepts 60 options. Its `--help` summary: Print information from the database.
+Accepts 62 options. Its `--help` summary: Print information from the database.
 
 ### `recover_collisions` (separate entry point)
 
@@ -126,6 +126,13 @@ The main program's `--action` (`-a`) picks what a non-interactive run does; with
 - Path to a custom environment variables file (.env).
 - **Note:** Loaded before settings are built, instead of `advanced_options.env_files` (not in addition to it).
 
+#### `--gui`
+
+- **Dest:** `gui` · **Type:** flag · **Default:** off
+- **Commands:** all
+- **Defined in:** `ofscraper/utils/args/parse/arguments/program.py`
+- Launch graphical user interface instead of terminal UI
+
 ### Logging Options
 
 #### `--output`
@@ -160,6 +167,14 @@ The main program's `--action` (`-a`) picks what a non-interactive run does; with
 - **Commands:** all
 - **Defined in:** `ofscraper/utils/args/parse/arguments/logging.py`
 - Set log file level
+
+#### `--discord-ping`
+
+- **Also:** `-dp`, `--daemon-ping`
+- **Dest:** `discord_ping` · **Type:** flag · **Default:** off
+- **Commands:** all
+- **Defined in:** `ofscraper/utils/args/parse/arguments/logging.py`
+- Enable @here Discord mention in daemon mode when new content is found
 
 ### Download Options
 
@@ -200,6 +215,21 @@ The main program's `--action` (`-a`) picks what a non-interactive run does; with
 - **Defined in:** `ofscraper/utils/args/parse/arguments/download.py`
 - Maximum download speed per second can parse Human readable string '10MB' or int representing bytes per second
 - **Note:** Values below 1024 bytes per second are raised to 1024. The limit is shared by all downloads in the run.
+
+#### `--allow-dupe-downloads`
+
+- **Also:** `-ad`, `--allow-dupes`
+- **Dest:** `allow_dupe_downloads` · **Type:** flag · **Default:** off
+- **Commands:** main program, `manual`, `msg_check`, `story_check`, `paid_check`, `post_check`, `metadata`
+- **Defined in:** `ofscraper/utils/args/parse/arguments/download.py`
+- Allow duplicates (do NOT skip duplicates; treat reposts as new items)
+
+#### `--keep-message-purchased-dupes`
+
+- **Dest:** `keep_message_purchased_dupes` · **Type:** flag · **Default:** off
+- **Commands:** main program, `manual`, `msg_check`, `story_check`, `paid_check`, `post_check`, `metadata`
+- **Defined in:** `ofscraper/utils/args/parse/arguments/download.py`
+- With --allow-dupe-downloads: also keep the same media from both Messages and Purchased. Default is to keep Messages only for that overlap.
 
 ### Media Filters Options
 
@@ -669,7 +699,7 @@ The main program's `--action` (`-a`) picks what a non-interactive run does; with
 
 #### `--promo-only`
 
-- **Also:** `-po`, `-ps`, `--promo-skip`
+- **Also:** `-po`, `-psk`, `--promo-skip`
 - **Dest:** `promo` · **Type:** flag · **Default:** none
 - **Commands:** main program, `metadata`, `db`
 - Flag for enabling/disabling accounts with a claimable promo price [select one --promo-only or --promo-skip]
@@ -1094,7 +1124,7 @@ The main program's `--action` (`-a`) picks what a non-interactive run does; with
 
 #### `--mark-stray-locked`
 
-- **Also:** `-ms`, `--mark-stray`
+- **Also:** `-msl`, `--mark-stray`
 - **Dest:** `mark_stray` · **Type:** flag · **Default:** off
 - **Commands:** `metadata`
 - **Defined in:** `ofscraper/utils/args/parse/group_bundles/metadata.py`

@@ -31,9 +31,10 @@ attribute or key access: `{modelObj.name}`, `{args.posts}`, and, because
 | `{download_type}` | `{downloadtype}` |  | yes | yes |  | 'Protected' for DRM (MPD) media, 'Normal' otherwise. |
 | `{ext}` |  |  |  | yes | yes | The file extension without the dot, e.g. mp4, jpg; 'txt' for text files. |
 | `{file_name}` | `{filename}` |  | yes | yes | yes | Final media file name without extension: the name from the media URL, the media id if none, videos with _<quality> appended, cleaned and with spaces replaced by space_replacer; for text files the sanitised, truncated post text. Usually written {filename} (the default file_format is {filename}.{ext}). |
+| `{filename}` |  |  |  |  | yes | GUI tree, text files only: the sanitised, truncated post text, or the post id when there is none, so a file_format such as {filename}.{ext} also names text files. For media use {file_name}, usually written {filename}. |
 | `{first_letter}` | `{firstletter}` | yes | yes | yes | yes | First letter of the creator's username, upper-cased, e.g. 'A'. |
 | `{label}` |  |  | yes | yes | yes | The post's label name, or the string 'None' when it has no label. |
-| `{media_id}` | `{mediaid}` |  | yes | yes |  | Id of the media item; including it (or a filename field) in file_format stops the automatic _<count> suffix. |
+| `{media_id}` | `{mediaid}` |  | yes | yes | yes | Id of the media item; including it (or a filename field) in file_format stops the automatic _<count> suffix. |
 | `{media_type}` | `{mediatype}` |  | yes | yes | yes | Capitalised media kind: Images, Videos (gifs count as Videos), Audios, Forced_skipped, or 'Text' for text files; usually written {mediatype}. |
 | `{modelObj}` |  |  | yes | yes | yes | Object: the creator's model (ofscraper/classes/of/models.py) from the model manager, used with attribute access, e.g. {modelObj.name}, {modelObj.id}, {modelObj.final_current_price}; None if the creator isn't loaded, so attribute access then fails. |
 | `{model_id}` | `{modelid}` | yes | yes | yes | yes | The creator's numeric account id (OnlyFans ids are short; Fansly ids are 18-digit snowflakes). Default metadata path is {configpath}/{profile}/.data/{model_id}. |

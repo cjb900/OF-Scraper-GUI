@@ -2,6 +2,11 @@
 
 The expected values below were recorded from ``main`` before any site
 routing existed. They must keep passing unchanged.
+
+GUI tree: the GUI's scraper edits add a few things on purpose, kept apart
+below (GUI_*) so the fork's pinned values stay visible: an accept-language
+header (plus sec-ch-ua headers for Chrome user agents), the auth_uid_ cookie
+in the cookie string, and its own config keys.
 """
 
 import json
@@ -34,6 +39,8 @@ EXPECTED_HEADERS = {
     "user-agent": "Mozilla/5.0 (pin test) Gecko/20100101 Firefox/140.0",
     "sign": "41:5acda7342877a82eca7595d139978392d65d072d:16e:6618",
     "time": "1700000000123",
+    # GUI tree: make_login_headers adds this to every OnlyFans request
+    "accept-language": "en-US,en;q=0.5",
 }
 EXPECTED_COOKIES = {"sess": "sess-value-0001", "auth_id": "424242", "auth_uid_": "424242"}
 
@@ -80,7 +87,10 @@ def test_onlyfans_unsigned_headers_are_unchanged(onlyfans_profile):
 
 
 def test_onlyfans_cookie_string_is_unchanged(onlyfans_profile):
-    assert auth_requests.get_cookies_str() == "auth_id=424242;sess=sess-value-0001;"
+    # GUI tree: the string also carries auth_uid_, like the cookie dict above
+    assert auth_requests.get_cookies_str() == (
+        "auth_id=424242;sess=sess-value-0001;auth_uid_=424242;"
+    )
 
 
 EXISTING_CONFIG = {
@@ -101,21 +111,38 @@ EXISTING_CONFIG = {
 }
 
 
+# GUI tree: config keys the GUI adds, with the defaults a rebuilt file gets
+GUI_FILE_OPTIONS = {
+    "image_extension": "jpg",
+    "video_extension": "mp4",
+    "audio_extension": "mp3",
+    "override_image_extension": False,
+    "override_video_extension": False,
+    "override_audio_extension": False,
+}
+
 SECTION_KEYS = {
-    "file_options": ["date", "dir_format", "file_format", "filename_collision", "save_location",
-                     "space_replacer", "text_type_default", "textlength", "truncation_default"],
-    "download_options": ["auto_resume", "filter", "max_post_count", "system_free_min",
-                         "verify_all_integrity"],
+    "file_options": sorted(
+        ["date", "dir_format", "file_format", "filename_collision", "save_location",
+         "space_replacer", "text_type_default", "textlength", "truncation_default",
+         *GUI_FILE_OPTIONS]
+    ),
+    "download_options": ["auto_resume", "drm_duration_match_threshold", "filter",
+                         "max_post_count", "system_free_min", "verify_all_integrity"],
     "binary_options": ["ffmpeg"],
     "cdm_options": ["client-id", "key-mode-default", "private-key"],
     "performance_options": ["download_limit", "download_sems"],
     "content_filter_options": ["block_ads", "file_size_max", "file_size_min", "length_max",
                                "length_min"],
-    "advanced_options": ["cache-mode", "default_black_list", "default_user_list", "downloadbars",
-                         "dynamic-mode-default", "env_files", "incremental_downloads",
-                         "infinite_loop_action_mode", "logs_expire_time", "remove_hash_match",
-                         "rotate_logs", "sanitize_text", "skip_unavailable_content", "ssl_verify",
-                         "temp_dir"],
+    "advanced_options": sorted(
+        ["cache-mode", "default_black_list", "default_user_list", "downloadbars",
+         "dynamic-mode-default", "env_files", "incremental_downloads",
+         "infinite_loop_action_mode", "logs_expire_time", "remove_hash_match",
+         "rotate_logs", "sanitize_text", "skip_unavailable_content", "ssl_verify",
+         "temp_dir",
+         # GUI tree
+         "api_endpoint_overrides", "api_path", "dynamic_rules_manual", "dynamic_rules_url", "media_host_suffixes"]
+    ),
     "script_options": ["after_action_script", "after_download_script", "naming_script",
                        "post_script", "skip_download_script"],
     "responsetype": ["archived", "highlights", "message", "paid", "pinned", "profile", "stories",
@@ -132,6 +159,7 @@ def test_existing_config_is_written_back_unchanged():
     assert config_schema._config_diff_helper(json.loads(json.dumps(first)), again) is False
     assert first["file_options"] == {
         **EXISTING_CONFIG["file_options"],
+        **GUI_FILE_OPTIONS,
     }
     assert first["metadata"] == EXISTING_CONFIG["metadata"]
     assert {k: sorted(v) for k, v in first.items() if isinstance(v, dict)} == SECTION_KEYS
