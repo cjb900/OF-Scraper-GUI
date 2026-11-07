@@ -1,12 +1,12 @@
 """
-Rebuild the ZIP_B64 in patch_ofscraper_3.16.1_gui.py from the current source files.
-Run from the OF-Scraper-3.16.1 directory.
+Rebuild the ZIP_B64 in patch_ofscraper_3.16.4_gui.py from the current source files.
+Run from the OF-Scraper-3.16.4 directory.
 
 FILE_COUNT is always rewritten to match the FILES list.
 
 Optional args:
   --patch-id <ID>   Update PATCH_ID in the patch script to this value.
-  --sync-root       Also copy the rebuilt patch over ../patch_ofscraper_3.16.1_gui.py
+  --sync-root       Also copy the rebuilt patch over ../patch_ofscraper_3.16.4_gui.py
                     (the repo-root copy).
 """
 import argparse
@@ -22,9 +22,9 @@ _ap.add_argument("--patch-id", default=None, help="New PATCH_ID value to write i
 _ap.add_argument("--sync-root", action="store_true", help="Also update the repo-root copy of the patch script.")
 _args = _ap.parse_args()
 
-PATCH_FILE = os.path.join(os.path.dirname(__file__), "patch_ofscraper_3.16.1_gui.py")
-ROOT_PATCH_FILE = os.path.join(os.path.dirname(__file__), "..", "patch_ofscraper_3.16.1_gui.py")
-SRC_DIR = os.path.join(os.path.dirname(__file__), "ofscraper")  # OF-Scraper-3.16.1/ofscraper
+PATCH_FILE = os.path.join(os.path.dirname(__file__), "patch_ofscraper_3.16.4_gui.py")
+ROOT_PATCH_FILE = os.path.join(os.path.dirname(__file__), "..", "patch_ofscraper_3.16.4_gui.py")
+SRC_DIR = os.path.join(os.path.dirname(__file__), "ofscraper")  # OF-Scraper-3.16.4/ofscraper
 
 # Read the patch file as text
 with open(PATCH_FILE, "r", encoding="utf-8") as f:

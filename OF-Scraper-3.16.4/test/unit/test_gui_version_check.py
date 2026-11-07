@@ -40,3 +40,9 @@ def test_fork_build_is_up_to_date_against_pypi(monkeypatch):
     result = vc.check_for_updates("3.16.1+g8e8cb815")
     assert result.status == "up_to_date"
     assert not vc.should_prompt_startup(result)
+
+
+def test_checks_the_fork_package_on_pypi():
+    # PyPI's "ofscraper" is upstream; the fork is published as ofscraper-community
+    assert vc.PYPI_JSON_URL == "https://pypi.org/pypi/ofscraper-community/json"
+    assert vc.DEFAULT_PROJECT_URL == "https://pypi.org/project/ofscraper-community/"

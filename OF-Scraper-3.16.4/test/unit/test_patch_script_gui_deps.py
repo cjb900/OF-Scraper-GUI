@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-_SCRIPT = Path(__file__).resolve().parents[2] / "patch_ofscraper_3.16.1_gui.py"
+_SCRIPT = Path(__file__).resolve().parents[2] / "patch_ofscraper_3.16.4_gui.py"
 
 
 @pytest.fixture

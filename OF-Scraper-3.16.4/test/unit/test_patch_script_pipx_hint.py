@@ -8,8 +8,8 @@ import pytest
 
 _REPO = Path(__file__).resolve().parents[3]
 _SCRIPTS = [
-    Path(__file__).resolve().parents[2] / "patch_ofscraper_3.16.1_gui.py",
-    _REPO / "patch_ofscraper_3.16.1_gui.py",
+    Path(__file__).resolve().parents[2] / "patch_ofscraper_3.16.4_gui.py",
+    _REPO / "patch_ofscraper_3.16.4_gui.py",
     _REPO / "patch_ofscraper_3.14.7_gui.py",
     _REPO / "patch_ofscraper_3.14.5_gui.py",
     _REPO / "patch_ofscraper_3.14.3_gui.py",

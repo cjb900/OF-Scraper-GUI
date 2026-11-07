@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 
 _PY312 = collections.namedtuple("version_info", "major minor micro releaselevel serial")(3, 12, 0, "final", 0)
-_SCRIPT = Path(__file__).resolve().parents[2] / "patch_ofscraper_3.16.1_gui.py"
-# OF-Scraper-Community isn't on PyPI: pip and uv get a direct reference,
-# pipx install the bare URL
-_URL = "git+https://github.com/cloakedkeys/OF-Scraper-Community@3.16.1"
-_SPEC = f"ofscraper @ {_URL}"
+_SCRIPT = Path(__file__).resolve().parents[2] / "patch_ofscraper_3.16.4_gui.py"
+# OF-Scraper-Community is on PyPI as ofscraper-community; pipx and uv name
+# its venv after the package
+_SPEC = "ofscraper-community==3.16.4"
+_VENV = "ofscraper-community"
 
 
 @pytest.fixture
@@ -37,7 +37,6 @@ def runs(patch_mod, monkeypatch):
     monkeypatch.setattr(patch_mod, "_get_installed_ofscraper_version",
                         lambda method=None: patch_mod.TARGET_OFSCRAPER_VERSION)
     monkeypatch.setattr(patch_mod.sys, "version_info", _PY312)
-    monkeypatch.setattr(patch_mod, "_git_missing", lambda: False)
     return calls
 
 
@@ -64,7 +63,7 @@ def test_uv_force_skip_deps_reinstalls_only_ofscraper(patch_mod, runs):
     assert patch_mod._install_ofscraper("uv", force=True, keep_gui_deps=True)
     cmd = runs[-1]
     assert "--reinstall" not in cmd
-    assert cmd[4:6] == ["--reinstall-package", "ofscraper"]
+    assert cmd[4:6] == ["--reinstall-package", "ofscraper-community"]
     assert cmd[-len(_gui_with_args(patch_mod)):] == _gui_with_args(patch_mod)
 
 
@@ -75,8 +74,8 @@ def test_uv_without_force_is_unchanged(patch_mod, runs):
 
 def test_pipx_force_uninstalls_first_for_a_fresh_venv(patch_mod, runs):
     assert patch_mod._install_ofscraper("pipx", force=True)
-    assert runs[0] == ["pipx", "uninstall", "ofscraper"]
-    assert runs[1] == ["pipx", "install", "--force", _URL]
+    assert runs[-2] == ["pipx", "uninstall", _VENV]
+    assert runs[-1] == ["pipx", "install", "--force", _SPEC]
 
 
 def test_pipx_force_continues_when_nothing_to_uninstall(patch_mod, runs, monkeypatch):
@@ -96,13 +95,13 @@ def test_pipx_force_continues_when_nothing_to_uninstall(patch_mod, runs, monkeyp
 
 def test_pipx_force_skip_deps_reinstalls_inside_existing_venv(patch_mod, runs):
     assert patch_mod._install_ofscraper("pipx", force=True, keep_gui_deps=True)
-    assert runs == [["pipx", "runpip", "ofscraper", "install", "--upgrade",
+    assert runs[-1:] == [["pipx", "runpip", _VENV, "install", "--upgrade",
                      "--force-reinstall", _SPEC]]
 
 
 def test_pipx_without_force_does_not_uninstall(patch_mod, runs):
     assert patch_mod._install_ofscraper("pipx")
-    assert ["pipx", "uninstall", "ofscraper"] not in runs
+    assert not any(cmd[:2] == ["pipx", "uninstall"] for cmd in runs)
 
 
 def test_pip_force_uses_force_reinstall(patch_mod, runs):
@@ -128,7 +127,8 @@ def test_gui_deps_without_force_skips_when_present(patch_mod, runs, monkeypatch)
 
 def test_gui_deps_force_pipx_injects_every_package_with_force(patch_mod, runs):
     assert patch_mod._install_gui_deps("pipx", force=True)
-    assert runs == [["pipx", "inject", "--force", "ofscraper", n] for n in patch_mod._gui_dep_names()]
+    injects = [cmd for cmd in runs if cmd[:2] == ["pipx", "inject"]]
+    assert injects == [["pipx", "inject", "--force", _VENV, n] for n in patch_mod._gui_dep_names()]
 
 
 def test_gui_deps_force_uv_reinstalls(patch_mod, runs):
