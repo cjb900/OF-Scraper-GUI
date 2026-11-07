@@ -48,6 +48,12 @@ def _parse_version(text: str):
         return None
 
 
+def _release(text: str) -> tuple:
+    """(3, 16, 1) from '3.16.1+g8e8cb815'; () if there is no version number."""
+    m = re.match(r"\d+(?:\.\d+)*", str(text or "").strip())
+    return tuple(int(x) for x in m.group().split(".")) if m else ()
+
+
 def _is_newer(latest: str, current: str) -> bool | None:
     """True if latest > current. None if comparison is inconclusive."""
     lv = _parse_version(latest)
@@ -57,6 +63,12 @@ def _is_newer(latest: str, current: str) -> bool | None:
             return lv > cv
         except Exception:
             pass
+    # Without packaging, compare release numbers like the CLI does
+    # (ofscraper.utils.logs.logs.is_newer): a git build's +g<hash> part
+    # doesn't make it older, and 3.16.1 is newer than PyPI's 3.14.7.
+    lr, cr = _release(latest), _release(current)
+    if lr and cr:
+        return lr > cr
     # Fallback: treat exact / substring match like the CLI helper.
     if latest == current or re.search(re.escape(latest), current):
         return False
