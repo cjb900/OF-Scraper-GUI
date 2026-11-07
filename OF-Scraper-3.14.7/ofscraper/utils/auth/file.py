@@ -68,11 +68,14 @@ def hide_secrets(auth):
     holds ``sess=<value>``. Registering the value itself covers every form it
     is logged in (cookie header, dict repr, JSON).
     """
-    sess = auth.get("sess") if isinstance(auth, dict) else None
-    # a real session value is long; a stray short one (e.g. a placeholder)
-    # would mask ordinary words in every log line
-    if sess and len(str(sess)) >= MIN_SECRET_LENGTH:
-        sensitive.add_sensitive_pattern(re.compile(re.escape(str(sess))), "{sess}")
+    if not isinstance(auth, dict):
+        return
+    # a real value is long; a stray short one (e.g. a placeholder) would mask
+    # ordinary words in every log line
+    for key, label in (("sess", "{sess}"), ("x-bc", "{x-bc}")):
+        value = auth.get(key)
+        if value and len(str(value)) >= MIN_SECRET_LENGTH:
+            sensitive.add_sensitive_pattern(re.compile(re.escape(str(value))), label)
 
 
 def edit_auth():

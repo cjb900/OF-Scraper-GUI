@@ -3,6 +3,7 @@
 import logging
 import os
 import pathlib
+import re
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -177,3 +178,66 @@ def test_usage_errors_show_a_message_not_a_traceback(tmp_path, args, message):
     assert out.returncode == 2
     assert message in out.stderr
     assert "Traceback" not in out.stderr + out.stdout
+
+
+# --- auth values are masked by name, whatever their value ---
+SESS = "abcdefghijklmnopqrstuvwxyz"
+XBC = "0123456789abcdef0123456789abcdef01234567"
+UID = "987654321"
+
+
+@pytest.mark.parametrize(
+    "line,secrets",
+    [
+        # a session OnlyFans sent back, not the one in auth.json
+        (f"response headers {{'set-cookie': 'sess=deleted; expires=x, sess={SESS}; path=/'}}", [SESS]),
+        (f"requests headers {{'x-bc': '{XBC}', 'user-id': '{UID}'}}", [XBC, UID]),
+        (f"{{'cookie': 'sess={SESS}; auth_id={UID}; auth_uid_={UID}'}}", [SESS, UID]),
+        (f"""{{"sess": "{SESS}", "x-bc": "{XBC}", "auth_id": "{UID}"}}""", [SESS, XBC, UID]),
+        (f"""{{"sess":"{SESS}"}}""", [SESS]),
+        (f"x-bc: {XBC}", [XBC]),
+        (f"x-bc={XBC}", [XBC]),
+    ],
+    ids=["set-cookie", "headers", "cookie", "json", "json-compact", "header-line", "equals"],
+)
+def test_auth_values_are_masked_by_name(monkeypatch, line, secrets):
+    out = _masked(monkeypatch, None, line)
+    for secret in secrets:
+        assert secret not in out
+    assert "{" in out
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "access=granted; assess=fine",
+        "OnlyFans: sess and auth_id do not match",
+        "'user': 'name', 'id': 5",
+        "x-bcd: keep",
+    ],
+)
+def test_ordinary_text_is_not_masked(monkeypatch, line):
+    assert _masked(monkeypatch, None, line) == line
+
+
+def test_masked_values_keep_the_header_format(monkeypatch):
+    out = _masked(monkeypatch, None, f"{{'x-bc': '{XBC}', 'accept': 'json'}}")
+    assert out == "{'x-bc': '{hidden}', 'accept': 'json'}"
+
+
+def test_x_bc_from_auth_is_masked_anywhere(monkeypatch):
+    import ofscraper.utils.auth.file as auth_file
+
+    monkeypatch.setattr(sensitive, "_USER_ADDED_PATTERNS", {})
+    auth_file.hide_secrets({"sess": SESS, "x-bc": XBC})
+    out = _masked(monkeypatch, None, f"token {XBC} and {SESS}")
+    assert XBC not in out
+    assert SESS not in out
+
+
+# --- the patch must ship the entry point that handles usage errors ---
+def test_patch_ships_the_entry_point():
+    root = pathlib.Path(__file__).resolve().parents[2]
+    text = (root / "patch_ofscraper_3.14.7_gui.py").read_text(encoding="utf-8")
+    files = re.search(r"^FILES = (\[.*\])$", text, re.M).group(1)
+    assert "'__main__.py'" in files

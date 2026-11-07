@@ -11,6 +11,17 @@ _DEFAULT_PATTERNS = {
     # Redacts common sensitive info
     r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b": "{ip_address}",  # IP Addresses
     r"\"sess\":\"[^\"]+\"": '"sess":"{hidden}"',  # Session tokens
+    # Auth values by name, whatever their value. Masking only the values from
+    # auth.json misses others: OnlyFans can send a new session in a response's
+    # set-cookie, and request headers are logged when a request fails.
+    # Cookie form: sess=abc; auth_id=123
+    r"\bsess=[^;\s'\",]+": "sess={sess}",
+    r"\b(auth_id|auth_uid\w*)=[^;\s'\",]+": r"\1={hidden}",
+    # Header or dict form: 'x-bc': 'abc', "sess": "abc"
+    r"""(['"])sess\1(\s*:\s*)(['"])[^'"]+\3""": r"\1sess\1\2\3{sess}\3",
+    r"""(['"])(x-bc|auth_id|auth_uid\w*|user-id)\1(\s*:\s*)(['"])[^'"]+\4""": r"\1\2\1\3\4{hidden}\4",
+    # Plain header line: x-bc: abc
+    r"\bx-bc(\s*[:=]\s*)[^\s'\",;]+": r"x-bc\1{hidden}",
 }
 
 # This dictionary will be populated at runtime by your add_sensitive_pattern function
