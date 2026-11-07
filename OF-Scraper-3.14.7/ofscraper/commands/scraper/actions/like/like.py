@@ -139,9 +139,15 @@ def _toggle_like_requests(c, post: Post, model_id):
             _GUI_LIKE_TRACKER[id] = "Liked"
         return 1
     else:
-        log.debug(f"ID: {id} restored to liked")
+        log.debug(f"ID: {id} was already liked; liking it again")
         time.sleep(sleep_duration)
-        _like_request(c, id, model_id)
+        favorited, _ = _like_request(c, id, model_id)
+        if not favorited:
+            post.mark_post_liked(success=False)
+            if _GUI_LIKE_TRACKER is not None:
+                _GUI_LIKE_TRACKER[id] = "Failed"
+            return 3
+        log.debug(f"ID: {id} restored to liked")
         post.mark_post_liked()
         if _GUI_LIKE_TRACKER is not None:
             _GUI_LIKE_TRACKER[id] = "Liked"
@@ -165,9 +171,15 @@ def _toggle_unlike_requests(c, post: Post, model_id):
             _GUI_LIKE_TRACKER[id] = "Unliked"
         return 1
     else:
-        log.debug(f"ID: {id} restored to unlike")
+        log.debug(f"ID: {id} was already unliked; unliking it again")
         time.sleep(sleep_duration)
-        _like_request(c, id, model_id)
+        favorited, _ = _like_request(c, id, model_id)
+        if favorited is not False:
+            post.mark_post_unliked(success=False)
+            if _GUI_LIKE_TRACKER is not None:
+                _GUI_LIKE_TRACKER[id] = "Failed"
+            return 3
+        log.debug(f"ID: {id} restored to unlike")
         post.mark_post_unliked()
         if _GUI_LIKE_TRACKER is not None:
             _GUI_LIKE_TRACKER[id] = "Unliked"
@@ -183,5 +195,6 @@ def _like_request(c, id, model_id):
     ) as r:
         try:
             return r.json_()["isFavorite"], r.json_()["id"]
-        except:
-            return None
+        except Exception:
+            # an unreadable response: the callers treat None as a failed toggle
+            return None, id
