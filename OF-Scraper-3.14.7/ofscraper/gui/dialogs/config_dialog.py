@@ -862,7 +862,9 @@ class ConfigPage(QWidget):
             form,
             "dynamic-mode-default",
             "Dynamic Mode",
-            ["datawhores", "digitalcriminals", "xagler", "rafa", "generic", "manual"],
+            # digitalcriminals is listed and saved as "digital", the name a
+            # new config.json holds; its other names select it on load
+            ["datawhores", "digital", "xagler", "rafa", "generic", "manual"],
             tooltip=(
                 "Controls where OF request-signing rules are fetched from.\n"
                 "If scraping breaks due to auth/signature issues, try switching this.\n\n"
@@ -912,12 +914,13 @@ class ConfigPage(QWidget):
             form,
             "cache-mode",
             "Cache Mode",
-            ["sqlite", "json", "disabled"],
+            ["sqlite", "json", "disabled", "api_disabled"],
             tooltip=(
                 "Storage backend for OF-Scraper's local cache.\n"
                 "- sqlite: faster + more robust for larger caches\n"
                 "- json: simpler, sometimes slower\n"
-                "- disabled: attempt to disable caching (may reduce performance)\n\n"
+                "- disabled: turn the cache off, like --no-cache (may reduce performance)\n"
+                "- api_disabled: turn off only the API response cache, like --no-api-cache\n\n"
                 "Tip: For a one-off rescrape, use the GUI 'ignore cache' options."
             ),
         )
@@ -1191,6 +1194,11 @@ class ConfigPage(QWidget):
                     else:
                         widget.setChecked(bool(val))
                 elif isinstance(widget, QComboBox):
+                    if key == "dynamic-mode-default":
+                        # "dc", "digitalcriminals" etc. are listed as "digital"
+                        from ofscraper.utils.const import dynamic_menu_name
+
+                        val = dynamic_menu_name(val) if val else val
                     idx = widget.findText(str(val))
                     if idx >= 0:
                         widget.setCurrentIndex(idx)
