@@ -25,7 +25,8 @@ class basePlaceholder:
         self._ele = None
 
     def create_variables_base(self):
-        my_id, my_username = me.parse_user()
+        _, my_username = me.parse_user()
+        my_id = "anon" if settings.get_settings().anon else me.get_id()
         self._variables = {
             "config_path": common_paths.get_config_home(),
             "profile": profile_data.get_active_profile(),
