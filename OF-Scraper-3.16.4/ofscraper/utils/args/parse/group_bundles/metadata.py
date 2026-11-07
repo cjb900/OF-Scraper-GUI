@@ -75,7 +75,9 @@ It also uses a new filename if one is available
             metavar="METADATA MODE",
         ),
         click.option(
-            # not "-ms": that is --mass-skip, which this command also has
+            # -ms here (the mass option has no -ms in metadata, #236); -msl is
+            # the GUI tree's older short flag for it, kept so it still works
+            "-ms",
             "-msl",
             "--mark-stray-locked",
             "--mark-stray",

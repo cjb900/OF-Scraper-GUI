@@ -1173,7 +1173,7 @@ The main program's `--action` (`-a`) picks what a non-interactive run does; with
 
 #### `--mark-stray-locked`
 
-- **Also:** `-msl`, `--mark-stray`
+- **Also:** `-ms`, `-msl`, `--mark-stray`
 - **Dest:** `mark_stray` · **Type:** flag · **Default:** off
 - **Commands:** `metadata`
 - **Defined in:** `ofscraper/utils/args/parse/group_bundles/metadata.py`

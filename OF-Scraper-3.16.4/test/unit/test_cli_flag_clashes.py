@@ -50,8 +50,12 @@ def _metadata_params(cli, *argv):
 def test_metadata_mark_stray_and_mass_skip_flags(cli):
     assert _metadata_params(cli, "-msl")["mark_stray"] is True
     assert _metadata_params(cli, "--mark-stray-locked")["mark_stray"] is True
+    # in metadata -ms is --mark-stray-locked (the fork's fix for #236);
+    # --mass-skip keeps its long name there
     p = _metadata_params(cli, "-ms")
-    assert p["mass_msg"] is False and not p["mark_stray"]  # -ms is --mass-skip everywhere
+    assert p["mark_stray"] is True and p["mass_msg"] is None
+    p = _metadata_params(cli, "--mass-skip")
+    assert p["mass_msg"] is False and not p["mark_stray"]
 
 
 def test_promo_skip_and_post_script_flags(cli):

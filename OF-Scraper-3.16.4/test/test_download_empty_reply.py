@@ -25,6 +25,10 @@ import ofscraper.commands.scraper.actions.utils.globals as common_globals
 import ofscraper.utils.settings as settings
 from ofscraper.managers.sessionmanager.sessionmanager import sessionManager
 
+# the GUI tree only downloads from OnlyFans/CDN hosts over HTTPS; these tests
+# use a local HTTP server
+pytestmark = pytest.mark.usefixtures("allow_local_download_hosts")
+
 T = 100_000
 BODY = bytes(i % 251 for i in range(T))
 

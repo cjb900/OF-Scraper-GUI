@@ -19,3 +19,15 @@ atexit.register(shutil.rmtree, _test_home, ignore_errors=True)
 # The app's entry module imports ofscraper's packages in an order that avoids
 # their circular imports; importing a leaf module first fails.
 import ofscraper.main.open.load  # noqa: E402,F401
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture
+def allow_local_download_hosts(monkeypatch):
+    """Let downloads reach a test's local HTTP server. The GUI tree's host
+    allowlist (ofscraper/utils/host_allowlist.py) refuses any host that isn't
+    an OnlyFans or CDN one, and plain http."""
+    import ofscraper.utils.host_allowlist as host_allowlist
+
+    monkeypatch.setattr(host_allowlist, "ensure_allowed_download_url", lambda url, *, kind="media": url)
