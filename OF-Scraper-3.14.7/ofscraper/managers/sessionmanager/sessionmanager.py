@@ -30,6 +30,9 @@ SIGN = "get_sign"
 COOKIES = "get_cookies_str"
 HEADERS = "create_header"
 
+# A backoff that decays below this many seconds ends (drops to *_MIN_SLEEP)
+BACKOFF_FLOOR = 0.5
+
 
 def is_provided_exception_number(exception: Exception, *numbers: int) -> bool:
     """Utility to check if an exception's status code matches given numbers."""
@@ -82,7 +85,7 @@ class SessionSleep:
             sleep if sleep is not None else of_env.getattr("SESSION_SLEEP_INIT")
         )
         self._min_sleep = (
-            min_sleep if min_sleep is not None else of_env.getattr("SESSION_SLEEP_MIN")
+            min_sleep if min_sleep is not None else of_env.getattr("SESSION_MIN_SLEEP")
         )
         self._sleep = self._min_sleep
         self._difmin = (
@@ -115,6 +118,9 @@ class SessionSleep:
             return
         if (arrow.now() - self._last_date).total_seconds() > self._decay_threshold:
             new_sleep = self._sleep / self._decay_factor
+            # Dividing never reaches 0, so end the backoff once it gets small
+            if new_sleep < BACKOFF_FLOOR:
+                new_sleep = self._min_sleep
             self._sleep = max(self._min_sleep, new_sleep)
             self._last_date = arrow.now()
             logging.getLogger("shared").debug(
@@ -135,7 +141,7 @@ class SessionSleep:
                 lock = self._alocks[loop] = asyncio.Lock()
         return lock
 
-    async def async_do_sleep(self):
+    async def async_do_sleep(self, pace=True):
         async with self._alock:
             self._maybe_decay_sleep()
 
@@ -149,7 +155,7 @@ class SessionSleep:
                 return True
 
             # 2. Pacing mode (Ensure we don't hit the API too fast)
-            elif self._min_sleep and self._min_sleep > 0:
+            elif pace and self._min_sleep and self._min_sleep > 0:
                 time_since_last = (
                     arrow.now() - self._last_request_time
                 ).total_seconds()
@@ -167,7 +173,7 @@ class SessionSleep:
             self._last_request_time = arrow.now()
             return False
 
-    def do_sleep(self):
+    def do_sleep(self, pace=True):
         with self._lock:
             self._maybe_decay_sleep()
 
@@ -181,7 +187,7 @@ class SessionSleep:
                 return True
 
             # 2. Pacing mode
-            elif self._min_sleep and self._min_sleep > 0:
+            elif pace and self._min_sleep and self._min_sleep > 0:
                 time_since_last = (
                     arrow.now() - self._last_request_time
                 ).total_seconds()
@@ -355,6 +361,7 @@ class sessionManager:
                     if forbidden_sleep is not None
                     else of_env.getattr("SESSION_403_SLEEP_INIT")
                 ),
+                min_sleep=of_env.getattr("SESSION_403_MIN_SLEEP"),
                 difmin=(
                     forbidden_difmin
                     if forbidden_difmin is not None
@@ -494,6 +501,16 @@ class sessionManager:
     def _create_cookies(self):
         return auth_requests.add_cookies()
 
+    def _wait_before_request(self):
+        # A 403 backoff applies even when the rate-limit sleeper waited; the
+        # 403 pacing gap only when the rate-limit sleeper didn't pace
+        paced = self._rate_limit_sleeper.do_sleep()
+        self._forbidden_sleeper.do_sleep(pace=not paced)
+
+    async def _async_wait_before_request(self):
+        paced = await self._rate_limit_sleeper.async_do_sleep()
+        await self._forbidden_sleeper.async_do_sleep(pace=not paced)
+
     def reset_sleep(self):
         self._rate_limit_sleeper.reset_sleep()
         self._forbidden_sleeper.reset_sleep()
@@ -543,10 +560,7 @@ class sessionManager:
             with self._sync_sem:
                 with _:
                     try:
-                        if self._rate_limit_sleeper.do_sleep():
-                            pass
-                        else:
-                            self._forbidden_sleeper.do_sleep()
+                        self._wait_before_request()
 
                         if (
                             SIGN in actions
@@ -643,10 +657,7 @@ class sessionManager:
             with _:
                 await self._sem.acquire()
                 try:
-                    if await self._rate_limit_sleeper.async_do_sleep():
-                        pass
-                    else:
-                        await self._forbidden_sleeper.async_do_sleep()
+                    await self._async_wait_before_request()
                     if SIGN in actions or FORCED_NEW in actions or HEADERS in actions:
                         headers = self._create_headers(
                             headers, url, SIGN in actions, FORCED_NEW in actions
