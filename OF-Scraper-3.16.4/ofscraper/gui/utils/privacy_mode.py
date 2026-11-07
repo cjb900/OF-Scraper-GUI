@@ -266,7 +266,9 @@ def _known_model_patterns():
         name_re = re.compile(rf"(?i)(?<![{_NAME_EDGE}])(?:{alt})(?![{_NAME_EDGE}])")
     if ids:
         alt = "|".join(sorted(ids, key=len, reverse=True))
-        id_re = re.compile(rf"(?<!\d)(?:{alt})(?!\d)")
+        # not next to a letter or digit, so an id inside a longer token
+        # (such as the session cookie value) isn't cut out of it
+        id_re = re.compile(rf"(?<![0-9A-Za-z])(?:{alt})(?![0-9A-Za-z])")
     _KNOWN_CACHE.update(key=key, names=name_re, ids=id_re)
     return name_re, id_re
 
@@ -288,6 +290,9 @@ def redact_log_message(message: str) -> str:
     """Extra redaction applied to GUI console lines when privacy mode is on."""
     if not is_privacy_mode() or not message:
         return message
+    # Model names and ids first: the mask table's broad rules (home folder
+    # name anywhere, the user's own id) would otherwise rewrite part of a
+    # creator name so the name rule no longer matches it.
     out = redact_known_models(str(message))
     out = redact_status_message(out)
     try:

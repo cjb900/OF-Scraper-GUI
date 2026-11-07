@@ -476,13 +476,22 @@ def _strip_rich_stdout_handlers():
     Rich console I/O from download worker threads has caused Windows access
     violations mid-scrape (faulthandler cut off inside ``logging.flush``).
     GUI mode uses the Qt console bridge instead.
+
+    Subclasses count too: the terminal handlers are ``SafeRichHandler``,
+    which lives in ofscraper, not in the rich package.
     """
+    from rich.logging import RichHandler
+
     for name in ("shared", "shared_other"):
         lg = logging.getLogger(name)
         for h in list(lg.handlers):
             cls_name = type(h).__name__
             mod = getattr(type(h), "__module__", "") or ""
-            if cls_name == "RichHandler" or mod.startswith("rich"):
+            if (
+                isinstance(h, RichHandler)
+                or cls_name == "RichHandler"
+                or mod.startswith("rich")
+            ):
                 try:
                     lg.removeHandler(h)
                     h.close()
@@ -585,8 +594,11 @@ def _install_gui_log_handler():
     # Level 11 = TRACEBACK_ (DEBUG+1) — catches exceptions logged via
     # log.traceback_() which the scraper uses for all error reporting.
     _gui_log_handler.setLevel(logging.DEBUG + 1)
+    from ofscraper.utils.logs.classes.classes import SensitiveFormatter
+
+    # masks the session cookie and other secrets, with Privacy mode on or off
     _gui_log_handler.setFormatter(
-        logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
+        SensitiveFormatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%H:%M:%S")
     )
     logger = logging.getLogger("shared_other")
     logger.addHandler(_gui_log_handler)
