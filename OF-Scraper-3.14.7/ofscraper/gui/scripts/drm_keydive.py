@@ -1953,8 +1953,15 @@ class WidevineMasterAutomator:
 
         print("📦 Downloading Kaltura Device Info APK...")
 
-        # Primary source: Kaltura's own GitHub releases for kaltura-device-info-android
-        urls_to_try = []
+        # Kaltura's own GitHub releases are gone (404). Prefer KeyDive's mirrored
+        # APK (same package: com.kaltura.kalturadeviceinfo), then legacy Kaltura
+        # URLs in case they return, then KeyDive's built-in downloader.
+        # Use /raw/ (or raw.githubusercontent.com), not /blob/ — blob is HTML.
+        urls_to_try = [
+            "https://github.com/hyugogirubato/KeyDive/raw/main/docs/server/kaltura.apk",
+            "https://raw.githubusercontent.com/hyugogirubato/KeyDive/main/docs/server/kaltura.apk",
+            "https://cdn.jsdelivr.net/gh/hyugogirubato/KeyDive@main/docs/server/kaltura.apk",
+        ]
         try:
             release_info = requests.get(
                 "https://api.github.com/repos/kaltura/kaltura-device-info-android/releases/latest",
@@ -1967,7 +1974,6 @@ class WidevineMasterAutomator:
         except Exception as e:
             print(f"   ⚠️  Kaltura GitHub API lookup failed: {e}")
 
-        # Fallback: known versioned URLs from Kaltura's releases
         urls_to_try += [
             "https://github.com/kaltura/kaltura-device-info-android/releases/latest/download/KalturaDeviceInfo.apk",
             "https://github.com/kaltura/kaltura-device-info-android/releases/latest/download/kalturadeviceinfo.apk",
@@ -2114,6 +2120,154 @@ class WidevineMasterAutomator:
         print("⚠️ Kaltura app did not reach foreground after all launch attempts.")
         return False
 
+    def _keydive_env(self):
+        """Env for KeyDive/Frida: SDK platform-tools must win on PATH (Frida shells out to adb)."""
+        kd_env = os.environ.copy()
+        pt = os.path.join(self.sdk_dir, "platform-tools")
+        # Drop other adb locations so Frida and KeyDive cannot hit a second ADB server.
+        sep = os.pathsep
+        filtered = []
+        for part in kd_env.get("PATH", "").split(sep):
+            if not part:
+                continue
+            low = part.replace("/", "\\").lower()
+            if low.endswith("\\platform-tools") or low.endswith("\\adb"):
+                continue
+            filtered.append(part)
+        kd_env["PATH"] = pt + sep + sep.join(filtered)
+        kd_env["ADB"] = self.adb
+        kd_env["ANDROID_SERIAL"] = self.target
+        kd_env["ANDROID_HOME"] = self.sdk_dir
+        kd_env["ANDROID_SDK_ROOT"] = self.sdk_dir
+        return kd_env
+
+    def _adb_devices_snapshot(self, env=None):
+        res = subprocess.run(
+            [self.adb, "devices"],
+            capture_output=True,
+            text=True,
+            env=env or self._keydive_env(),
+        )
+        return (res.stdout or "").strip()
+
+    def _frida_device_ids(self, env=None):
+        """Return Frida-visible device ids using the KeyDive venv (same Frida as keydive)."""
+        code = (
+            "import frida, json\n"
+            "print(json.dumps([[d.id, d.name, d.type] for d in frida.enumerate_devices()]))\n"
+        )
+        res = subprocess.run(
+            [self.venv_python, "-c", code],
+            capture_output=True,
+            text=True,
+            env=env or self._keydive_env(),
+            cwd=self.work_dir,
+        )
+        if res.returncode != 0:
+            err = (res.stderr or res.stdout or "").strip()
+            print(f"   ⚠️  Frida enumerate failed: {err[:300]}")
+            return []
+        try:
+            import json as _json
+            return _json.loads((res.stdout or "").strip() or "[]")
+        except Exception as e:
+            print(f"   ⚠️  Frida enumerate parse failed: {e}")
+            return []
+
+    def _wait_for_frida_device(self, timeout=90):
+        """
+        KeyDive connects via frida.get_device(serial, timeout=5) — not our ADB helper.
+        If Frida has not enumerated the emulator within those 5 seconds, KeyDive
+        exits with 'device not found' even while `adb devices` looks healthy.
+        Wait here until Frida can see the emulator (or any single USB device).
+        """
+        env = self._keydive_env()
+        print("   Verifying device is visible to Frida (KeyDive uses Frida, not raw adb)...")
+        subprocess.run(
+            [self.adb, "start-server"],
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        try:
+            subprocess.run(
+                [self.adb, "-s", self.target, "wait-for-device"],
+                capture_output=True,
+                text=True,
+                env=env,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"   ⚠️  adb wait-for-device timed out for {self.target}")
+
+        adb_snap = self._adb_devices_snapshot(env)
+        print(f"   adb devices:\n{adb_snap}")
+
+        deadline = time.time() + timeout
+        started = time.time()
+        last_ids = []
+        refreshed_adb = False
+        while time.time() < deadline:
+            devices = self._frida_device_ids(env)
+            last_ids = devices
+            ids = {d[0] for d in devices}
+            usb_like = [
+                d for d in devices
+                if d[2] in ("usb", "remote") and d[0] not in ("socket", "barebone", "local")
+            ]
+
+            if self.target in ids:
+                print(f"   ✅ Frida sees target serial: {self.target}")
+                return self.target
+
+            # Emulator sometimes appears under a different Frida id; prefer USB devices.
+            for did, name, dtype in usb_like:
+                if "emulator" in did or "emulator" in (name or "").lower() or did.startswith("localhost:"):
+                    print(f"   ✅ Frida sees emulator as {did!r} ({name}); using that serial.")
+                    self.target = did
+                    return did
+
+            if len(usb_like) == 1:
+                did, name, dtype = usb_like[0]
+                print(f"   ✅ Frida sees single USB/remote device {did!r} ({name}); using that serial.")
+                self.target = did
+                return did
+
+            if not refreshed_adb and (time.time() - started) >= 15:
+                # One ADB server bounce — Frida often misses devices when a second
+                # adb.exe previously owned the server socket.
+                print("   Frida still blind — restarting ADB server once...")
+                subprocess.run([self.adb, "kill-server"], capture_output=True, text=True, env=env)
+                time.sleep(1)
+                subprocess.run([self.adb, "start-server"], capture_output=True, text=True, env=env)
+                try:
+                    subprocess.run(
+                        [self.adb, "-s", self.target, "wait-for-device"],
+                        capture_output=True,
+                        text=True,
+                        env=env,
+                        timeout=60,
+                    )
+                except subprocess.TimeoutExpired:
+                    print(f"   ⚠️  adb wait-for-device timed out after server restart")
+                # Re-assert emulator serial after server bounce.
+                serial = self._find_emulator_serial()
+                if serial:
+                    self.target = serial
+                    env["ANDROID_SERIAL"] = serial
+                refreshed_adb = True
+                print(f"   adb devices after restart:\n{self._adb_devices_snapshot(env)}")
+
+            elapsed = int(time.time() - started)
+            print(f"   Waiting for Frida device enumeration... {elapsed}s (frida={last_ids})")
+            time.sleep(2)
+
+        print("❌ Frida never enumerated the emulator.")
+        print(f"   Last Frida devices: {last_ids}")
+        print(f"   ADB target was: {self.target}")
+        print("   KeyDive will fail with 'device not found' if we continue.")
+        return None
+
     def run_keydive(self):
         print("\n🔑 Starting KeyDive...")
         # NOTE: We intentionally do NOT call `wm size` or `wm density` here.
@@ -2125,14 +2279,38 @@ class WidevineMasterAutomator:
         if os.path.exists(device_dir):
             shutil.rmtree(device_dir, ignore_errors=True)
 
-        kd_env = os.environ.copy()
-        pt = os.path.join(self.sdk_dir, "platform-tools")
-        kd_env["PATH"] = pt + os.pathsep + kd_env.get("PATH", "")
-        kd_env["ADB"]  = self.adb
+        # Refresh serial from adb in case it drifted after pre-install.
+        serial = self._find_emulator_serial()
+        if serial:
+            self.target = serial
+        print(f"   ADB serial: {self.target}")
+
+        frida_serial = self._wait_for_frida_device(timeout=90)
+        if not frida_serial:
+            return False
+
+        # ADB kill-server (used if Frida was blind) drops the persistent shell that
+        # keeps frida-server alive — make sure it is running again before KeyDive.
+        self.install_frida()
+
+        kd_env = self._keydive_env()
+        kd_env["ANDROID_SERIAL"] = frida_serial
+
+        # Use `python -m keydive` so PATH/ADB env is honored reliably on Windows
+        # (keydive.exe launcher can obscure diagnostics). KeyDive's Remote only
+        # waits 5s for frida.get_device(serial), so we already gated on visibility.
+        kd_cmd = [
+            self.venv_python, "-m", "keydive",
+            "-s", frida_serial,
+            "-a", "player",
+            "-o", "device",
+            "-w", "-k",
+        ]
+        print(f"   Command: {' '.join(kd_cmd)}")
 
         # Capture stdout so we can detect "Successfully attached hook"
         kd_proc = subprocess.Popen(
-            [self.venv_keydive, "-s", self.target, "-a", "player"],
+            kd_cmd,
             cwd=self.work_dir,
             env=kd_env,
             stdout=subprocess.PIPE,
