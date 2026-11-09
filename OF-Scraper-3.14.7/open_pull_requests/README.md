@@ -1,6 +1,20 @@
 # Open Pull Requests — cjb900/OF-Scraper-GUI
 
-Snapshot of 27 open PRs. Each PR has its own file with title, description, and full diff.
+Snapshot from 2026-11-07. 7 PRs are open. Each PR has its own file with title, description, and full diff.
+
+| # | Title | Author | Branch | Files | +/- |
+|---|---|---|---|---|---|
+| 29 | [fix(args): accept MM/DD/YYYY and relative dates in --before/--after](PR-029-fix-args-accept-mm-dd-yyyy-and-relative-dates-in-before-afte.md) | cloakedkeys | `fix/dates-before-after` | 2 | +32/-4 |
+| 30 | [fix(main): exit with status 1 when a run fails](PR-030-fix-main-exit-with-status-1-when-a-run-fails.md) | cloakedkeys | `fix/run-exit-status` | 2 | +34/-1 |
+| 31 | [fix(auth): explain age verification when OnlyFans returns code 117](PR-031-fix-auth-explain-age-verification-when-onlyfans-returns-code.md) | cloakedkeys | `fix/auth-code-117` | 3 | +77/-0 |
+| 32 | [build(patch): add missing files to the GUI patch's file list](PR-032-build-patch-add-missing-files-to-the-gui-patch-s-file-list.md) | cloakedkeys | `build/patch-file-list` | 2 | +2/-2 |
+| 33 | [fix(session, auth): session timeouts and retries, download limit and auth-check errors](PR-033-fix-session-auth-session-timeouts-and-retries-download-limit.md) | cloakedkeys | `fix/session-network` | 30 | +2521/-92 |
+| 34 | [fix(logs): mask the session cookie in logs](PR-034-fix-logs-mask-the-session-cookie-in-logs.md) | cloakedkeys | `fix/log-privacy` | 14 | +787/-28 |
+| 35 | [fix(env): Fixes to env-file objects and tempfile clean up](PR-035-fix-env-fixes-to-env-file-objects-and-tempfile-clean-up.md) | cloakedkeys | `fix/env-file-json` | 6 | +343/-3 |
+
+## Closed PRs (earlier snapshot)
+
+These were open in the earlier snapshot and are now closed on GitHub, none of them merged via the PR button. Their files are kept for reference, frozen as of 2026-10-23.
 
 | # | Title | Author | Branch | Files | +/- |
 |---|---|---|---|---|---|
