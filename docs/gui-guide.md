@@ -202,6 +202,8 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
   - **SSL Verify (Config)** — jump to Configuration → Advanced → SSL Verify (try **`false`** if credentials are correct but TLS/proxy issues persist; less secure)
   - **Help / README** — navigate to the Auth Issues section of the built-in help
 - A **Retry** button also appears inline in the navigation bar
+- When OnlyFans or the dynamic rules can't be reached, **Test Credentials** and the model list say **network or server problem** instead of blaming your credentials. Check your connection or try again later before changing your auth
+- If OnlyFans asks for **age verification** (error code 117), Test Credentials explains it. Finish the verification in your browser, then copy the auth by hand from a request made after it (Import Cookies and the browser login don't pick up the verified session). Steps: in-app **Help → Auth Issues → Age verification**
 - Dialog text also suggests trying Dynamic Mode and/or SSL Verify → `false` when auth looks correct but model load still fails
 
 ## Configuration
@@ -261,7 +263,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 </details>
 
 - **Performance** — concurrent downloads, thread count, speed limit
-  - **Thread Count**, **Download Semaphores** (downloader concurrency), **Download Speed Limit** (KB/s; `0` = unlimited)
+  - **Thread Count**, **Download Semaphores** (downloader concurrency), **Download Speed Limit** (KB/s, where 1 KB = 1000 bytes; `0` = unlimited). One limit is shared by all downloads. If you set a limit with a GUI older than v420, open this page and save it again: older versions saved the number in the wrong unit, so `500` became about 1 KB/s
 
 <details><summary>Screenshot</summary>
 
@@ -291,7 +293,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 </details>
 
 - **Advanced** — dynamic mode, cache mode, download bars, logging options, and more. **OnlyFans API resilience** settings:
-  - **Dynamic Mode** — signing-rules source (`datawhores`, `digitalcriminals` / `dc`, `xagler`, `rafa`, `generic`, `manual`). Try switching on 401/403 or signature failures
+  - **Dynamic Mode** — signing-rules source (`datawhores`, `digital`, `xagler`, `rafa`, `generic`, `manual`). `digital` is the default; `digitalcriminals` and `dc` are other names for it. Try switching on 401/403 or signature failures
   - **SSL Verify** — `custom` (built-in CA bundle), `true` (system certs), or `false` (disable verification). If auth/model load fails with good credentials (proxies / TLS-inspecting AV / broken CA store), try **`false`**, Save, then Retry — less secure; use only when needed
   - **API Path** — change the `/api2/v2` prefix globally if OnlyFans renames the API path (`OFSC_API_PATH`)
   - **Manual Dynamic Rules** — paste / load local signing-rules JSON when Dynamic Mode is `manual` (`OFSC_DYNAMIC_RULE_MANUAL`)
@@ -299,7 +301,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
   - **API Endpoint Overrides** — JSON map of individual endpoint keys (e.g. `meEP`) to full URL templates (`OFSC_API_*` env still wins when set)
   - **Media Host Suffixes** — extra allowed media/DRM CDN hosts beyond `onlyfans.com` / `cloudfront.net` (`OFSC_MEDIA_HOST_SUFFIXES`)
   - **Backend** — `aio` (aiohttp) or `httpx`; switch if proxy/TLS issues
-  - **Cache Mode** — `sqlite` / `json` / `disabled` (prefer GUI rescrape over disabling cache globally)
+  - **Cache Mode** — `sqlite` / `json` / `disabled` / `api_disabled` (`api_disabled` turns off only the API response cache, like `--no-api-cache`; prefer GUI rescrape over disabling cache globally)
   - **Code Execution** — enables `eval()` in placeholders; leave off for untrusted content
   - **Download Bars / Append Log / Sanitize Text** — console bars (can slow high thread counts); daily vs per-run logs; clean text before DB insert
   - **Remove Hash Match** — skip hash / hash only / hash + **delete** duplicate files (deletion is permanent)
@@ -564,7 +566,7 @@ The main scrape workspace after models are selected. Until you press **Start Scr
 - **Scrape summary** — at the end of each run, a TUI-style summary in the log: per-model action line plus **GLOBAL RUN TOTALS** (items, data transferred, videos/audios/images, skipped, failed)
 
 **Table**
-- **Filter sidebar** — text search, media type, response type, downloaded/unlocked status, post date range, duration, price, IDs, and more. Click **◀ Filters** to hide it and give the table the full width; **▶ Filters** brings it back at the same width
+- **Filter sidebar** — text search (emptying the search box shows all rows again right away), media type, response type, downloaded/unlocked status, post date range, duration, price, IDs, and more. Click **◀ Filters** to hide it and give the table the full width; **▶ Filters** brings it back at the same width
 - **Filter presets** — save / save as / rename / delete named filter sets; last-used restored on startup
 - **Sort** by clicking a column header; **right-click** a cell to filter by that value
 - **Column layout** — remembered width / order / visibility; **sticky columns** keep Number / Download Cart (and optionally UserName) visible while scrolling sideways
@@ -701,6 +703,21 @@ Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**)
 - **Filters** work the same as on the main table — narrow by media type, response type, date range, price, and more
 - **Progress bar** in the footer tracks each selected download individually: e.g. `3 / 10` as items complete
 - Items update in real time as they finish: `[downloaded]`, `[skipped]`, or `[failed]`
+
+#### Check options
+
+<details><summary>Screenshot</summary>
+
+<img src="images/check-options.png" width="600" alt="Select Action with Check messages chosen: the message filter (Paid / PPV only, Free messages only, All) and the Check options, Fetch fresh data from OnlyFans and Compare with files on disk">
+
+</details>
+
+When you pick a check mode on **Select Action**, a **Check options** box with two options appears below the check modes:
+
+- **Fetch fresh data from OnlyFans** — check results are kept for 3 days so a repeat check is quick. Tick this to ignore them and fetch everything again (like `--force`). Use it when a creator posted something new in the last 3 days
+- **Compare with files on disk** — an item counts as downloaded only if its file is still in your Save Location. Tick this after deleting or moving files to see them as **not downloaded** again, so you can add them to the cart. Without it, "downloaded" comes from the database only
+
+**Check messages** also has a filter: **Paid / PPV only** (the default), **Free messages only**, or **All**. It decides which messages appear in the table.
 
 > **Which check mode to use:**
 > - **Post Check** — timeline, pinned, archived, streams, and label posts

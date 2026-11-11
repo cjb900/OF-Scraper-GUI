@@ -53,7 +53,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 ## What it adds
 
 - **A step-by-step scrape wizard**: pick an action, content areas and filters, and models, then watch progress in a live table and log
-- **Check modes** to browse everything a creator posted (including locked items) and download only what you pick
+- **Check modes** to browse everything a creator posted (including locked items), spot files you've deleted from disk, and download only what you pick
 - **Authentication made easier**: import cookies from your browser, or log in through a browser window, instead of copying headers by hand
 - **Every setting in one place**, with checks that stop bad paths and file names before a scrape starts
 - **DRM key creation**, profiles, database merging, daemon mode, Discord notifications, scrape history, CSV export and more

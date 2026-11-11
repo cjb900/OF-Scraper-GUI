@@ -6,7 +6,7 @@
 
 The in-app **Help / README** page has the most detailed troubleshooting (especially **Auth Issues**). This page covers the common problems and where to look. For Docker-specific problems, see [Troubleshooting Docker](docker.md#troubleshooting-docker).
 
-When reporting a problem, include your **GUI patch id** (sidebar version button → **About**, e.g. `20261028_gui_3_14_7_v402`) and the relevant log lines.
+When reporting a problem, include your **GUI patch id** (sidebar version button → **About**, e.g. `20261111_gui_3_14_7_v422`) and the relevant log lines.
 
 ## The patch or the GUI won't install or start
 
@@ -20,6 +20,8 @@ When reporting a problem, include your **GUI patch id** (sidebar version button 
 
 - If the model list won't load, the GUI offers **Retry**, **Go to Authentication**, **Dynamic Mode** and **SSL Verify**. See [Auth failure handling](gui-guide.md#auth-failure-handling)
 - Credentials look right but loading still fails: try another **Dynamic Mode** (Configuration → Advanced). Behind a proxy or antivirus that inspects TLS, try **SSL Verify** = `false` (less secure)
+- **"Network or server problem"** in Test Credentials or the model list means OnlyFans or the dynamic rules couldn't be reached, not that your login is wrong. Check your connection, VPN or proxy, and try again
+- **Age verification (code 117)**: finish the verification in your browser, then copy the auth by hand (DevTools) from a request made after it, Save, and run **Test Credentials** again. Import Cookies and the browser login don't pick up the verified session. Steps: in-app **Help → Auth Issues → Age verification**
 - The in-app **Help → Auth Issues** walks through every capture method, including copying headers by hand from DevTools
 
 ## DRM videos are skipped or fail
@@ -28,6 +30,10 @@ When reporting a problem, include your **GUI patch id** (sidebar version button 
 - **DRM videos still download with a blank key path:** that's expected. Keys saved by earlier runs are reused, so videos you've downloaded before don't need the key files. To test without saved keys, run once with `OFSC_USE_WIV_CACHE_KEY=false` (this doesn't delete them)
 - **Remote key modes** (`cdrm`, `cdrm2`, `keydb`) depend on outside services and may fail; **KeyDB** is currently not working. Prefer **manual**
 - **Videos stuck as `.part`, or rejected after merging:** check the FFmpeg path in Configuration → Download (see below)
+
+## Downloads are very slow
+
+- Check **Configuration → Performance → Download Speed Limit**. The limit only started working in v420. GUI versions before v420 saved it in the wrong unit, so `500` (meant as 500 KB/s) is now about 1 KB/s. The log warns once when the limit is this low. Set it again and save, or use `0` for unlimited
 
 ## FFmpeg
 

@@ -4,7 +4,7 @@
 
 # Versions
 
-Each patch script works with exactly one OF-Scraper version. To see which patch you have installed, click the version button at the bottom of the sidebar (**About → GUI patch**), e.g. `20261028_gui_3_14_7_v402`.
+Each patch script works with exactly one OF-Scraper version. To see which patch you have installed, click the version button at the bottom of the sidebar (**About → GUI patch**), e.g. `20261111_gui_3_14_7_v422`.
 
 > [!WARNING]
 > Only the **3.14.7** patch is being updated. The 3.12.9, 3.14.3 and 3.14.5 patches have not been updated and may not work properly.
@@ -57,5 +57,9 @@ Each patch script works with exactly one OF-Scraper version. To see which patch 
 | Clean stop on SIGTERM; SIGUSR1 starts the next daemon run | ❌ | ❌ | ❌ | ✅ |
 | Docker `MODE=cli` (CLI daemon without the GUI) | ❌ | ❌ | ❌ | ✅ |
 | Login window DevTools off by default (`OFSCRAPER_GUI_WEBENGINE_DEBUG=1`) | ❌ | ❌ | ❌ | ✅ |
+| Check options (fetch fresh data, compare with files on disk) and Check messages filter | ❌ | ❌ | ❌ | ✅ |
+| Download speed limit that works (KB/s on the Config page) | ❌ | ❌ | ❌ | ✅ |
+| "Network or server problem" and age-verification messages in Test Credentials | ❌ | ❌ | ❌ | ✅ |
+| Labels stop paging when nothing is new | ❌ | ❌ | ❌ | ✅ |
 | Non-blocking startup dependency popup | ✅ | ✅ | ✅ | ✅ |
 | Plugin system (JoyCaption, LLM, Live Monitor, Trial Links) | ✅ | ✅ | ✅ | ✅ |
