@@ -221,6 +221,14 @@ class Post(base.base):
                 return "Messages"
             return res_type
 
+        # A message stays a message even when it's pinned in the chat (or has
+        # another post flag): its DRM key, folder and database table are the
+        # message ones. Checking the flags first sent a pinned message's key
+        # request to the post endpoint, which OnlyFans refuses with 403.
+        raw_type = self.post.get("responseType")
+        if raw_type == "message":
+            return "Messages"
+
         # Check boolean flags
         if self.pinned:
             return "Pinned"
@@ -230,11 +238,8 @@ class Post(base.base):
             return "Streams"
 
         # Fallback to raw API response type
-        raw_type = self.post.get("responseType")
         if raw_type == "post":
             return "Timeline"
-        elif raw_type == "message":
-            return "Messages"
 
         # Capitalize the raw type
         return str(raw_type).capitalize() if raw_type else "Unknown"
