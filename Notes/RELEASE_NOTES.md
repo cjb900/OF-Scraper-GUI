@@ -92,6 +92,12 @@ The patch now ships **every** scraper file the GUI changes. Before, several fixe
 - Brackets in names, paths and messages print as typed, instead of crashing the message or changing its colour.
 - The post table no longer crashes on unexpected values.
 
+### Docs
+
+- **GUI guide**: a new **Check options** section with a screenshot, which also covers the Check messages filter. It also documents the speed-limit unit, `digital` as the default Dynamic Mode, Cache Mode `api_disabled`, and the new login messages.
+- **Troubleshooting**: what "network or server problem" and age verification (code 117) mean, and a new **Downloads are very slow** section about speed limits saved by older versions.
+- **Versions**: new 3.14.7 feature rows.
+
 ---
 
 ## 2026-11-01 — Update (September–November 2026) — OF-Scraper GUI 3.14.7

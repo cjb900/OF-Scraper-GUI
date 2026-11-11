@@ -43,6 +43,9 @@ The table explains rows hidden by filters. Clearing search restores rows. Cancel
 **Fix — Database and likes**
 Multi-creator `db --export`, Merge DBs and safe table rebuilds. Story updates are saved. Failed likes are marked.
 
+**Docs**
+GUI guide covers the new Check options (with screenshot). Troubleshooting covers login errors and slow downloads from an old speed limit.
+
 ---
 
 ## 2026-11-01
