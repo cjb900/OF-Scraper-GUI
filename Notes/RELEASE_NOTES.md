@@ -2,6 +2,98 @@
 
 ---
 
+## 2026-11-11 — Update (v420–v422) — OF-Scraper GUI 3.14.7
+
+Everything since the **2026-11-01** release (patch `v419`). GUI patch tip is now **`20261111_gui_3_14_7_v422`**. Most of these fixes come from community PRs **#29–#39** by **cloakedkeys**. Thank you!
+
+Re-apply with `python patch_ofscraper_3.14.7_gui.py`. Docker: copy the new patch into the build context, then `docker compose build --no-cache` and recreate the container.
+
+The patch now ships **every** scraper file the GUI changes. Before, several fixed files weren't on its list, so patched installs kept the stock versions. A test now fails if a changed file is left off the list (v420, v421).
+
+### ⚠️ Changes to check after updating
+
+- **The download speed limit works now.** Before, it did nothing. The Config page now saves it in the unit it shows (KB/s; 1 KB = 1000 bytes). Older GUI versions saved the number you typed as *bytes* per second, so if you set **500** meaning 500 KB/s, the saved value really means about **1 KB/s**, and downloads will now crawl. The log warns once when the limit is this low. Open **Configuration**, check **Download Speed Limit**, and save it again (v420).
+- **`{my_id}`** (your own logged-in account, not the creator) now holds your account's **ID**, as the help says, instead of your display name. This only matters if you added `{my_id}` to your own folder or file format: new downloads then use the ID in that part of the path. The default save folders (`{model_username}/...`) and the model database location are unchanged (v421).
+- **Check messages** now applies its filter. The default is **Paid / PPV only**, so free messages are hidden unless you pick **Free messages only** or **All** (v422).
+- A failed run now **exits with status 1** instead of 0, so scripts, schedulers and Docker restart policies see the failure (v420).
+- On a new install, `config.json` is written from the built-in defaults. Environment overrides are no longer saved into it as if you had chosen them (v421).
+
+---
+
+### Check mode (v422)
+
+- **New check options** for every check mode (posts, messages, paid, stories):
+  - **Fetch fresh data from OnlyFans** skips the 3-day check cache, like `--force`.
+  - **Compare with files on disk** marks a downloaded item as **not downloaded** when its file is missing, so you can find and re-get deleted files.
+- The **Check messages** filter (Paid / PPV only, Free only, All) now filters the table. Before, it was saved but never used.
+- `paid_check` and `msg_check` looked up purchases with the creator's ID and name swapped. `paid_check -f` and `story_check -f` no longer crash, and `msg_check --help` shows its own text (v421).
+
+### GUI fixes (v422)
+
+- When rows are hidden by the filters, the table says so ("N rows are hidden by the filters"), also during a scrape. Before, it showed "Scraping in progress".
+- Clearing the **Text Search** box shows all rows again without clicking **Apply Filters**.
+- A new scrape clears the previous run's "Scrape cancelled" message.
+- A cancelled run's **History** entry and summary count what it downloaded, instead of 0.
+
+### Downloads and connections (v420)
+
+- The download speed limit is applied. It's shared by all downloads, and a 0 still means unlimited.
+- Requests time out instead of hanging forever when a server stalls: a 60-second default read timeout (`OFSC_READ_TIMEOUT`, 0 = no limit), and a timeout on stalled TLS handshakes.
+- Cancelling no longer re-sends a request or restarts a download, and failed downloads no longer leave connections open.
+- Requests use the retries and waits they ask for.
+- Rate-limit fixes (v421):
+  - Each backoff uses its own decay settings.
+  - The 403 backoff always applies.
+  - A backoff ends once it decays below 0.5 s.
+
+### Login and credentials (v420)
+
+- **Test Credentials** and the model list say **"network or server problem"** when OnlyFans or the dynamic rules can't be reached, instead of "Credentials Invalid". A logged-out session is now reported as bad auth.
+- When OnlyFans needs **age verification** (code 117), Test Credentials explains what to do, and there's a new Help section.
+- In the terminal menu, **Quit** and **Main Menu** in the auth prompt work.
+
+### Labels (v421)
+
+- Labels are no longer fully re-fetched on every run. A label stops at the first page where every post is already recorded. That's far fewer requests and fewer 429 rate limits for creators with many labels.
+- A label is still scanned in full the first time, after an unfinished scan, while it has media left to download, and in check mode.
+- Up to 5 labels are scanned at once (`OFSC_LABELS_CONCURRENCY`).
+- An old post that's added to a label later is only found with `--after 2000`.
+
+### Privacy (v420)
+
+- The `sess` cookie, `x-bc`, `auth_id`, `auth_uid` and `user-id` are masked in every log line, including the GUI console and the Verbose Log. That covers a new `sess` that OnlyFans sends during a run.
+- With Privacy mode off, the GUI console also hides your home folder name (whole words only), your username and your user ID.
+- Log lines with broken markup are kept as plain text instead of being dropped.
+
+### Config and command line (v420, v421)
+
+- The **Config page** shows and saves the default dynamic rule as **`digital`**. Before, it showed `datawhores` and switched to it when you saved. `-dr digital` and `digitalcriminals` are accepted everywhere. The removed `dv` / `dev` names fall back to the default with a warning.
+- **Cache Mode** offers `api_disabled`.
+- Settings that were ignored or overwritten in `config.json` now work:
+  - `incremental_downloads: false`
+  - cache mode `disabled` / `api_disabled`
+  - a custom folder name for messages
+  - `download_sems: 0`
+  - list names with capitals
+- Command-line mistakes print a short usage message instead of a traceback.
+- `--block-ads` is accepted and `--env-files` loads its files.
+- `--length-min` / `--length-max` take seconds (`1m` is one minute).
+- `--before` / `--after` accept `MM/DD/YYYY` and relative dates like `3 weeks ago` or `1 hour ago`. A bad date gives a clear error.
+- JSON / YAML env files store objects and lists correctly, so a manual dynamic rule from an env file works.
+- `OFSC_BATCH_TEMPFILE_CLEANUP=true` works, and the cleanup removes `temp_` files.
+
+### Database, likes and console (v421)
+
+- `ofscraper db --export` with several creators writes all their rows to one CSV. Before, it kept only the last creator's rows.
+- Metadata runs update stories and highlights already in the database.
+- **Merge DBs** and the database upgrade no longer fail on the products and others tables.
+- Table rebuilds can't lose rows if they fail partway.
+- Like / unlike marks a post as failed when OnlyFans' answer can't be read.
+- Brackets in names, paths and messages print as typed, instead of crashing the message or changing its colour.
+- The post table no longer crashes on unexpected values.
+
+---
+
 ## 2026-11-01 — Update (September–November 2026) — OF-Scraper GUI 3.14.7
 
 Everything since the **2026-08-29** release (patch `v365`, Live Stream Monitor `1.3.1`). GUI patch tip is now **`20261101_gui_3_14_7_v419`**; **Live Stream Monitor** is **`1.3.18`**. Only the **3.14.7** patch is maintained; the 3.12.9 / 3.14.3 / 3.14.5 patches are still in the repository but only got the installer fix below.

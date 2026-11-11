@@ -4,6 +4,47 @@ Paste-ready overview (keep ≤ 4000 characters). Full dated changelog: `RELEASE_
 
 ---
 
+## 2026-11-11
+
+**OF-Scraper GUI 3.14.7 — v420–v422 update**
+
+Re-apply the latest `patch_ofscraper_3.14.7_gui.py` / release asset (tip `20261111_gui_3_14_7_v422`). Docker: copy the new patch, then `docker compose build --no-cache` and recreate the container. Most fixes are community PRs **#29–#39** by **cloakedkeys**. Thank you!
+
+**⚠️ Check after updating**
+• **Download speed limit now works.** Older GUI versions saved it in the wrong unit, so "500" can now mean ~1 KB/s. Open **Configuration**, check **Download Speed Limit** and save again.
+• **`{my_id}`** (your own account, not the creator) now holds your account ID instead of your display name. Only matters if you put `{my_id}` in a folder or file format; default save folders are unchanged.
+• **Check messages** filter now works; the default **Paid / PPV only** hides free messages.
+• A failed run now exits with status 1.
+
+**New — Check options**
+**Fetch fresh data from OnlyFans** skips the 3-day check cache. **Compare with files on disk** marks items whose file was deleted as not downloaded.
+
+**Fix — Patch**
+The patch now ships every changed scraper file. Several fixes never reached patched installs before.
+
+**Fix — Downloads and connections**
+Stalled servers time out instead of hanging. Cancels aren't retried. No leaked connections. Rate-limit backoff fixes.
+
+**Fix — Login**
+Network or server problems no longer show as "Credentials Invalid". Age verification (code 117) is explained. Logged-out sessions are caught.
+
+**Improvement — Labels**
+Labels stop paging once nothing is new: far fewer requests and 429s.
+
+**Improvement — Privacy**
+`sess`, `x-bc` and the account IDs are masked in every log line, including the GUI console and Verbose Log.
+
+**Fix — Config and CLI**
+Config page shows and keeps the default dynamic rule (`digital`), and Cache Mode offers `api_disabled`. Ignored `config.json` settings now work, including `incremental_downloads: false`. Usage errors no longer show a traceback. `--before`/`--after` take `MM/DD/YYYY` and "3 weeks ago". `--block-ads` and `--env-files` work.
+
+**Fix — GUI**
+The table explains rows hidden by filters. Clearing search restores rows. Cancelled runs count their downloads in History.
+
+**Fix — Database and likes**
+Multi-creator `db --export`, Merge DBs and safe table rebuilds. Story updates are saved. Failed likes are marked.
+
+---
+
 ## 2026-11-01
 
 **OF-Scraper GUI 3.14.7 — September–November 2026 update**
