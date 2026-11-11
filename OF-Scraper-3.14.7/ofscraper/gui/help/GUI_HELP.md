@@ -71,6 +71,7 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 - [Check Mode](#check-mode-root)
   - [Which mode to use](#check-mode-which)
   - [Message filter (Message Check only)](#check-mode-msg-filter)
+  - [Check options](#check-mode-options)
   - [The check table](#check-mode-table)
   - [Locked content](#check-mode-locked)
   - [Downloading from check mode](#check-mode-download)
@@ -1031,6 +1032,14 @@ When **Message Check** is selected on the Action page, a message filter option a
 - **Paid / PPV only** *(default)*: Show only paid and PPV messages — hides free messages. Locked (unpurchased) items are always shown.
 - **Free messages only**: Show only free messages — hides paid and PPV content.
 - **All messages**: Show all messages, both free and paid/PPV.
+
+<a id="check-mode-options"></a>
+### Check options (all check modes)
+
+When any check mode is selected on the Action page, two options appear:
+
+- **Fetch fresh data from OnlyFans**: checks keep each creator's results for **3 days** and reuse them, so posts from the last 3 days can be missing. Tick this to fetch everything again now (like the CLI's `--force`). A normal scrape also refreshes the saved results.
+- **Compare with files on disk**: normally an item counts as downloaded if the database says so, even if you have since deleted the file. With this ticked, each downloaded item's file is looked for on disk, and items whose file is missing show as **not downloaded** (`[]`), ready to add to the cart and download again. The database itself isn't changed until you download them. To fix the database for a whole creator without downloading, use **Update metadata from files on disk** instead.
 
 <a id="check-mode-table"></a>
 ### The check table

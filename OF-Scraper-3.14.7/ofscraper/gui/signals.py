@@ -21,6 +21,7 @@ class AppSignals(QObject):
     scrape_labels_toggled = pyqtSignal(bool)
     advanced_scrape_configured = pyqtSignal(object)  # dict of advanced options
     discord_configured = pyqtSignal(str)   # discord level: "OFF", "LOW", or "NORMAL"
+    check_options_changed = pyqtSignal(dict)  # {"fresh", "disk"} for the check actions
     msg_check_include_free_toggled = pyqtSignal(str)  # "paid_only" | "free_only" | "all"
     metadata_options_changed = pyqtSignal(dict)  # {"mode", "mark_stray", "hash"} for the metadata action
     paid_all_options_changed = pyqtSignal(dict)  # {"excluded", "mediatypes"} for the all-purchased action

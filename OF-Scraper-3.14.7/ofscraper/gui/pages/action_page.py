@@ -100,6 +100,8 @@ _CHECK_TIPS = {
 
 ALL_CHOICES = ACTION_CHOICES + CHECK_CHOICES
 
+CHECK_ACTIONS = {"post_check", "msg_check", "paid_check", "story_check"}
+
 # Message filter values emitted via signal
 MSG_FILTER_PAID_ONLY = "paid_only"
 MSG_FILTER_FREE_ONLY = "free_only"
@@ -195,6 +197,10 @@ class ActionPage(QWidget):
 
             if "msg_check" in actions:
                 layout.addWidget(self._msg_filter_widget)
+
+        # Options for every check action (hidden until one is selected)
+        self._check_options_widget = self._build_check_options_widget()
+        layout.addWidget(self._check_options_widget)
 
         # Select first by default
         first = self._button_group.button(0)
@@ -663,6 +669,41 @@ class ActionPage(QWidget):
 
         return container
 
+    def _build_check_options_widget(self):
+        """Options shared by the four check actions."""
+        container = QWidget()
+        container.setVisible(False)
+        inner = QVBoxLayout(container)
+        inner.setContentsMargins(28, 4, 0, 4)
+        inner.setSpacing(2)
+        label = QLabel("Check options:")
+        apply_font(label, "Segoe UI", 10)
+        label.setProperty("muted", True)
+        inner.addWidget(label)
+        self._check_fresh_check = QCheckBox("Fetch fresh data from OnlyFans")
+        apply_font(self._check_fresh_check, "Segoe UI", 11)
+        self._check_fresh_check.setToolTip(
+            "Checks keep each creator's results for 3 days and reuse them.\n"
+            "Tick this to fetch everything again now, so posts from the last\n"
+            "3 days are included. Like the CLI's --force."
+        )
+        inner.addWidget(self._check_fresh_check)
+        self._check_disk_check = QCheckBox("Compare with files on disk")
+        apply_font(self._check_disk_check, "Segoe UI", 11)
+        self._check_disk_check.setToolTip(
+            "Look for each downloaded item's file on disk. Items whose file\n"
+            "is missing (for example deleted) show as not downloaded, so they\n"
+            "can be added to the cart and downloaded again."
+        )
+        inner.addWidget(self._check_disk_check)
+        return container
+
+    def get_check_options(self) -> dict:
+        return {
+            "fresh": self._check_fresh_check.isChecked(),
+            "disk": self._check_disk_check.isChecked(),
+        }
+
     def reset_to_defaults(self):
         """Reset action selection to the first option (default)."""
         first = self._button_group.button(0)
@@ -671,6 +712,9 @@ class ActionPage(QWidget):
             self._selected_actions = ACTION_CHOICES[0][1]
         self._msg_filter_widget.setVisible(False)
         self._msg_filter_radios[MSG_FILTER_PAID_ONLY].setChecked(True)
+        self._check_options_widget.setVisible(False)
+        self._check_fresh_check.setChecked(False)
+        self._check_disk_check.setChecked(False)
         self._userlist_input.clear()
         self._userlist_widget.setVisible(True)
         self._metadata_widget.setVisible(False)
@@ -683,6 +727,9 @@ class ActionPage(QWidget):
         if 0 <= btn_id < len(ALL_CHOICES):
             self._selected_actions = ALL_CHOICES[btn_id][1]
         self._msg_filter_widget.setVisible("msg_check" in self._selected_actions)
+        self._check_options_widget.setVisible(
+            bool(self._selected_actions & CHECK_ACTIONS)
+        )
         self._metadata_widget.setVisible("metadata" in self._selected_actions)
         self._paid_all_widget.setVisible("paid_all" in self._selected_actions)
         # Show userlist widget only for "Download content from a user" (btn_id 0)
@@ -700,6 +747,11 @@ class ActionPage(QWidget):
             self._apply_userlist_to_args()
             if "metadata" in self._selected_actions:
                 app_signals.metadata_options_changed.emit(self.get_metadata_options())
+            if self._selected_actions & CHECK_ACTIONS:
+                app_signals.check_options_changed.emit(self.get_check_options())
+            if "msg_check" in self._selected_actions:
+                # the radio only reports clicks; send the current choice too
+                self._on_msg_filter_changed(None)
             if "paid_all" in self._selected_actions:
                 options = self.get_paid_all_options()
                 self._save_paid_all_settings(options)

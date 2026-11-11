@@ -364,6 +364,10 @@ class FilterSidebar(QWidget):
         text_layout.addLayout(text_row)
         self.fullstring_check = QCheckBox("Full string match")
         text_layout.addWidget(self.fullstring_check)
+        # Clearing the search shows the rows again without Apply Filters; other
+        # filter changes still wait for the button.
+        self._last_search_text = ""
+        self.text_input.textChanged.connect(self._on_search_text_changed)
         layout.addWidget(text_group)
 
         # -- Media type (same single-row pattern as Areas → Media Types) --
@@ -954,6 +958,12 @@ class FilterSidebar(QWidget):
             import logging
 
             logging.getLogger("shared").debug(f"[GUI] Load filter preset failed: {e}")
+
+    def _on_search_text_changed(self, text):
+        was = self._last_search_text
+        self._last_search_text = text.strip()
+        if was and not self._last_search_text:
+            self.filter_changed.emit()
 
     def _restore_last_used_preset(self):
         """On sidebar create, load and apply the last-used preset if any."""

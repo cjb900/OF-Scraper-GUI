@@ -472,12 +472,16 @@ class TablePage(QWidget):
                 f"Collected <b>{raw}</b> items so far — the grid fills when "
                 "this scrape finishes."
             )
+        elif raw > 0 and visible == 0:
+            # rows exist but the filters hide them, during a scrape too
+            title = "No rows match the current filters"
+            body = (
+                f"{raw} rows are hidden by the filters. "
+                "Try <b>Reset</b> or adjust the Filters sidebar, then <b>Apply Filters</b>."
+            )
         elif self._scrape_active or self._cancelling:
             title = "Scraping in progress…"
             body = "Media rows will appear here as models are processed."
-        elif raw > 0 and visible == 0:
-            title = "No rows match the current filters"
-            body = "Try <b>Reset</b> or adjust the Filters sidebar."
         elif self._live_rows_loaded and raw == 0:
             title = "No media found"
             body = (
@@ -765,6 +769,13 @@ class TablePage(QWidget):
         if self._cancelling:
             return
         self._scrape_active = True
+        # the previous run's "Scrape cancelled" doesn't describe this one
+        try:
+            if self.daemon_status_label.text() == "Scrape cancelled":
+                self.daemon_status_label.clear()
+                self.daemon_status_label.hide()
+        except Exception:
+            pass
         try:
             self.start_scraping_btn.setEnabled(False)
             if self.start_scraping_btn.text() in (

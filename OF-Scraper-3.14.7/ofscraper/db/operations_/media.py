@@ -154,6 +154,9 @@ SELECT media_id, post_id FROM medias
 allPostIDDLCheck = """
 SELECT media_id, post_id FROM medias where downloaded=(1)
 """
+downloadedMediaPaths = """
+SELECT media_id, post_id, directory, filename FROM medias where downloaded=(1)
+"""
 getTimelineMedia = """
 SELECT
 media_id,post_id,link,directory,
@@ -360,6 +363,22 @@ def get_media_post_ids_downloaded(
     with contextlib.closing(conn.cursor()) as cur:
         cur.execute(allPostIDDLCheck)
         return [(dict(row)["media_id"], dict(row)["post_id"]) for row in cur.fetchall()]
+
+
+@wrapper.operation_wrapper
+def get_downloaded_media_paths(
+    model_id=None, username=None, conn=None, **kwargs
+) -> dict:
+    """{(media_id, post_id): (directory, filename)} for downloaded media."""
+    with contextlib.closing(conn.cursor()) as cur:
+        cur.execute(downloadedMediaPaths)
+        return {
+            (dict(row)["media_id"], dict(row)["post_id"]): (
+                dict(row)["directory"],
+                dict(row)["filename"],
+            )
+            for row in cur.fetchall()
+        }
 
 
 @wrapper.operation_wrapper

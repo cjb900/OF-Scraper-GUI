@@ -75,6 +75,34 @@ def _run_download_totals(workflow) -> tuple[dict, dict]:
     }
 
 
+def build_cancelled_summary_payload(workflow) -> dict:
+    """Run summary for a cancelled scrape. The thread stops before the normal
+    summary is built; each creator's counts were still saved as its download
+    ended (cancel included), so they're added up here. The global counters
+    aren't used: before any download they can hold an earlier run's numbers."""
+    per_model = dict(getattr(workflow, "_per_model_run_stats", {}) or {})
+    keys = ("videos", "photos", "audios", "forced", "failed", "bytes")
+    totals = {k: sum(int(s.get(k, 0) or 0) for s in per_model.values()) for k in keys}
+    names = [
+        getattr(m, "name", None)
+        for m in (getattr(workflow, "_selected_models", None) or [])
+    ]
+    names = [n for n in names if n] or list(per_model)
+    return {
+        "forced": totals["forced"],
+        "failed": totals["failed"],
+        "run_dl": totals["videos"] + totals["photos"] + totals["audios"],
+        "run_videos": totals["videos"],
+        "run_photos": totals["photos"],
+        "run_audios": totals["audios"],
+        "total_bytes": totals["bytes"],
+        "model_names": names,
+        "db_info": {},
+        "dup_counts": {},
+        "per_model": per_model,
+    }
+
+
 def build_pending_summary_payload(
     workflow,
     *,
@@ -2102,6 +2130,8 @@ class GUIWorkflow:
         self._daemon_sound = True
         self._daemon_stop = threading.Event()
         self._msg_check_filter = "paid_only"  # "paid_only" | "free_only" | "all"
+        # Check action options from the action page: fetch fresh, compare with disk
+        self._check_options = {"fresh": False, "disk": False}
         # Metadata action options from the action page (CLI: metadata -md MODE ...)
         self._metadata_options = {"mode": "update", "mark_stray": False, "hash": False}
         # args.command as parsed at launch; restored after metadata runs
@@ -2139,6 +2169,7 @@ class GUIWorkflow:
         app_signals.cancel_scrape_requested.connect(self._on_cancel_scrape)
         app_signals.downloads_queued.connect(self._on_downloads_queued)
         app_signals.msg_check_include_free_toggled.connect(self._on_msg_check_include_free)
+        app_signals.check_options_changed.connect(self._on_check_options)
         app_signals.manual_urls_confirmed.connect(self._on_manual_urls_confirmed)
         app_signals.metadata_options_changed.connect(self._on_metadata_options)
         app_signals.paid_all_options_changed.connect(self._on_paid_all_options)
@@ -2218,6 +2249,12 @@ class GUIWorkflow:
 
     def _on_scrape_paid(self, enabled):
         self._scrape_paid = enabled
+
+    def _on_check_options(self, options):
+        self._check_options = {
+            "fresh": bool((options or {}).get("fresh")),
+            "disk": bool((options or {}).get("disk")),
+        }
 
     def _on_msg_check_include_free(self, filter_value):
         self._msg_check_filter = filter_value  # "paid_only", "free_only", or "all"
@@ -2675,6 +2712,8 @@ class GUIWorkflow:
             args.check_area = list(self._selected_areas)
         args.force_all = True
         args.after = 0
+        # "Fetch fresh data": skip the 3-day check cache, like --force
+        args.force = bool((self._check_options or {}).get("fresh"))
         args.action = ["download"]
         args.actions = ["download"]
         args.gui = True
@@ -3133,6 +3172,7 @@ class GUIWorkflow:
             check_mod.gui_checker(
                 check_mode,
                 msg_filter=self._msg_check_filter,
+                disk_check=bool((self._check_options or {}).get("disk")),
             )
             app_signals.log_message.emit("INFO", f"Check mode {check_mode} complete")
             app_signals.status_message.emit(
@@ -4133,6 +4173,13 @@ class GUIWorkflow:
                     break
 
         except KeyboardInterrupt:
+            # history and the summary need this run's counts, not zeros
+            try:
+                import ofscraper.gui.utils.workflow as _wf_mod
+
+                _wf_mod._pending_summary_data = build_cancelled_summary_payload(self)
+            except Exception:
+                pass
             try:
                 from ofscraper.gui.utils.host_callbacks import get_host
 
