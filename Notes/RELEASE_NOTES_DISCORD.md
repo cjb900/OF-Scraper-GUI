@@ -4,6 +4,20 @@ Paste-ready overview (keep ≤ 4000 characters). Full dated changelog: `RELEASE_
 
 ---
 
+## 2026-11-12
+
+**OF-Scraper GUI 3.14.7 — v423–v424 update**
+
+Re-apply the latest `patch_ofscraper_3.14.7_gui.py` (tip `20261112_gui_3_14_7_v424`). Docker: copy the new patch, then `docker compose build --no-cache` and recreate the container.
+
+**Fix — Pinned messages**
+DRM videos in a message pinned in your chat failed with 403 "User have no permissions". They now download, into the **Messages** folder. Earlier pinned-message downloads stay in **Posts**.
+
+**Fix — Windows long file names**
+Files with long names (usually post text) failed with `[WinError 3] The system cannot find the path specified`. Paths are now kept within Windows' limit; with long paths turned on, only the file name is limited. Rescrape to pick up the items that failed.
+
+---
+
 ## 2026-11-11
 
 **OF-Scraper GUI 3.14.7 — v420–v422 update**

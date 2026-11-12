@@ -2,6 +2,24 @@
 
 ---
 
+## 2026-11-12 — Update (v423–v424) — OF-Scraper GUI 3.14.7
+
+Two download fixes since the 2026-11-11 release (patch `v422`). GUI patch tip is now **`20261112_gui_3_14_7_v424`**.
+
+Re-apply with `python patch_ofscraper_3.14.7_gui.py`. Docker: copy the new patch into the build context, then `docker compose build --no-cache` and recreate the container.
+
+### ⚠️ Changes to check after updating
+
+- **Pinned messages** are now saved in the **Messages** folder and the messages table. Pinned messages downloaded before v423 stay where they are, in **Posts** and the posts table (v423).
+- On **Windows**, very long file names (usually long post text) are now cut a few characters shorter so the full path fits. With Windows long paths turned on, only the file name is limited, to 255 characters (v424).
+
+### Fixes
+
+- **Pinned messages failed to download DRM videos (v423).** A message pinned in your chat with a creator was treated as a pinned post, so its DRM key request went to the post address, and OnlyFans refused it with 403 "User have no permissions". Pinned messages now use the message address, folder and database table. Pinned posts on a creator's page are unchanged.
+- **Windows: files with long names failed with `[WinError 3] The system cannot find the path specified` (v424).** The download finished, but saving the file failed because its full path was 260–265 characters, just over Windows' limit. OF-Scraper now counts path length the way Windows does and keeps the whole path within 259 characters. If Windows long paths are on and work for OF-Scraper, it only keeps the file name within 255. Items that failed this way are not marked as downloaded, so a rescrape picks them up. `OFSC_WINDOWS_MAX_PATH_BYTES` can still lower the limit, but no longer raise it above what Windows allows.
+
+---
+
 ## 2026-11-11 — Update (v420–v422) — OF-Scraper GUI 3.14.7
 
 Everything since the **2026-11-01** release (patch `v419`). GUI patch tip is now **`20261111_gui_3_14_7_v422`**. Most of these fixes come from community PRs **#29–#39** by **cloakedkeys**. Thank you!

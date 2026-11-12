@@ -31,6 +31,14 @@ When reporting a problem, include your **GUI patch id** (sidebar version button 
 - **Remote key modes** (`cdrm`, `cdrm2`, `keydb`) depend on outside services and may fail; **KeyDB** is currently not working. Prefer **manual**
 - **Videos stuck as `.part`, or rejected after merging:** check the FFmpeg path in Configuration → Download (see below)
 
+## "[WinError 3] The system cannot find the path specified" (Windows)
+
+- The download finished, but the file's full path was too long for Windows (260 characters by default). This usually happens with long post text in file names
+- Update to **v424** or later: OF-Scraper now shortens long file names to fit, and a rescrape picks up the items that failed
+- To keep full-length names, turn on Windows long paths in an admin PowerShell, then restart:
+  `New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force`
+- You can also use a shorter Save Location or folder format, or set **Text Length** (Configuration → File Options)
+
 ## Downloads are very slow
 
 - Check **Configuration → Performance → Download Speed Limit**. The limit only started working in v420. GUI versions before v420 saved it in the wrong unit, so `500` (meant as 500 KB/s) is now about 1 KB/s. The log warns once when the limit is this low. Set it again and save, or use `0` for unlimited
