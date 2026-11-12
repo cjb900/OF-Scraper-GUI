@@ -19,7 +19,9 @@ def load_max_lengths_config():
     # Default: 30
     config["MAX_TEXT_WORKER"] = int(os.getenv("OFSC_MAX_TEXT_WORKER", "30"))
 
-    # WINDOWS_MAX_PATH_BYTES: Maximum path length in bytes for Windows.
+    # WINDOWS_MAX_PATH_BYTES: Maximum path length for Windows, at 2 bytes per
+    # character. Paths are kept to Windows' 259-character limit anyway (or only
+    # names to 255 when long paths are on); a smaller value lowers that limit.
     # Default: 530
     config["WINDOWS_MAX_PATH_BYTES"] = int(
         os.getenv("OFSC_WINDOWS_MAX_PATH_BYTES", "530")

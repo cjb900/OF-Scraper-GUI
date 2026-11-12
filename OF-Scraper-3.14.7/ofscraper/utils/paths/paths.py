@@ -65,39 +65,86 @@ def truncate(path):
         return pathlib.Path(path)
 
 
+# Windows' classic limit: 260 UTF-16 characters including the final NUL.
+WINDOWS_MAX_PATH_CHARS = 259
+# NTFS limit for one file or folder name
+WINDOWS_MAX_NAME_CHARS = 255
+
+_long_paths_enabled = None
+
+
+def windows_long_paths_enabled():
+    """True when this Python process may use paths over 260 characters.
+
+    RtlAreLongPathsEnabled checks both the LongPathsEnabled registry setting
+    and the program's manifest, so it's only True when long paths really work.
+    """
+    global _long_paths_enabled
+    if _long_paths_enabled is None:
+        try:
+            import ctypes
+
+            fn = ctypes.windll.ntdll.RtlAreLongPathsEnabled
+            fn.restype = ctypes.c_ubyte
+            _long_paths_enabled = bool(fn())
+        except Exception:
+            _long_paths_enabled = False
+        log.debug(f"Windows long paths enabled: {_long_paths_enabled}")
+    return _long_paths_enabled
+
+
+def windows_path_length(text):
+    """Length as Windows counts it: UTF-16 code units (an emoji counts 2)."""
+    return len(str(text).encode("utf-16-le")) // 2
+
+
+def _windows_max_path_chars():
+    # OFSC_WINDOWS_MAX_PATH_BYTES (2 bytes per character) can only lower it
+    configured = of_env.getattr("WINDOWS_MAX_PATH_BYTES") // 2
+    return min(WINDOWS_MAX_PATH_CHARS, configured)
+
+
 def _windows_truncateHelper(path):
     path = pathlib.Path(os.path.normpath(path))
-    if get_string_byte_size_windows(path) <= of_env.getattr("WINDOWS_MAX_PATH_BYTES"):
-        return path
-    path = pathlib.Path(path)
-    dir = path.parent
-    file = path.name
-    match = re.search(r"_[0-9]+\.[a-z4]*$", path.name, re.IGNORECASE) or re.search(
-        r"\.[a-z4]*$", path.name, re.IGNORECASE
-    )
-    if match:
-        ext = match.group(0)
+    if windows_long_paths_enabled():
+        # only the name itself is limited
+        budget = WINDOWS_MAX_NAME_CHARS
     else:
-        ext = ""
-    file = re.sub(ext, "", path.name)
-    max_bytes = (
-        of_env.getattr("WINDOWS_MAX_PATH_BYTES")
-        - get_string_byte_size_windows(ext)
-        - get_string_byte_size_windows(dir)
+        # the folder and its separator count against the whole-path limit
+        budget = min(
+            WINDOWS_MAX_NAME_CHARS,
+            _windows_max_path_chars() - windows_path_length(path.parent) - 1,
+        )
+    name = path.name
+    if windows_path_length(name) <= budget:
+        return path
+
+    match = re.search(r"_[0-9]+\.[a-z4]*$", name, re.IGNORECASE) or re.search(
+        r"\.[a-z4]*$", name, re.IGNORECASE
     )
-    if max_bytes <= 0:
-        raise (f"dir to larger then max bytes {path}")
-    low, high = 0, len(file)
+    ext = match.group(0) if match else ""
+    stem = name[: len(name) - len(ext)]
+    room = budget - windows_path_length(ext)
+    if room <= 0:
+        log.warning(
+            f"The folder path is too long for Windows to add a file name: {path.parent}. "
+            "Shorten the save location or folder format, or turn on Windows long paths."
+        )
+        return path
+    low, high = 0, len(stem)
     while low < high:
-        mid = (low + high) // 2
-        if get_string_byte_size_windows(file[:mid]) <= max_bytes:
-            low = mid + 1
+        mid = (low + high + 1) // 2
+        if windows_path_length(stem[:mid]) <= room:
+            low = mid
         else:
-            high = mid
-    newFile = f"{file[:high]}{ext}"
-    final_path = pathlib.Path(dir, newFile)
+            high = mid - 1
+    stem = stem[:low]
+    if not ext:
+        # Windows drops trailing spaces and dots from a name
+        stem = stem.rstrip(" .")
+    final_path = pathlib.Path(path.parent, f"{stem}{ext}")
     log.debug(
-        f"path: {path} filepath bytesize: {get_string_byte_size_windows(final_path)}"
+        f"path: {path} shortened to {windows_path_length(final_path)} characters"
     )
     return final_path
 
