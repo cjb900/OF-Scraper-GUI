@@ -583,6 +583,41 @@ def parse_channel_line(line: str):
     return kind, payload
 
 
+def private_channel():
+    """The tab window's channel as a private stream, with this process's own
+    stdin pointed at the null device.
+
+    Every program the GUI starts (the DRM key tool, adb, browsers, ffmpeg)
+    inherits stdin unless told otherwise, so with the channel left on stdin
+    one of them could read it or close it, and the tab would quit as if the
+    tab window had gone. Returns None when there is no stdin to read.
+    """
+    try:
+        fd = sys.stdin.fileno()
+    except (AttributeError, OSError, ValueError):
+        return None
+    private = os.dup(fd)  # not inherited by child processes
+    stream = os.fdopen(private, "r", encoding="utf-8", errors="replace")
+    null = os.open(os.devnull, os.O_RDONLY)
+    try:
+        os.dup2(null, fd)
+    finally:
+        os.close(null)
+    if os.name == "nt":
+        try:
+            import ctypes
+            import msvcrt
+
+            ctypes.windll.kernel32.SetStdHandle(-10, msvcrt.get_osfhandle(fd))  # STD_INPUT_HANDLE
+        except Exception as e:
+            log.debug(f"[GUI] could not point the console stdin at NUL: {e}")
+    try:
+        sys.stdin = open(fd, "r", encoding="utf-8", errors="replace", closefd=False)
+    except OSError:
+        pass
+    return stream
+
+
 def install_child_channel(app, window) -> None:
     """In a child process: report the window, busy/idle and notices to the tab
     window, and quit cleanly when it sends "quit" on stdin."""
@@ -609,14 +644,22 @@ def install_child_channel(app, window) -> None:
 
     bridge.quit_requested.connect(_quit)
 
+    channel = private_channel()
+
     def _read_stdin():
+        if channel is None:
+            log.warning("[GUI] no channel to the tab window; this tab can't be stopped from it")
+            return
         try:
-            for line in sys.stdin:
+            for line in channel:
                 if line.strip() == "quit":
+                    log.info("[GUI] the tab window asked this tab to close")
                     bridge.quit_requested.emit()
                     return
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning(f"[GUI] reading the tab window's channel failed: {e}")
+        else:
+            log.info("[GUI] the tab window's channel closed")
         # stdin closed: the tab window is gone
         bridge.quit_requested.emit()
 

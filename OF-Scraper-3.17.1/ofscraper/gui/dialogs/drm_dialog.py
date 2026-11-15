@@ -79,12 +79,21 @@ class _ScriptRunner(QThread):
 
     def run(self):
         cmd = [sys.executable, self.script_path, "--out-dir", self.output_dir]
-        env = os.environ.copy()
+        from ofscraper.gui import site_context
+
+        # not the tab's variables: the tool isn't a GUI tab
+        env = site_context.standalone_environment()
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUNBUFFERED"] = "1"
+        extra = {}
+        if os.name == "nt":
+            # console stop events the tool or its helpers send stay in its group
+            extra["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200)
         try:
             proc = subprocess.Popen(
                 cmd,
+                stdin=subprocess.DEVNULL,  # never the tab window's channel
+                **extra,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
