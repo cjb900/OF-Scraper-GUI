@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,15 @@ log = logging.getLogger("shared")
 # Bundled script location: ofscraper/gui/scripts/drm_keydive.py
 _BUNDLED_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "scripts", "drm_keydive.py")
 _BUNDLED_SCRIPT = os.path.normpath(_BUNDLED_SCRIPT)
+
+# terminal colour and cursor codes (ESC [ ... letter), and other ESC sequences
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-Z\\-_]")
+
+
+def strip_ansi(text: str) -> str:
+    """The tool's output without terminal colour codes, which the log box
+    would show as text ("[32m...[0m")."""
+    return _ANSI_RE.sub("", text or "").replace("\x1b", "")
 
 _REQUIREMENTS_TEXT = """\
 SYSTEM REQUIREMENTS
@@ -104,7 +114,7 @@ class _ScriptRunner(QThread):
                 cwd=os.path.dirname(self.script_path),
             )
             for line in proc.stdout:
-                self.line_ready.emit(line.rstrip())
+                self.line_ready.emit(strip_ansi(line.rstrip()))
             proc.wait()
             self.finished.emit(proc.returncode)
         except Exception as e:

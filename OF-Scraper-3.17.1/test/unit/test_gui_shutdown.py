@@ -42,7 +42,11 @@ class _Workflow:
 @pytest.fixture
 def app(monkeypatch):
     previous = signal.getsignal(signal.SIGTERM)
-    app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+    # a QApplication, not a bare QCoreApplication: the app outlives this test,
+    # and a later test that builds widgets aborts on a QCoreApplication
+    from PyQt6 import QtWidgets
+
+    app = QtCore.QCoreApplication.instance() or QtWidgets.QApplication([])
     for attr in ("_ofs_shutdown_requested",):
         if hasattr(app, attr):
             delattr(app, attr)
