@@ -167,7 +167,10 @@ print("Running " + cmd[-1], flush=True)
 print()
 code = subprocess.call(cmd, cwd=os.path.dirname(cmd[-1]) or None)
 print()
-print("The patch script finished." if code == 0 else "The patch script stopped (exit code %d)." % code)
+if code == 0:
+    print("The patch script finished. If you started the GUI, it keeps running when this window closes.")
+else:
+    print("The patch script stopped (exit code %d)." % code)
 input("Press Enter to close this window.")
 '''
 
@@ -214,20 +217,25 @@ def launch_after_exit(script: pathlib.Path, wait_pid: int | None = None) -> None
     helper = pathlib.Path(script).parent / "run_gui_update.py"
     helper.write_text(HELPER, encoding="utf-8")
     inner = [*python, str(helper), str(wait_pid or gui_pid()), *python, str(script)]
+    # Update now can run inside a tab: the patch, and the GUI it starts, must
+    # not inherit the tab's variables, or the GUI opens as a frameless tab
+    from ofscraper.gui import site_context
+
+    env = site_context.standalone_environment()
     system = platform.system()
     if system == "Windows":
         flags = (getattr(subprocess, "CREATE_NEW_CONSOLE", 0x10)
                  | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0x200))
         try:  # outlive the GUI even inside a job that would close with it
-            subprocess.Popen(inner, creationflags=flags | 0x01000000, close_fds=True)  # BREAKAWAY_FROM_JOB
+            subprocess.Popen(inner, creationflags=flags | 0x01000000, close_fds=True, env=env)  # BREAKAWAY_FROM_JOB
         except OSError:
-            subprocess.Popen(inner, creationflags=flags, close_fds=True)
+            subprocess.Popen(inner, creationflags=flags, close_fds=True, env=env)
         return
     if system == "Linux":
         cmd = terminal_command(inner)
         if cmd is None:
             raise UpdateFailed("no terminal window program was found to run the patch in")
-        subprocess.Popen(cmd, start_new_session=True, close_fds=True,
+        subprocess.Popen(cmd, start_new_session=True, close_fds=True, env=env,
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
         return

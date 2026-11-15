@@ -193,3 +193,21 @@ def test_helper_runs_the_patch_once_the_gui_is_gone(tmp_path):
     )
     assert marker.read_text() == "yes"
     assert "The patch script finished." in out.stdout
+
+
+@pytest.mark.parametrize("system", ["Windows", "Linux"])
+def test_the_update_console_drops_the_tab_variables(monkeypatch, tmp_path, system):
+    # Update now clicked inside a tab: the GUI the patch starts must be its own
+    # window, not a frameless embedded tab
+    monkeypatch.setenv("OFSC_GUI_CHILD", "1")
+    monkeypatch.setenv("OFSC_GUI_EMBED", "1")
+    monkeypatch.setenv("KEEP_ME", "yes")
+    calls = []
+    monkeypatch.setattr(su, "patch_python", lambda: ["/py"])
+    monkeypatch.setattr(su.platform, "system", lambda: system)
+    monkeypatch.setattr(su.shutil, "which", lambda name: "/usr/bin/xterm" if name == "xterm" else None)
+    monkeypatch.setattr(su.subprocess, "Popen", lambda cmd, **kw: calls.append(kw))
+    su.launch_after_exit(tmp_path / "patch_ofscraper_3.17.1_gui.py", wait_pid=1)
+    env = calls[0]["env"]
+    assert "OFSC_GUI_CHILD" not in env and "OFSC_GUI_EMBED" not in env
+    assert env["KEEP_ME"] == "yes"

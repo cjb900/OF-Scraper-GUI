@@ -446,6 +446,15 @@ def site_command(site: str, extra: list[str] | None = None, config: str | None =
     return [sys.executable, "-m", "ofscraper", *args]
 
 
+def standalone_environment(env=None) -> dict:
+    """``env`` (default: this process's) without the tab-child variables, for a
+    program that must start its own GUI window, not an embedded tab."""
+    env = dict(os.environ if env is None else env)
+    for name in (ENV_CHILD, ENV_EMBED):
+        env.pop(name, None)
+    return env
+
+
 def child_environment(embed: bool) -> dict:
     env = dict(os.environ)
     env[ENV_CHILD] = "1"
