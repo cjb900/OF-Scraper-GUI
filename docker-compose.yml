@@ -6,8 +6,8 @@ services:
       args:
         # Which GUI patch version to use at build time.
         # Must match one of the patch_ofscraper_X.X.X_gui.py files in the repo root.
-        # Available: 3.12.9, 3.14.3, 3.14.5, 3.14.7, 3.16.14
-        GUI_PATCH_VERSION: "3.16.14"
+        # Available: 3.12.9, 3.14.3, 3.14.5, 3.14.7, 3.16.14, 3.17.1
+        GUI_PATCH_VERSION: "3.17.1"
     container_name: ofscraper-gui
     environment:
       # Optional: set your timezone (examples: America/New_York, Europe/London, UTC)

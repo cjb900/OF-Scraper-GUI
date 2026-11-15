@@ -16,13 +16,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 3.16.14 supports 3.11-3.15; 3.15 is left out because lz4 has no
+        # 3.17.1 supports 3.11 and up; 3.15 is left out because lz4 has no
         # wheels for it yet and needs a C compiler.
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     defaults:
       run:
         # the project (pyproject.toml, uv.lock) lives in the version folder
-        working-directory: OF-Scraper-3.16.14
+        working-directory: OF-Scraper-3.17.1
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -50,7 +50,7 @@ jobs:
           QT_QPA_PLATFORM: offscreen
       - name: Run tests
         # the GUI patch's tests. test/ also holds upstream's own suite, which
-        # tests stock 3.16.14 (placeholder URLs, unpatched headers) and isn't
+        # tests stock 3.17.1 (placeholder URLs, unpatched headers) and isn't
         # expected to pass against the patched tree.
         # The coverage table is printed in the log (not uploaded anywhere).
         run: uv run --frozen pytest test/unit --cov=ofscraper --cov-report term
