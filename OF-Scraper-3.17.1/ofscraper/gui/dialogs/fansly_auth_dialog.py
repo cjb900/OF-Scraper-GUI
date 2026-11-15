@@ -2,8 +2,9 @@
 
 Fansly signs requests with an authorization token (the web app keeps it in
 localStorage under ``session_active_session``) and needs the user agent of the
-browser the token came from. The token can be pasted, or read from the built-in
-browser after signing in to fansly.com.
+browser the token came from. The token can be pasted, read from the built-in
+browser after signing in to fansly.com, or imported from a browser on this
+computer that is signed in to Fansly (gui/utils/fansly_browser_import.py).
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from PyQt6.QtCore import Qt, QThreadPool, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QDialog,
     QFormLayout,
     QGroupBox,
@@ -144,6 +146,7 @@ class FanslyAuthPage(QWidget):
         super().__init__(parent)
         self.manager = manager
         self._worker = None
+        self._import_worker = None
         self._build()
         self.load_auth()
 
@@ -167,7 +170,8 @@ class FanslyAuthPage(QWidget):
 
         intro = QLabel(
             "Fansly needs the authorization token of a signed-in session and the user agent "
-            "of the browser it came from. Log in with the built-in browser, or paste them: "
+            "of the browser it came from. Log in with the built-in browser, import them from a "
+            "browser on this computer that is signed in to Fansly, or paste them: "
             "in your browser's developer tools on fansly.com, Application → Local Storage → "
             "session_active_session → token."
         )
@@ -222,6 +226,23 @@ class FanslyAuthPage(QWidget):
         buttons.addWidget(folder_btn)
         buttons.addStretch()
         layout.addLayout(buttons)
+
+        import_group = compact_group(QGroupBox("Import from a browser on this computer"))
+        import_row = QHBoxLayout(import_group)
+        self.import_combo = QComboBox()
+        from ofscraper.gui.utils.fansly_browser_import import BROWSERS
+
+        self.import_combo.addItems(BROWSERS)
+        self.import_combo.setToolTip(
+            "A browser where you're signed in to fansly.com. The token is read from its\n"
+            "saved site data on this computer; nothing is sent anywhere."
+        )
+        import_row.addWidget(self.import_combo)
+        self.import_btn = StyledButton("Import from browser")
+        self.import_btn.clicked.connect(self._import_from_browser)
+        import_row.addWidget(self.import_btn)
+        import_row.addStretch()
+        layout.addWidget(import_group)
 
         self.status_label = QLabel("")
         self.status_label.setWordWrap(True)
@@ -330,6 +351,45 @@ class FanslyAuthPage(QWidget):
         self.token_input.setText(dialog.token)
         self.ua_input.setText(dialog.user_agent)
         self._save_and_test()
+
+    def _import_from_browser(self):
+        browser = self.import_combo.currentText()
+        self.import_btn.setEnabled(False)
+        self._set_status(f"Reading the Fansly sign-in from {browser}…")
+
+        def _find():
+            from ofscraper.gui.utils import fansly_browser_import as fbi
+
+            found = fbi.find_token(browser)
+            return found, fbi.user_agent_for(browser, found.profile_dir)
+
+        worker = Worker(_find)
+        worker.signals.finished.connect(self._on_import_found)
+        worker.signals.error.connect(self._on_import_failed)
+        self._import_worker = worker
+        QThreadPool.globalInstance().start(worker)
+
+    def _on_import_found(self, result):
+        self.import_btn.setEnabled(True)
+        self._import_worker = None
+        found, user_agent = result
+        self.token_input.setText(found.token)
+        if user_agent:
+            self.ua_input.setText(user_agent)
+        elif not self.ua_input.text().strip():
+            self._set_status(
+                f"Imported the token from {found.browser}, but its user agent couldn't be "
+                "found: paste it (in that browser, search \"my user agent\"), then Save & Test.",
+                error=True,
+            )
+            return
+        self._save_and_test()
+
+    def _on_import_failed(self, message):
+        self.import_btn.setEnabled(True)
+        self._import_worker = None
+        self._set_status(f"Couldn't import from {self.import_combo.currentText()}: {message}",
+                         error=True)
 
     def _open_folder(self):
         path = self._auth_module().auth_path().parent
