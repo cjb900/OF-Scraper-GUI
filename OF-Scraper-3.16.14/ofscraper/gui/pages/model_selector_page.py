@@ -401,7 +401,9 @@ class ModelSelectorPage(QWidget):
                 if self._show_avatars and checkbox_w < rel_x <= icon_end:
                     name = item.data(Qt.ItemDataRole.UserRole)
                     if name:
-                        QDesktopServices.openUrl(QUrl(f"https://onlyfans.com/{name}"))
+                        from ofscraper.gui import site_context
+
+                        QDesktopServices.openUrl(QUrl(site_context.profile_url(name)))
                         return True  # consume — open profile, don't toggle
 
                 # Username / label area (and empty space to the right) toggles selection.

@@ -124,14 +124,30 @@ def get_profile_path(name=None):
     return pathlib.Path(tools.profile_name_fixer(str(profile)))
 
 
+def default_save_location():
+    """Built-in save location: ``~/Data/ofscraper/OnlyFans`` or ``.../Fansly``.
+
+    A Fansly run that shares a config with OnlyFans keeps the bare root, as
+    its files already go to ``<save location>/Fansly``.
+    """
+    root = of_env.getattr("SAVE_PATH_DEFAULT")
+    try:
+        from ofscraper.gui import site_context
+
+        folder = site_context.default_save_folder()
+    except Exception:
+        folder = None
+    return str(pathlib.Path(root) / folder) if folder else root
+
+
 def get_save_location(config=None):
     if config is False:
-        return of_env.getattr("SAVE_PATH_DEFAULT")
+        return default_save_location()
     config = config or config_file.open_config()
     return data.strip_path_quotes(
         config.get("save_location")
         or config.get("file_options", {}).get("save_location")
-        or of_env.getattr("SAVE_PATH_DEFAULT")
+        or default_save_location()
     )
 
 

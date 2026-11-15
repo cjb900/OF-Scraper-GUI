@@ -40,14 +40,24 @@ def date_placeholder(date, fallback, name, ele):
 
 
 def site_save_location():
-    """Save location; Fansly runs use ``<save location>/Fansly``.
+    """Save location; Fansly runs use ``<save location>/Fansly``, except with
+    the GUI's own Fansly config.json, whose save location is Fansly's alone.
 
     OnlyFans gets the configured value unchanged (same type, no Path round trip).
     """
     location = common_paths.get_save_location()
-    if sites.is_fansly():
+    if sites.is_fansly() and not _own_fansly_config():
         return str(pathlib.Path(location, sites.site_name()))
     return location
+
+
+def _own_fansly_config() -> bool:
+    try:
+        from ofscraper.gui import site_context
+
+        return site_context.uses_own_fansly_config()
+    except Exception:
+        return False
 
 
 # Placeholders whose value differs between OnlyFans and Fansly. {model_id} counts:

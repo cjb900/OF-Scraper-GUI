@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 _STICKY_COLUMNS = ("Number", "Download_Cart", "UserName")
 _DEFAULT_FROZEN_COUNT = 2
 
+from ofscraper.gui import site_context
 from ofscraper.gui.signals import app_signals
 from ofscraper.gui.utils.ui_scale import apply_font
 from ofscraper.gui.styles import c
@@ -381,7 +382,7 @@ class MediaDataTable(QTableWidget):
                     item.setForeground(QColor(c("red")))
             elif col_lower in ("post_id", "media_id") and display and display not in ("", "None"):
                 item.setForeground(QColor(c("blue")))
-                item.setToolTip("Open this post on OnlyFans")
+                item.setToolTip(f"Open this post on {site_context.site_label()}")
 
             # Truncate long text
             if col_lower == "text" and len(display) > 80:
@@ -850,7 +851,7 @@ class MediaDataTable(QTableWidget):
     def _on_cell_clicked(self, row, col):
         """Handle cell clicks — cart toggle, or open post URL for Post/Media ID."""
         if col in (COLUMNS.index("Post_ID"), COLUMNS.index("Media_ID")):
-            self._open_onlyfans_post(row)
+            self._open_post(row)
             return
 
         if col != COLUMNS.index("Download_Cart"):
@@ -881,8 +882,8 @@ class MediaDataTable(QTableWidget):
         if changed:
             self._update_cart_count()
 
-    def _open_onlyfans_post(self, row: int):
-        """Open https://onlyfans.com/{post_id}/{username} for the given table row."""
+    def _open_post(self, row: int):
+        """Open the row's post on its site (see site_context.post_url)."""
         if row < 0 or row >= len(self._display_data):
             return
         data = self._display_data[row]
@@ -890,14 +891,13 @@ class MediaDataTable(QTableWidget):
         username = data.get("username", data.get("UserName", ""))
         if isinstance(username, bool) or username is None:
             username = ""
-        post_id = str(post_id or "").strip()
-        username = str(username or "").strip()
-        if not post_id or not username:
+        responsetype = data.get("responsetype", data.get("Responsetype", ""))
+        url = site_context.post_url(post_id, username, responsetype)
+        if not url:
             app_signals.status_message.emit(
-                "Cannot open OnlyFans link — missing post ID or username"
+                f"Cannot open {site_context.site_label()} link — missing post ID or username"
             )
             return
-        url = f"https://onlyfans.com/{post_id}/{username}"
         QDesktopServices.openUrl(QUrl(url))
         app_signals.status_message.emit(f"Opened {url}")
 

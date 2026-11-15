@@ -579,8 +579,13 @@ class ConfigPage(QWidget):
 
     def _create_file_tab(self):
         scroll, form = self._create_scrollable_form()
+        from ofscraper.gui import site_context
+
+        _site = site_context.site_label()
         self._add_path(form, "save_location", "Save Location", is_dir=True,
-                       tooltip="Root directory where downloaded files are saved.")
+                       tooltip=f"Folder where {_site} downloads are saved.\n"
+                               f"Default: Data/ofscraper/{_site} in your home folder.\n"
+                               "OnlyFans and Fansly each have their own setting.")
         self._add_line(form, "dir_format", "Directory Format",
                        "{model_username}/{responsetype}/{mediatype}/",
                        tooltip="Directory structure template under save location.\n"

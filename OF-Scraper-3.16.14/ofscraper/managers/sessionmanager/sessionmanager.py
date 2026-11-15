@@ -62,6 +62,11 @@ def is_signed_cdn_forbidden(exception: Exception) -> bool:
             return False
         parsed = urlsplit(str(url))
         host = parsed.hostname or ""
+        # Fansly's CDN authorizes with CloudFront cookies instead of a signed
+        # query, and its storage answers 403 for a file that isn't there:
+        # neither changes on a retry
+        if host.endswith(".fansly.com") and host.split(".")[0].startswith("cdn"):
+            return True
         # Use the actual request URL, including separately supplied params. Do not
         # classify API 403s or depend on CloudFront's optional error body/headers.
         return (

@@ -42,6 +42,26 @@ def embedding_supported(app) -> bool:
     return app.platformName() in ("xcb", "windows")
 
 
+def fit_foreign_window(win_id: int, width: int, height: int, ratio: float) -> bool:
+    """Windows: size an embedded window of another process to its container.
+
+    Qt sizes the foreign window in device-independent pixels; with display
+    scaling above 100% the child then fills only part of the tab, leaving a
+    black band on the right and bottom. MoveWindow takes physical pixels.
+    """
+    if platform.system() != "Windows" or not win_id:
+        return False
+    try:
+        import ctypes
+
+        w = max(1, round(width * ratio))
+        h = max(1, round(height * ratio))
+        return bool(ctypes.windll.user32.MoveWindow(ctypes.c_void_p(win_id), 0, 0, w, h, True))
+    except Exception as e:
+        log.debug(f"[GUI] could not size the embedded window: {e}")
+        return False
+
+
 def _last_site() -> str | None:
     try:
         from ofscraper.gui.utils.gui_settings import load_gui_settings
@@ -134,7 +154,7 @@ def run_site_host(manager=None) -> None:
 
 # Qt classes are defined lazily so importing this module never needs PyQt6
 def _define_classes():
-    from PyQt6.QtCore import QProcess, Qt, QTimer
+    from PyQt6.QtCore import QEvent, QObject, QProcess, Qt, QTimer
     from PyQt6.QtGui import QWindow
     from PyQt6.QtWidgets import (
         QLabel,
@@ -150,6 +170,19 @@ def _define_classes():
     from ofscraper.gui import site_context
     from ofscraper.gui.widgets.styled_button import StyledButton
 
+    class _FitOnResize(QObject):
+        """Keeps the embedded window the container's size (see fit_foreign_window)."""
+
+        def __init__(self, tab):
+            super().__init__(tab)
+            self.tab = tab
+
+        def eventFilter(self, obj, event):
+            if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+                # after Qt's own resize of the foreign window
+                QTimer.singleShot(0, self.tab.fit_child)
+            return False
+
     class SiteTab(QWidget):
         """One site: a Start screen, or the site's embedded window."""
 
@@ -162,6 +195,7 @@ def _define_classes():
             self.process = None
             self.busy = False
             self.container = None
+            self._win_id = 0
             self._buffer = b""
 
             self.stack = QStackedWidget(self)
@@ -281,8 +315,21 @@ def _define_classes():
                 return
             self.container = QWidget.createWindowContainer(foreign, self)
             self.container.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+            self._win_id = win_id
+            self.container.installEventFilter(_FitOnResize(self))
             self.stack.addWidget(self.container)
             self.stack.setCurrentWidget(self.container)
+            QTimer.singleShot(0, self.fit_child)
+
+        def fit_child(self):
+            if self.container is None or not self._win_id:
+                return
+            fit_foreign_window(
+                self._win_id,
+                self.container.width(),
+                self.container.height(),
+                self.container.devicePixelRatioF(),
+            )
 
         def _finished(self, code, status):
             self.busy = False
@@ -290,6 +337,7 @@ def _define_classes():
                 self.stack.removeWidget(self.container)
                 self.container.deleteLater()
                 self.container = None
+            self._win_id = 0
             self.stack.setCurrentWidget(self.start_page)
             crashed = status == QProcess.ExitStatus.CrashExit or code not in (0, 130)
             self.message.setText(

@@ -162,14 +162,17 @@ class AreaSelectorPage(QWidget):
 
         if site_context.is_fansly():
             _area_tips["Labels"] = (
-                "Scrape the creator's walls (named tabs on their Fansly profile)."
+                "Scrape the creator's walls (named tabs on their Fansly profile).\n"
+                "Walls hold timeline posts, so this reads most of the timeline again,\n"
+                "once per wall, and a first scan can take many minutes under Fansly's\n"
+                "rate limit. Leave it off unless you sort files by wall."
             )
             _area_tips["Purchased"] = "Scrape media you bought from this creator."
         for i, area in enumerate(DOWNLOAD_AREAS):
             # the box keeps the ofscraper area name; Fansly shows Labels as Walls
             cb = QCheckBox(site_context.area_label(area))
             apply_font(cb, "Segoe UI", 11)
-            cb.setChecked(True)
+            cb.setChecked(site_context.area_default(area))
             cb.setToolTip(_area_tips.get(area, ""))
             row = i // 3
             col = i % 3
@@ -841,9 +844,11 @@ class AreaSelectorPage(QWidget):
             log.debug(f"[GUI] Could not clear area settings: {e}")
         # Reset all controls to defaults
         try:
-            # Content areas — all checked
-            for cb in self._area_checks.values():
-                cb.setChecked(True)
+            # Content areas — all checked (Fansly: all but walls)
+            from ofscraper.gui import site_context
+
+            for area, cb in self._area_checks.items():
+                cb.setChecked(site_context.area_default(area))
             # Media types — all checked
             for cb in self._mediatype_checks.values():
                 cb.setChecked(True)

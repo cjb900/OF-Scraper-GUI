@@ -9,6 +9,9 @@ auth file, so the two never share settings or a login:
     ~/.config/ofscraper/fansly/main_profile/site.json         {"site": "fansly"}
     ~/.config/ofscraper/fansly/main_profile/fansly_auth.json
 
+Downloads go to each config's save location, by default
+~/Data/ofscraper/OnlyFans and ~/Data/ofscraper/Fansly.
+
 The GUI's own files (gui_settings.json, scrape history, layouts, presets,
 crash logs) sit next to the config.json in use, so each site has its own too.
 
@@ -34,6 +37,8 @@ ONLYFANS = "onlyfans"
 FANSLY = "fansly"
 SITES = (ONLYFANS, FANSLY)
 SITE_LABELS = {ONLYFANS: "OnlyFans", FANSLY: "Fansly"}
+# each site's downloads folder under the built-in save root (~/Data/ofscraper)
+SITE_FOLDERS = {ONLYFANS: "OnlyFans", FANSLY: "Fansly"}
 
 # Fansly's config folder, inside the default OnlyFans one
 FANSLY_FOLDER = "fansly"
@@ -110,8 +115,38 @@ def area_label(area: str, site: str | None = None) -> str:
     return area
 
 
+def area_default(area: str, site: str | None = None) -> bool:
+    """Whether an area starts ticked. Fansly's walls re-read the timeline
+    once per wall, slowly under its rate limit, so they are opt-in."""
+    return not (area == "Labels" and (site or current_site()) == FANSLY)
+
+
 def action_supported(action: str, site: str | None = None) -> bool:
     return (site or current_site()) != FANSLY or action not in ONLYFANS_ONLY_ACTIONS
+
+
+# --- links to the site ---------------------------------------------------------------
+
+def profile_url(username: str, site: str | None = None) -> str:
+    host = "fansly.com" if (site or current_site()) == FANSLY else "onlyfans.com"
+    return f"https://{host}/{username}"
+
+
+def post_url(post_id, username: str = "", responsetype: str = "", site: str | None = None):
+    """Page of a table row's post on its site, or None when there isn't one.
+
+    OnlyFans: /{post_id}/{username}. Fansly: /post/{post_id}; a message has no
+    page of its own, so it opens the inbox.
+    """
+    post_id = str(post_id or "").strip()
+    if (site or current_site()) == FANSLY:
+        if str(responsetype or "").strip().lower() in ("messages", "message"):
+            return "https://fansly.com/messages"
+        return f"https://fansly.com/post/{post_id}" if post_id else None
+    username = str(username or "").strip()
+    if not post_id or not username:
+        return None
+    return f"https://onlyfans.com/{post_id}/{username}"
 
 
 # --- paths -----------------------------------------------------------------------
@@ -145,6 +180,77 @@ def fansly_config_path() -> pathlib.Path:
 
 def site_config_home(site: str) -> pathlib.Path:
     return fansly_config_home() if site == FANSLY else default_config_home()
+
+
+def _same_path(a, b) -> bool:
+    try:
+        return pathlib.Path(a).expanduser().resolve() == pathlib.Path(b).expanduser().resolve()
+    except Exception:
+        return False
+
+
+def uses_own_fansly_config() -> bool:
+    """A run with the GUI's Fansly config.json (only ever used for Fansly).
+
+    Its save location is Fansly's alone and is used as it is; a Fansly run on
+    a config shared with OnlyFans saves to ``<save location>/Fansly``.
+    Reads only the arguments: it runs while a new config.json is written,
+    before the settings exist.
+    """
+    import ofscraper.utils.paths.common as common_paths
+
+    return _same_path(common_paths.get_config_path(), fansly_config_path())
+
+
+def _run_is_fansly() -> bool:
+    """This run's site, without building the settings if they don't exist yet
+    (asking for them while they're being set up would wait on their lock)."""
+    import ofscraper.sites as sites
+    import ofscraper.utils.settings as settings
+
+    if settings.settings:
+        return sites.is_fansly()
+    return sites.normalize(getattr(settings.get_args(), "site", None)) == FANSLY
+
+
+def default_save_folder() -> str | None:
+    """Folder under the built-in save root for this run's site, or None for
+    the bare root (a Fansly run sharing OnlyFans' config gets /Fansly later)."""
+    if uses_own_fansly_config():
+        return SITE_FOLDERS[FANSLY]
+    return None if _run_is_fansly() else SITE_FOLDERS[ONLYFANS]
+
+
+# gui_settings.json key: the Fansly save location already names its own folder
+_FANSLY_SAVE_MIGRATED = "fansly_save_location_is_own"
+
+
+def migrate_fansly_save_location() -> None:
+    """Fansly's config.json from before its save location was used as it is
+    (v426) meant ``<save location>/Fansly``; write that, once, so its files
+    keep going to the same folder."""
+    import ofscraper.utils.config.file as config_file
+    import ofscraper.utils.paths.common as common_paths
+    from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
+
+    if not uses_own_fansly_config():
+        return
+    settings = load_gui_settings()
+    if settings.get(_FANSLY_SAVE_MIGRATED):
+        return
+    path = common_paths.get_config_path()
+    if path.exists():
+        config = json.loads(path.read_text(encoding="utf-8"))
+        config = config.get("config") or config
+        options = config.setdefault("file_options", {})
+        location = options.get("save_location") or config.get("save_location")
+        if location and pathlib.PurePath(str(location)).name.lower() != FANSLY:
+            options["save_location"] = str(pathlib.Path(str(location)) / SITE_FOLDERS[FANSLY])
+            config.pop("save_location", None)
+            config_file.write_config(config)
+            log.info(f"Fansly save location is now {options['save_location']} (same folder as before)")
+    settings[_FANSLY_SAVE_MIGRATED] = True
+    save_gui_settings(settings)
 
 
 # --- starting a site's GUI process ------------------------------------------------
@@ -224,6 +330,10 @@ def prepare_site_files() -> None:
             path.write_text(json.dumps(fansly_auth.empty(), indent=4), encoding="utf-8")
             log.info(f"Created empty Fansly auth file at {path}")
         _seed_gui_settings()
+        try:
+            migrate_fansly_save_location()
+        except Exception as e:
+            log.warning(f"Could not update the Fansly save location: {e}")
         return
     import ofscraper.utils.auth.utils.dict as auth_dict
 

@@ -279,3 +279,198 @@ def test_x11_is_preferred_on_linux_with_a_display(monkeypatch):
     monkeypatch.setenv("DISPLAY", ":1")
     site_host.prefer_x11()
     assert os.environ["QT_QPA_PLATFORM"] == "xcb"
+
+
+# --- links -----------------------------------------------------------------------------------------
+
+def test_post_links_go_to_the_rows_site():
+    assert site_context.post_url("123", "bob", "Timeline", site="onlyfans") == "https://onlyfans.com/123/bob"
+    assert site_context.post_url("123", "", "Timeline", site="onlyfans") is None
+    assert site_context.post_url("456", "bob", "Timeline", site="fansly") == "https://fansly.com/post/456"
+    assert site_context.post_url("456", "bob", "Labels", site="fansly") == "https://fansly.com/post/456"
+    assert site_context.post_url("456", "bob", "Messages", site="fansly") == "https://fansly.com/messages"
+    assert site_context.post_url("", "bob", "Timeline", site="fansly") is None
+
+
+def test_profile_links_go_to_the_site():
+    assert site_context.profile_url("bob", site="fansly") == "https://fansly.com/bob"
+    assert site_context.profile_url("bob", site="onlyfans") == "https://onlyfans.com/bob"
+
+
+def test_table_opens_the_fansly_post(qapp, fansly, monkeypatch):
+    from ofscraper.gui.widgets import data_table
+
+    opened = []
+    monkeypatch.setattr(data_table.QDesktopServices, "openUrl", lambda url: opened.append(url.toString()))
+    table = SimpleNamespace(_display_data=[{"post_id": "9", "username": "bob", "responsetype": "Timeline"}])
+    data_table.MediaDataTable._open_post(table, 0)
+    assert opened == ["https://fansly.com/post/9"]
+
+
+# --- walls --------------------------------------------------------------------------------------------
+
+def test_walls_are_opt_in_on_fansly_only():
+    assert not site_context.area_default("Labels", site="fansly")
+    assert site_context.area_default("Timeline", site="fansly")
+    assert site_context.area_default("Labels", site="onlyfans")
+
+
+def test_area_page_leaves_walls_unticked(qapp, fansly, monkeypatch):
+    from ofscraper.gui.pages import area_selector_page
+
+    monkeypatch.setattr(area_selector_page.AreaSelectorPage, "_load_area_settings", lambda self: None)
+    page = area_selector_page.AreaSelectorPage()
+    assert not page._area_checks["Labels"].isChecked()
+    assert page._area_checks["Timeline"].isChecked()
+
+
+# --- save locations --------------------------------------------------------------------------------------
+
+@pytest.fixture
+def own_fansly_config(monkeypatch, tmp_path, fansly):
+    import ofscraper.sites as sites
+    import ofscraper.utils.paths.common as common_paths
+
+    home = tmp_path / "ofscraper"
+    monkeypatch.setattr(sites, "is_fansly", lambda: True)
+    monkeypatch.setattr(sites, "current_site", lambda: sites.FANSLY)
+    monkeypatch.setattr(site_context, "default_config_home", lambda: home)
+    monkeypatch.setattr(common_paths, "get_config_path", lambda: home / "fansly" / "config.json")
+    monkeypatch.setattr(common_paths, "get_config_home", lambda: home / "fansly")
+    return home
+
+
+def test_each_site_saves_under_its_own_folder_by_default(monkeypatch, tmp_path, own_fansly_config):
+    import ofscraper.sites as sites
+    import ofscraper.utils.of_env.of_env as of_env
+    import ofscraper.utils.paths.common as common_paths
+
+    root = tmp_path / "Data" / "ofscraper"
+    real = of_env.getattr
+    monkeypatch.setattr(of_env, "getattr", lambda k: str(root) if k == "SAVE_PATH_DEFAULT" else real(k))
+    assert common_paths.get_save_location(config={"file_options": {}}) == str(root / "Fansly")
+    assert common_paths.get_save_location(config=False) == str(root / "Fansly")
+
+    # Fansly on a config it shares with OnlyFans: the bare root, + /Fansly later
+    monkeypatch.setattr(common_paths, "get_config_path", lambda: own_fansly_config / "config.json")
+    assert common_paths.get_save_location(config={"file_options": {}}) == str(root)
+
+    monkeypatch.setattr(sites, "is_fansly", lambda: False)
+    assert common_paths.get_save_location(config={"file_options": {}}) == str(root / "OnlyFans")
+    # a save location in the config always wins
+    assert common_paths.get_save_location(config={"file_options": {"save_location": "/x"}}) == "/x"
+
+
+def test_fansly_files_go_to_its_save_location_as_is(monkeypatch, own_fansly_config):
+    import ofscraper.classes.placeholder as placeholder
+    import ofscraper.utils.paths.common as common_paths
+
+    monkeypatch.setattr(common_paths, "get_save_location", lambda config=None: "/dl/Fansly")
+    assert placeholder.site_save_location() == "/dl/Fansly"
+    monkeypatch.setattr(common_paths, "get_config_path", lambda: own_fansly_config / "config.json")
+    assert placeholder.site_save_location() == str(pathlib.Path("/dl/Fansly", "Fansly"))
+
+
+def test_livestreams_follow_the_same_rule(monkeypatch, own_fansly_config):
+    import datetime
+
+    from ofscraper.sites.fansly import live
+
+    when = datetime.datetime(2026, 1, 2, 3, 4, 5, tzinfo=datetime.timezone.utc)
+    assert live.recording_base("/dl/Fansly", "bob", when).parent == pathlib.Path("/dl/Fansly/bob/Livestreams")
+
+
+def _write_config(path, save_location):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"config": {"file_options": {"save_location": save_location}}}))
+
+
+def test_v426_fansly_save_location_keeps_its_folder(own_fansly_config):
+    import ofscraper.utils.config.file as config_file
+
+    config = own_fansly_config / "fansly" / "config.json"
+    _write_config(config, "/dl/ofscraper")
+    site_context.migrate_fansly_save_location()
+    saved = json.loads(config.read_text())
+    assert saved["file_options"]["save_location"] == str(pathlib.Path("/dl/ofscraper", "Fansly"))
+    # once only: a later change by the user is left alone
+    _write_config(config, "/elsewhere")
+    config_file._cached_config = None
+    site_context.migrate_fansly_save_location()
+    assert json.loads(config.read_text())["config"]["file_options"]["save_location"] == "/elsewhere"
+
+
+def test_new_fansly_config_is_not_moved(own_fansly_config):
+    config = own_fansly_config / "fansly" / "config.json"
+    _write_config(config, "/dl/ofscraper/Fansly")
+    site_context.migrate_fansly_save_location()
+    assert json.loads(config.read_text())["config"]["file_options"]["save_location"] == "/dl/ofscraper/Fansly"
+
+
+# --- Fansly CDN refusals ------------------------------------------------------------------------------------
+
+def _forbidden(url):
+    import aiohttp
+    from yarl import URL
+
+    info = aiohttp.RequestInfo(URL(url), "GET", {}, URL(url))
+    return aiohttp.ClientResponseError(info, (), status=403)
+
+
+def test_fansly_cdn_403_is_not_retried():
+    from ofscraper.managers.sessionmanager.sessionmanager import is_signed_cdn_forbidden
+
+    assert is_signed_cdn_forbidden(_forbidden("https://cdn3.fansly.com/new/1/2/audio/aac/und/segment-0.aac"))
+    assert not is_signed_cdn_forbidden(_forbidden("https://apiv3.fansly.com/api/v1/account/me"))
+
+
+def test_refused_stream_file_fails_at_once(monkeypatch, tmp_path):
+    import asyncio
+
+    from ofscraper.commands.scraper.actions.download.managers import fansly_stream_download as sd
+
+    calls = []
+
+    async def refuse(self, c, url, path, cookies):
+        calls.append(url)
+        raise _forbidden(url)
+
+    monkeypatch.setattr(sd.FanslyStreamDownloadManager, "_fetch_segment_once", refuse)
+    url = "https://cdn3.fansly.com/new/1/2/audio/aac/und/segment-0.aac"
+    with pytest.raises(sd.SegmentError) as err:
+        asyncio.run(sd.FanslyStreamDownloadManager()._fetch_segment(None, url, tmp_path / "a0.aac", {}))
+    assert err.value.forbidden and err.value.no_retry
+    assert len(calls) == 1
+
+
+# --- embedding and logs -------------------------------------------------------------------------------------
+
+def test_embedded_window_is_only_resized_by_hand_on_windows(monkeypatch):
+    from ofscraper.gui import site_host
+
+    monkeypatch.setattr(site_host.platform, "system", lambda: "Linux")
+    assert site_host.fit_foreign_window(123, 800, 600, 1.5) is False
+
+
+def test_logger_reset_has_its_helpers():
+    import ofscraper.utils.logs.logger as logger
+
+    assert hasattr(logger, "other_logs")
+
+
+def test_default_save_folder_never_builds_the_settings(monkeypatch, tmp_path):
+    """A new config.json is written while the settings are being set up; asking
+    for them then would wait forever on their lock."""
+    import ofscraper.utils.paths.common as common_paths
+    import ofscraper.utils.settings as settings
+
+    monkeypatch.setattr(settings, "settings", {})
+    monkeypatch.setattr(settings, "get_settings", lambda: pytest.fail("settings were built"))
+    monkeypatch.setattr(site_context, "default_config_home", lambda: tmp_path)
+    monkeypatch.setattr(common_paths, "get_config_path", lambda: tmp_path / "config.json")
+    monkeypatch.setattr(settings, "get_args", lambda: SimpleNamespace(site=None))
+    assert site_context.default_save_folder() == "OnlyFans"
+    monkeypatch.setattr(settings, "get_args", lambda: SimpleNamespace(site="fansly"))
+    assert site_context.default_save_folder() is None
+    monkeypatch.setattr(common_paths, "get_config_path", lambda: tmp_path / "fansly" / "config.json")
+    assert site_context.default_save_folder() == "Fansly"

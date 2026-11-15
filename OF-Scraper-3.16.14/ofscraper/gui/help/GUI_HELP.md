@@ -175,7 +175,7 @@ Quick scan of what this GUI patch adds on top of stock OF-Scraper. Details live 
 - Filter presets (save / rename / last-used) — [Filters](#filters-root)
 - Sticky columns, CSV export, empty-table guidance — [Table / Scraping page](#table-root)
 - Multi-select cart (check mode only) — [Check Mode](#check-mode-root)
-- Click **Post ID** / **Media ID** to open the OnlyFans post — [Table columns](#table-columns)
+- Click **Post ID** / **Media ID** to open the post on OnlyFans or Fansly — [Table columns](#table-columns)
 - Post-run failure summary dialog — [Downloading from check mode](#check-mode-download)
 
 **Download integrity**
@@ -217,11 +217,12 @@ The window has an **OnlyFans** tab and a **Fansly** tab. Each tab is its own cop
 | Login | `~/.config/ofscraper/main_profile/auth.json` | `~/.config/ofscraper/fansly/main_profile/fansly_auth.json` |
 | Databases, logs, GUI settings | under `~/.config/ofscraper/` | under `~/.config/ofscraper/fansly/` |
 
-Downloads go to each site's **Save Location** (Configuration → General); Fansly media goes into a `Fansly` subfolder of it. Give each site its own **Temp Folder** if you set one: a run clears leftover temporary files in its temp folder when it starts, which would remove the other site's downloads in progress.
+Downloads go to each site's own **Save Location** (Configuration → File Options): by default `~/Data/ofscraper/OnlyFans` and `~/Data/ofscraper/Fansly`, each holding a folder per creator. Change either in that site's Configuration. (An OnlyFans config from before this keeps its save location, so existing downloads stay where they are.) Give each site its own **Temp Folder** if you set one: a run clears leftover temporary files in its temp folder when it starts, which would remove the other site's downloads in progress.
 
 **Fansly differences**
 
-- Content areas: Timeline, Messages, Purchased and **Walls** (Fansly's named profile tabs; *Labels* in OnlyFans terms).
+- Content areas: Timeline, Messages, Purchased and **Walls** (Fansly's named profile tabs; *Labels* in OnlyFans terms). Walls start unticked: they hold timeline posts, so scanning them reads most of the timeline again, once per wall, and a first scan can take many minutes under Fansly's rate limit. Tick Walls only if you sort files by wall.
+- Some older Fansly videos have a separate audio track the CDN no longer serves. Those download as the plain MP4 when the post has one; otherwise they fail at once instead of being retried.
 - Not available on Fansly: Check Mode, Like / Unlike, metadata, all-purchased and post-URL scraping, and DRM keys (Fansly videos aren't DRM-protected).
 - **Authentication**: log in with the built-in browser, or paste the authorization token (browser developer tools on fansly.com → Application → Local Storage → `session_active_session` → `token`) and the user agent of that browser. **Save & Test** checks them with Fansly.
 - Plugins load per site: a plugin in `~/.config/ofscraper/plugins` runs for OnlyFans only.
@@ -1297,11 +1298,11 @@ Price of the post/message (often `Free` or a number).
 
 <a id="table-col-post-id"></a>
 ### Post ID
-ID of the post/message container. **Click** a Post ID (blue link style) to open that post on OnlyFans (`https://onlyfans.com/{post_id}/{username}`). Useful for inspecting content that failed to download.
+ID of the post/message container. **Click** a Post ID (blue link style) to open that post on its site: OnlyFans `https://onlyfans.com/{post_id}/{username}`, Fansly `https://fansly.com/post/{post_id}`. A Fansly message has no page of its own, so it opens your Fansly inbox. Useful for inspecting content that failed to download.
 
 <a id="table-col-media-id"></a>
 ### Media ID
-ID of the specific media item. **Click** a Media ID to open the same OnlyFans post page for that row (uses the row’s Post ID + username).
+ID of the specific media item. **Click** a Media ID to open the same post page for that row (uses the row’s Post ID).
 
 <a id="table-col-text"></a>
 ### Text
