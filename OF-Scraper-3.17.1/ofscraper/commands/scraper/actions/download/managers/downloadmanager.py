@@ -73,13 +73,25 @@ from ofscraper.commands.scraper.actions.download.utils.chunk import get_chunk_si
 
 
 def find_unique_path(path):
-    """Return path with (1), (2), ... suffix until a non-existing path is found."""
+    """Return path with (1), (2), ... suffix until a non-existing path is found.
+
+    The name was already cut to the filesystem's limit, so the stem is
+    shortened to make room for the (n): a name over 255 characters on Windows
+    can't be created ("Invalid argument").
+    """
+    import ofscraper.utils.paths.paths as path_utils
+
     if not path.exists():
         return path
     stem, suffix, parent = path.stem, path.suffix, path.parent
     counter = 1
     while True:
-        candidate = parent / f"{stem}({counter}){suffix}"
+        tag = f"({counter})"
+        short = stem
+        candidate = parent / f"{short}{tag}{suffix}"
+        while short and pathlib.Path(path_utils.truncate(candidate)) != candidate:
+            short = short[:-1]
+            candidate = parent / f"{short}{tag}{suffix}"
         if not candidate.exists():
             return candidate
         counter += 1

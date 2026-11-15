@@ -81,6 +81,12 @@ def build_cancelled_summary_payload(workflow) -> dict:
     ended (cancel included), so they're added up here. The global counters
     aren't used: before any download they can hold an earlier run's numbers."""
     per_model = dict(getattr(workflow, "_per_model_run_stats", {}) or {})
+    # the creator downloading when the scrape stopped: its counts may not have
+    # been saved, but the counters were reset when its download started, so
+    # they hold its numbers
+    active = getattr(workflow, "_active_download_model", None)
+    if active and str(active) not in per_model:
+        per_model[str(active)] = _snapshot_download_globals()
     keys = ("videos", "photos", "audios", "forced", "failed", "bytes")
     totals = {k: sum(int(s.get(k, 0) or 0) for s in per_model.values()) for k in keys}
     names = [
@@ -1986,6 +1992,8 @@ def _make_gui_scraper_manager():
                             continue
                         # Start periodic DB polling for real-time Downloaded updates
                         _gui_state.start_polling(media, model_id, username)
+                        if _workflow_ref is not None:
+                            _workflow_ref._active_download_model = username
                         try:
                             app_signals.log_message.emit(
                                 "INFO",
@@ -2021,6 +2029,8 @@ def _make_gui_scraper_manager():
                         finally:
                             # Snapshot BEFORE next model resets common_globals.
                             _record_per_model_download_stats(_workflow_ref, username)
+                            if _workflow_ref is not None:
+                                _workflow_ref._active_download_model = None
                             # Stop polling and do a final status sweep.
                             # Pass all table rows so filtered items (profile images,
                             # already-downloaded items) also get their status updated.
@@ -2614,6 +2624,7 @@ class GUIWorkflow:
         self._db_prerun_mtimes = {}
         self._db_prerun_dl_counts = {}
         self._per_model_run_stats = {}
+        self._active_download_model = None
         try:
             from ofscraper.gui.utils.progress_bridge import reset_throttle_state
 
@@ -3347,6 +3358,7 @@ class GUIWorkflow:
                 # the current run produced no live rows (e.g. after a crash).
                 self._live_rows_emitted = False
                 self._per_model_run_stats = {}
+                self._active_download_model = None
                 self._manual_media_ids = None
                 self._manual_model_names = []
                 # paid media ids are per run; keeping them showed older runs' rows
@@ -3667,6 +3679,7 @@ class GUIWorkflow:
                                     _pu_uname = _pu_value.get("username")
                                     if _pu_medias:
                                         _gui_state.start_polling(_pu_medias, _pu_mid, _pu_uname)
+                                        self._active_download_model = _pu_uname
                                     try:
                                         return await _orig_process_user(_pu_value, _pu_length)
                                     finally:
@@ -3675,6 +3688,7 @@ class GUIWorkflow:
                                         _record_per_model_download_stats(
                                             self, _pu_uname, nothing_downloaded=not _pu_medias
                                         )
+                                        self._active_download_model = None
                                         if _pu_medias:
                                             _gui_state.stop_polling()
                                             _emit_download_status(_pu_medias, _pu_mid, _pu_uname)
