@@ -1385,7 +1385,9 @@ def main() -> int:
     # Detect platform and install method
     plat = platform.system()
     method = _detect_install_method()
-    if plat == "Windows":
+    # a pipx venv that wasn't found where expected: only when nothing else
+    # matched, as a pip install also puts `ofscraper` on PATH
+    if plat == "Windows" and method == "unknown":
         if _pipx_text_mentions_package() or _windows_ofscraper_cli_version() is not None:
             method = "pipx"
     print(f"Platform:        {plat}")
