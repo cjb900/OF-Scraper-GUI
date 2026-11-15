@@ -124,6 +124,16 @@ def fetch_latest_release(timeout: float = 8.0) -> dict | None:
 
 
 def _is_newer(latest: PatchInfo, current: PatchInfo) -> bool | None:
+    # patch numbers run across every ofscraper version (a 3.14.7 fix can get
+    # a higher number than the 3.17.1 GUI), so the ofscraper version decides
+    # first: a release for a newer one is an update, one for an older isn't
+    if latest.ofscraper and current.ofscraper:
+        try:
+            lk, ck = _version_key(latest.ofscraper), _version_key(current.ofscraper)
+            if lk != ck:
+                return lk > ck
+        except TypeError:
+            pass
     if latest.patch is not None and current.patch is not None:
         return latest.patch > current.patch
     # notes without a patch id: a release published after this patch was built

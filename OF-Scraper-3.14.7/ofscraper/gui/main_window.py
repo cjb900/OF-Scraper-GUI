@@ -115,7 +115,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(250, self._maybe_run_startup_dialogs)
         # Optional: if CLI args fully specify a scrape run, auto-start in GUI mode.
         QTimer.singleShot(350, self._maybe_autostart_from_cli_args)
-        # Quiet PyPI update check (only prompts when a newer release exists).
+        # Quiet GitHub check for a new GUI release (only prompts when there is one).
         QTimer.singleShot(1400, self._maybe_check_for_updates)
 
     def _maybe_autostart_from_cli_args(self):
@@ -1396,7 +1396,7 @@ class MainWindow(QMainWindow):
         self._maybe_run_startup_dialogs()
 
     def _maybe_check_for_updates(self):
-        """Background PyPI check; prompt only when a newer release is available."""
+        """Background GitHub check; prompt only when a newer GUI release is out."""
         if getattr(self, "_update_check_started", False):
             return
         self._update_check_started = True
@@ -1426,14 +1426,16 @@ class MainWindow(QMainWindow):
 
         latest = getattr(result, "latest", None) or ""
         current = getattr(result, "current", "") or ""
-        url = getattr(result, "project_url", None) or "https://pypi.org/project/ofscraper/"
+        from ofscraper.gui.utils.version_check import RELEASES_URL
+
+        url = getattr(result, "project_url", None) or RELEASES_URL
         msg = getattr(result, "message", None) or (
-            f"A newer OF-Scraper version is available: {latest} (you have {current})."
+            f"A new GUI release is available: {latest} (you have {current})."
         )
 
         try:
             app_signals.status_message.emit(msg)
-            app_signals.show_notification.emit("OF-Scraper update", msg)
+            app_signals.show_notification.emit("OF-Scraper GUI update", msg)
         except Exception:
             pass
 
@@ -1446,10 +1448,12 @@ class MainWindow(QMainWindow):
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(msg)
         box.setInformativeText(
-            "Open the PyPI project page to review the release, "
-            "or dismiss this version so you are not prompted again until another release."
+            "Download the new patch script from the release page and run it; it "
+            "installs the OF-Scraper version the GUI was tested with. Don't upgrade "
+            "OF-Scraper on its own (pip, pipx or uv): a version the GUI wasn't built "
+            "for can stop it from starting."
         )
-        open_btn = box.addButton("Open PyPI", QMessageBox.ButtonRole.AcceptRole)
+        open_btn = box.addButton("Open release page", QMessageBox.ButtonRole.AcceptRole)
         dismiss_btn = box.addButton(
             "Dismiss this version", QMessageBox.ButtonRole.DestructiveRole
         )

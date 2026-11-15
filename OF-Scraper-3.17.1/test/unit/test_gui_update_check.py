@@ -102,3 +102,19 @@ def test_no_pypi_links_in_the_gui(path):
     text = (ROOT / path).read_text(encoding="utf-8")
     assert "pypi.org" not in text
     assert "Open PyPI" not in text
+
+
+def test_a_newer_ofscraper_release_wins_over_a_higher_patch_number(monkeypatch):
+    # patch numbers run across versions: the 3.14.7 GUI can be v436 while the
+    # 3.17.1 GUI release is v435
+    monkeypatch.setattr(vc, "fetch_latest_release", lambda timeout=8.0: release(
+        "tip `20261115_gui_3_17_1_v435`"))
+    result = vc.check_for_updates(vc.parse_patch_id("20261115_gui_3_14_7_v436"))
+    assert result.status == "update_available"
+    assert "for OF-Scraper 3.17.1" in result.message
+
+
+def test_a_release_for_an_older_ofscraper_is_not_an_update(monkeypatch):
+    monkeypatch.setattr(vc, "fetch_latest_release", lambda timeout=8.0: release(
+        "tip `20261115_gui_3_14_7_v436`", assets=["patch_ofscraper_3.14.7_gui.py"]))
+    assert check(monkeypatch, vc.fetch_latest_release()).status == "up_to_date"
