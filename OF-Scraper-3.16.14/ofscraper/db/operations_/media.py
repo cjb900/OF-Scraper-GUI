@@ -878,7 +878,7 @@ def update_media_table_download_helper(
     
     if _allow_dupes and _post_id is not None:
         mediaUpdateDownloadUnique = """Update 'medias'
-        SET directory=?, filename=?, size=?, downloaded=?, hash=?
+        SET directory=?, filename=?, size=?, downloaded=?, hash=?, skip_permanent=?
         WHERE media_id=(?) and model_id=(?) and post_id=(?);"""
         insertData.extend([media.id, model_id, _post_id])
         curr.execute(mediaUpdateDownloadUnique, insertData)
