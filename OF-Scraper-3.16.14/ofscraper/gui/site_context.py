@@ -221,6 +221,157 @@ def default_save_folder() -> str | None:
     return None if _run_is_fansly() else SITE_FOLDERS[ONLYFANS]
 
 
+# --- OnlyFans downloads in their own folder ---------------------------------------------
+
+# gui_settings.json key: the user chose (or didn't need to choose) where existing
+# OnlyFans downloads in the bare default save location go
+_ONLYFANS_SAVE_DECIDED = "onlyfans_save_folder_decided"
+
+
+def _builtin_save_root() -> pathlib.Path:
+    import ofscraper.utils.of_env.of_env as of_env
+
+    return pathlib.Path(of_env.getattr("SAVE_PATH_DEFAULT")).expanduser()
+
+
+def onlyfans_folder_plan():
+    """What to do about OnlyFans downloads saved straight into the default
+    save location (~/Data/ofscraper) from before each site had a folder.
+
+    None: nothing to do (Fansly, already decided, or a custom save location).
+    Otherwise (root, target, folders): ``folders`` are the model folders in
+    ``root`` (empty: nothing saved yet, so the setting can just change).
+    """
+    import ofscraper.utils.paths.common as common_paths
+    from ofscraper.gui.utils.gui_settings import load_gui_settings
+
+    if is_fansly() or load_gui_settings().get(_ONLYFANS_SAVE_DECIDED):
+        return None
+    root = _builtin_save_root()
+    if not _same_path(common_paths.get_save_location(), root):
+        _mark_onlyfans_folder_decided()
+        return None
+    target = root / SITE_FOLDERS[ONLYFANS]
+    skip = {name.lower() for name in SITE_FOLDERS.values()}
+    folders = []
+    if root.is_dir():
+        folders = sorted(
+            p.name for p in root.iterdir()
+            if p.is_dir() and not p.name.startswith(".") and p.name.lower() not in skip
+        )
+    return root, target, folders
+
+
+def _mark_onlyfans_folder_decided() -> None:
+    from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
+
+    settings = load_gui_settings()
+    settings[_ONLYFANS_SAVE_DECIDED] = True
+    save_gui_settings(settings, quiet=True)
+
+
+def _set_save_location(location) -> None:
+    import ofscraper.utils.config.file as config_file
+    import ofscraper.utils.paths.common as common_paths
+
+    path = common_paths.get_config_path()
+    config = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    config = config.get("config") or config
+    config.setdefault("file_options", {})["save_location"] = str(location)
+    config.pop("save_location", None)
+    config_file.write_config(config)
+
+
+def _relocated(directory, moves):
+    for old, new in moves:
+        try:
+            return str(pathlib.Path(new) / pathlib.Path(directory).relative_to(old))
+        except ValueError:
+            continue
+    return None
+
+
+def _update_download_paths(moves, databases) -> int:
+    """Point the databases' download folders (medias.directory) at the moved folders."""
+    import sqlite3
+
+    changed = 0
+    for db in databases:
+        try:
+            conn = sqlite3.connect(str(db))
+        except sqlite3.Error:
+            continue
+        try:
+            rows = conn.execute(
+                "SELECT rowid, directory FROM medias WHERE directory IS NOT NULL"
+            ).fetchall()
+            for rowid, directory in rows:
+                new = _relocated(directory, moves)
+                if new:
+                    conn.execute("UPDATE medias SET directory=? WHERE rowid=?", (new, rowid))
+                    changed += 1
+            conn.commit()
+        except sqlite3.Error as e:
+            log.warning(f"Could not update download paths in {db}: {e}")
+        finally:
+            conn.close()
+    return changed
+
+
+def _onlyfans_databases(target: pathlib.Path):
+    """OnlyFans user_data.db files: in the config folder (not Fansly's), and in
+    the save location when the metadata format puts them there."""
+    import ofscraper.utils.config.data as config_data
+
+    fansly_home = fansly_config_home()
+    found = [
+        db for db in default_config_home().rglob("user_data.db")
+        if fansly_home not in db.parents
+    ]
+    try:
+        metadata = str(config_data.get_metadata() or "")
+    except Exception:
+        metadata = ""
+    if any(key in metadata for key in ("save_location", "savelocation", "{root}")):
+        found += list(target.rglob("user_data.db"))
+    return found
+
+
+def apply_onlyfans_folder(plan, move: bool) -> dict:
+    """Carry out the choice for onlyfans_folder_plan().
+
+    move=True (or nothing saved yet): model folders go into ``target``, the
+    databases follow, and OnlyFans saves to ``target`` from now on.
+    move=False: everything stays where it is, the save location too.
+    The question is never asked again either way.
+    """
+    import shutil
+
+    root, target, folders = plan
+    result = {"moved": [], "skipped": [], "failed": [], "paths_updated": 0}
+    if move or not folders:
+        target.mkdir(parents=True, exist_ok=True)
+        moves = []
+        for name in folders:
+            src, dst = root / name, target / name
+            if dst.exists():
+                result["skipped"].append(name)
+                continue
+            try:
+                shutil.move(str(src), str(dst))
+                moves.append((src, dst))
+                result["moved"].append(name)
+            except OSError as e:
+                log.warning(f"Could not move {src} to {dst}: {e}")
+                result["failed"].append(name)
+        if moves:
+            result["paths_updated"] = _update_download_paths(moves, _onlyfans_databases(target))
+        _set_save_location(target)
+        log.info(f"OnlyFans downloads now go to {target}; moved {len(result['moved'])} model folder(s)")
+    _mark_onlyfans_folder_decided()
+    return result
+
+
 # gui_settings.json key: the Fansly save location already names its own folder
 _FANSLY_SAVE_MIGRATED = "fansly_save_location_is_own"
 

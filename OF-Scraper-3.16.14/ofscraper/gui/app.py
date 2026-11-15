@@ -336,6 +336,84 @@ def _make_gui_log_handler() -> GUILogHandler:
     return handler
 
 
+def _offer_onlyfans_folder(window):
+    """Once: move OnlyFans model folders from the default save location into
+    its OnlyFans folder (next to Fansly's), or keep them where they are."""
+    from PyQt6.QtCore import Qt as _Qt
+    from PyQt6.QtWidgets import QApplication, QMessageBox
+
+    from ofscraper.gui import site_context
+
+    try:
+        plan = site_context.onlyfans_folder_plan()
+        if plan is None:
+            return
+        root, target, folders = plan
+        if not folders:
+            site_context.apply_onlyfans_folder(plan, move=True)
+            return
+    except Exception as e:
+        log.warning(f"Could not check the OnlyFans download folder: {e}")
+        return
+
+    try:
+        from ofscraper.gui.utils.privacy_mode import is_privacy_mode, mask_username
+
+        names = [mask_username(n) for n in folders] if is_privacy_mode() else list(folders)
+    except Exception:
+        names = list(folders)
+    listed = "\n".join(f"  • {n}" for n in names[:10])
+    if len(names) > 10:
+        listed += f"\n  … and {len(names) - 10} more"
+
+    box = QMessageBox(window)
+    box.setIcon(QMessageBox.Icon.Question)
+    box.setWindowTitle("OnlyFans download folder")
+    box.setText(
+        f"OnlyFans and Fansly now each have their own folder in {root}:\n"
+        f"OnlyFans downloads go to {target}."
+    )
+    box.setInformativeText(
+        f"{len(folders)} OnlyFans model folder(s) are saved directly in {root}:\n{listed}\n\n"
+        "Move them into the OnlyFans folder? Their download records are updated, so "
+        "nothing is downloaded again.\n\n"
+        f"If you keep them where they are, OnlyFans keeps saving to {root}. "
+        "You can change this later in Configuration → File Options → Save Location."
+    )
+    move_btn = box.addButton("Move to OnlyFans folder", QMessageBox.ButtonRole.AcceptRole)
+    box.addButton("Keep where they are", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(move_btn)
+    box.exec()
+    move = box.clickedButton() is move_btn
+
+    QApplication.setOverrideCursor(_Qt.CursorShape.WaitCursor)
+    try:
+        result = site_context.apply_onlyfans_folder(plan, move=move)
+    except Exception as e:
+        QApplication.restoreOverrideCursor()
+        log.warning(f"Could not move the OnlyFans downloads: {e}")
+        QMessageBox.warning(window, "OnlyFans download folder", f"The move didn't finish: {e}")
+        return
+    QApplication.restoreOverrideCursor()
+    if not move:
+        return
+    lines = [f"Moved {len(result['moved'])} model folder(s) to {target}."]
+    if result["skipped"]:
+        lines.append(
+            f"Left in place (a folder with the same name is already in OnlyFans): "
+            f"{', '.join(result['skipped'])}"
+        )
+    if result["failed"]:
+        lines.append(
+            f"Couldn't move (a file may be open in another program): {', '.join(result['failed'])}"
+        )
+    box = QMessageBox(window)
+    box.setIcon(QMessageBox.Icon.Warning if result["failed"] else QMessageBox.Icon.Information)
+    box.setWindowTitle("OnlyFans download folder")
+    box.setText("\n\n".join(lines))
+    box.exec()
+
+
 def launch_gui(manager=None):
     """Launch the PyQt6 GUI application."""
     # Tell Windows to use our own AppUserModelID so the taskbar shows our
@@ -499,6 +577,12 @@ def launch_gui(manager=None):
         site_context.install_child_channel(app, window)
     except Exception as e:
         log.warning(f"Could not connect to the tab window: {e}")
+
+    # OnlyFans downloads saved straight into the default save location from
+    # before each site had its own folder: ask once whether to move them
+    from PyQt6.QtCore import QTimer as _QTimer
+
+    _QTimer.singleShot(800, lambda: _offer_onlyfans_folder(window))
 
     # docker stop / SIGTERM: cancel the scrape and quit instead of dying mid-write.
     try:
