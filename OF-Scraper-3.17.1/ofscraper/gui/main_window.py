@@ -1465,11 +1465,15 @@ class MainWindow(QMainWindow):
         box.setInformativeText(
             ("This is a testing build from the testing branch; it may have bugs. "
              if testing else "")
-            + "Download the new patch script from that page and run it; it "
-            "installs the OF-Scraper version the GUI was tested with. Don't upgrade "
+            + "Update now downloads the patch script, closes OF-Scraper and runs it; or "
+            "download it from that page and run it yourself. It installs the "
+            "OF-Scraper version the GUI was tested with. Don't upgrade "
             "OF-Scraper on its own (pip, pipx or uv): a version the GUI wasn't built "
             "for can stop it from starting."
         )
+        update_btn = None
+        if getattr(result, "download_url", None):
+            update_btn = box.addButton("Update now", QMessageBox.ButtonRole.YesRole)
         open_btn = box.addButton(
             "Open testing branch" if testing else "Open release page",
             QMessageBox.ButtonRole.AcceptRole,
@@ -1478,11 +1482,15 @@ class MainWindow(QMainWindow):
             "Dismiss this version", QMessageBox.ButtonRole.DestructiveRole
         )
         box.addButton("Later", QMessageBox.ButtonRole.RejectRole)
-        box.setDefaultButton(open_btn)
+        box.setDefaultButton(update_btn or open_btn)
         box.exec()
 
         clicked = box.clickedButton()
-        if clicked is open_btn:
+        if update_btn is not None and clicked is update_btn:
+            from ofscraper.gui.utils.self_update import start_update
+
+            start_update(self, result)
+        elif clicked is open_btn:
             QDesktopServices.openUrl(QUrl(url))
         elif clicked is dismiss_btn and latest:
             try:

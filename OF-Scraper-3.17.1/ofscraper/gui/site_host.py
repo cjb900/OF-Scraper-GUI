@@ -352,6 +352,9 @@ def _define_classes():
             elif kind == "idle":
                 self.busy = False
                 self.host.update_tab(self)
+            elif kind == "close_all":
+                # Update now in a tab: close every site, as the close button does
+                QTimer.singleShot(0, self.host.close)
             elif kind == "notify" and isinstance(payload, dict):
                 self.host.notify(
                     f"{self.label}: {payload.get('title', '')}", payload.get("message", "")

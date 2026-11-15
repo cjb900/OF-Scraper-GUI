@@ -27,6 +27,7 @@ TESTING_BRANCH = "testing"
 TESTING_CONTENTS_API = f"https://api.github.com/repos/{GITHUB_REPO}/contents?ref={TESTING_BRANCH}"
 TESTING_RAW_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{TESTING_BRANCH}/{{name}}"
 TESTING_URL = f"https://github.com/{GITHUB_REPO}/tree/{TESTING_BRANCH}"
+last_testing_url = None
 RELEASE, TESTING = "release", "testing"
 # PATCH_ID sits near the top of the patch script; its payload is ~1 MB
 PATCH_HEAD_BYTES = 8192
@@ -53,6 +54,10 @@ class VersionCheckResult:
     project_url: str | None = None
     message: str = ""
     channel: str = RELEASE
+    # where "Update now" downloads the patch script, and the patch number it
+    # must carry (see self_update.py)
+    download_url: str | None = None
+    latest_patch: int | None = None
 
 
 @dataclass(frozen=True)
@@ -117,6 +122,16 @@ def release_patch(release: dict) -> PatchInfo:
     return PatchInfo(found.patch, date, ofscraper)
 
 
+def release_patch_url(release: dict) -> str | None:
+    """Download link of the release's patch script for the newest ofscraper."""
+    found = []
+    for a in release.get("assets") or []:
+        m = _PATCH_ASSET_RE.search(str(a.get("name") or ""))
+        if m and a.get("browser_download_url"):
+            found.append((m.group(1), str(a["browser_download_url"])))
+    return max(found, key=lambda f: _version_key(f[0]))[1] if found else None
+
+
 def fetch_latest_release(timeout: float = 8.0) -> dict | None:
     """The GUI's latest GitHub release (the API's JSON), or None."""
     try:
@@ -160,7 +175,9 @@ def set_update_channel(channel: str) -> None:
 
 def fetch_testing_build(timeout: float = 8.0) -> PatchInfo | None:
     """The newest patch on the testing branch: the patch script for the
-    highest ofscraper version at the repo root, read from its first bytes."""
+    highest ofscraper version at the repo root, read from its first bytes.
+    Its download link is kept in ``last_testing_url``."""
+    global last_testing_url
     try:
         import httpx
 
@@ -178,8 +195,9 @@ def fetch_testing_build(timeout: float = 8.0) -> PatchInfo | None:
             if not names:
                 return None
             _ver, name = max(names, key=lambda n: _version_key(n[0]))
+            last_testing_url = TESTING_RAW_URL.format(name=name)
             resp = client.get(
-                TESTING_RAW_URL.format(name=name),
+                last_testing_url,
                 headers={"Range": f"bytes=0-{PATCH_HEAD_BYTES - 1}"},
             )
             resp.raise_for_status()
@@ -224,6 +242,7 @@ def _check_testing(cur: PatchInfo, timeout: float) -> VersionCheckResult:
         return VersionCheckResult(
             status="update_available", current=cur.label, latest=key,
             project_url=TESTING_URL, channel=TESTING,
+            download_url=last_testing_url, latest_patch=latest.patch,
             message=(
                 f"A new testing build is available: patch {latest.label} "
                 f"(you have {cur.label})."
@@ -278,6 +297,8 @@ def check_for_updates(
             current=cur.label,
             latest=latest_key,
             project_url=url,
+            download_url=release_patch_url(release),
+            latest_patch=latest.patch,
             message=(
                 f"A new GUI release is available: patch {latest.label} "
                 f"(you have {cur.label})."

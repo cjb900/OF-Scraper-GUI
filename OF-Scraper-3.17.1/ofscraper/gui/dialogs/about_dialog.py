@@ -324,6 +324,14 @@ class AboutDialog(QDialog):
         self._open_releases_btn.setEnabled(False)
         self._open_releases_btn.clicked.connect(self._open_project_url)
         update_btns.addWidget(self._open_releases_btn)
+        self._update_now_btn = StyledButton("Update now", primary=True)
+        self._update_now_btn.setToolTip(
+            "Download the new patch script, close OF-Scraper and run it in a console window."
+        )
+        self._update_now_btn.hide()
+        self._update_now_btn.clicked.connect(self._update_now)
+        update_btns.addWidget(self._update_now_btn)
+        self._last_result = None
         layout.addLayout(update_btns)
 
         hint = QLabel(
@@ -460,6 +468,10 @@ class AboutDialog(QDialog):
             url = getattr(result, "project_url", None) or RELEASES_URL
             self._project_url = url
             status = getattr(result, "status", "")
+            self._last_result = result
+            self._update_now_btn.setVisible(
+                status == "update_available" and bool(getattr(result, "download_url", None))
+            )
             self._open_releases_btn.setEnabled(status in ("update_available", "error", "up_to_date", "unknown"))
             if status == "update_available":
                 self._update_status.setStyleSheet(f"color: {c('peach')};")
@@ -477,6 +489,13 @@ class AboutDialog(QDialog):
         self._update_status.setText(f"Update check failed: {message}")
         self._update_status.setStyleSheet("")
         self._open_releases_btn.setEnabled(True)
+
+    def _update_now(self):
+        if self._last_result is None:
+            return
+        from ofscraper.gui.utils.self_update import start_update
+
+        start_update(self, self._last_result)
 
     def _open_project_url(self):
         QDesktopServices.openUrl(QUrl(self._project_url or RELEASES_URL))
