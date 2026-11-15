@@ -96,7 +96,7 @@ with open(PATCH_FILE, "w", encoding="utf-8") as f:
 print(f"\nPatch file updated: {PATCH_FILE}")
 
 if _args.sync_root:
-    if not os.path.isfile(ROOT_PATCH_FILE):
-        raise FileNotFoundError(f"Repo-root patch not found: {os.path.abspath(ROOT_PATCH_FILE)}")
+    # the first rebuild for a new version creates the root copy
+    created = not os.path.isfile(ROOT_PATCH_FILE)
     shutil.copyfile(PATCH_FILE, ROOT_PATCH_FILE)
-    print(f"Repo-root copy updated: {os.path.abspath(ROOT_PATCH_FILE)}")
+    print(f"Repo-root copy {'created' if created else 'updated'}: {os.path.abspath(ROOT_PATCH_FILE)}")
