@@ -84,33 +84,31 @@ _WS_FRAME = 0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000  # ca
 _SWP_FRAME = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020  # no size/move/zorder/activate, frame changed
 
 
-def fit_foreign_window(win_id: int, container_id: int) -> bool:
-    """Windows: make an embedded window of another process fill its container.
+def fit_foreign_window(win_id: int, top_id: int, x: int, y: int, w: int, h: int) -> bool:
+    """Windows: place an embedded window of another process over its container.
 
-    Qt places the foreign window in device-independent pixels and the child
-    keeps its top-level frame, which leaves black bands. This reads the
-    container's client area in physical pixels, maps it into the child's
-    actual parent, strips the child's frame and moves it there.
+    ``x, y, w, h`` is the container's area in the top-level window's client
+    coordinates, in physical pixels. Qt parents the foreign window to the
+    top-level window (the container itself stays non-native: asking for its
+    winId would make it a native window drawn over the child) and places it
+    in device-independent pixels; this maps the area into the child's actual
+    parent and moves it there.
     """
-    if platform.system() != "Windows" or not win_id or not container_id:
+    if platform.system() != "Windows" or not win_id or not top_id:
         return False
     try:
         ctypes, wintypes, user32 = _user32()
-        child, container = wintypes.HWND(win_id), wintypes.HWND(container_id)
+        child, top = wintypes.HWND(win_id), wintypes.HWND(top_id)
         style = user32.GetWindowLongPtrW(child, _GWL_STYLE) & 0xFFFFFFFF
         wanted = (style & ~(_WS_FRAME | _WS_POPUP)) | _WS_CHILD
         if wanted != style:
-            user32.SetWindowLongPtrW(child, _GWL_STYLE, ctypes.c_ssize_t(ctypes.c_int32(wanted).value).value)
+            user32.SetWindowLongPtrW(child, _GWL_STYLE, ctypes.c_int32(wanted).value)
             user32.SetWindowPos(child, None, 0, 0, 0, 0, _SWP_FRAME)
-        rect = wintypes.RECT()
-        if not user32.GetClientRect(container, ctypes.byref(rect)):
-            return False
-        corner = wintypes.POINT(0, 0)
+        corner = wintypes.POINT(x, y)
         parent = user32.GetParent(child)
-        # the container's top-left in the coordinates MoveWindow uses for the child
-        user32.MapWindowPoints(container, parent, ctypes.byref(corner), 1)
-        w, h = max(1, rect.right - rect.left), max(1, rect.bottom - rect.top)
-        return bool(user32.MoveWindow(child, corner.x, corner.y, w, h, True))
+        if parent and parent != top:
+            user32.MapWindowPoints(top, parent, ctypes.byref(corner), 1)
+        return bool(user32.MoveWindow(child, corner.x, corner.y, max(1, w), max(1, h), True))
     except Exception as e:
         log.debug(f"[GUI] could not size the embedded window: {e}")
         return False
@@ -209,7 +207,7 @@ def run_site_host(manager=None) -> None:
 
 # Qt classes are defined lazily so importing this module never needs PyQt6
 def _define_classes():
-    from PyQt6.QtCore import QEvent, QObject, QProcess, Qt, QTimer
+    from PyQt6.QtCore import QEvent, QObject, QPoint, QProcess, Qt, QTimer
     from PyQt6.QtGui import QWindow
     from PyQt6.QtWidgets import (
         QLabel,
@@ -379,7 +377,20 @@ def _define_classes():
         def fit_child(self):
             if self.container is None or not self._win_id:
                 return
-            fit_foreign_window(self._win_id, int(self.container.winId()))
+            container = self.container
+            if not container.isVisible():
+                return
+            top = container.window()
+            ratio = container.devicePixelRatioF()
+            corner = container.mapTo(top, QPoint(0, 0))
+            fit_foreign_window(
+                self._win_id,
+                int(top.winId()),  # the top-level window is native already
+                round(corner.x() * ratio),
+                round(corner.y() * ratio),
+                round(container.width() * ratio),
+                round(container.height() * ratio),
+            )
 
         def _finished(self, code, status):
             self.busy = False

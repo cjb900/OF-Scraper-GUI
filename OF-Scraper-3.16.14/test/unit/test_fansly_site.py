@@ -449,7 +449,7 @@ def test_embedded_window_is_only_resized_by_hand_on_windows(monkeypatch):
     from ofscraper.gui import site_host
 
     monkeypatch.setattr(site_host.platform, "system", lambda: "Linux")
-    assert site_host.fit_foreign_window(123, 456) is False
+    assert site_host.fit_foreign_window(123, 456, 0, 37, 800, 600) is False
 
 
 def test_logger_reset_has_its_helpers():
@@ -485,3 +485,13 @@ def test_embedded_site_window_has_no_frame():
     src = inspect.getsource(app.launch_gui)
     assert "site_context.is_embedded()" in src
     assert src.index("FramelessWindowHint") < src.index("window.show()")
+
+
+def test_container_is_never_made_native():
+    """winId() on the window container makes it a native window drawn over the
+    embedded site window (blank tab, window over the tab bar on Windows)."""
+    import inspect
+
+    from ofscraper.gui import site_host
+
+    assert "container.winId()" not in inspect.getsource(site_host)
