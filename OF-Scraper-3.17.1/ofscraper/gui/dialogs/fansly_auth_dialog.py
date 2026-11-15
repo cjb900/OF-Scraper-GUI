@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import shutil
 
 from PyQt6.QtCore import Qt, QThreadPool, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices
@@ -218,9 +219,21 @@ class FanslyAuthPage(QWidget):
         self.save_btn = StyledButton("Save && Test")
         self.save_btn.clicked.connect(self._save_and_test)
         buttons.addWidget(self.save_btn)
+        self.save_only_btn = StyledButton("Save")
+        self.save_only_btn.setToolTip("Save what's in the fields without checking them with Fansly.")
+        self.save_only_btn.clicked.connect(self._save_only)
+        buttons.addWidget(self.save_only_btn)
         reload_btn = StyledButton("Reload")
+        reload_btn.setToolTip("Discard unsaved edits and show what's saved.")
         reload_btn.clicked.connect(self.load_auth)
         buttons.addWidget(reload_btn)
+        self.clear_btn = StyledButton("Clear")
+        self.clear_btn.setToolTip("Remove the saved Fansly token and user agent.")
+        self.clear_btn.clicked.connect(self._clear)
+        buttons.addWidget(self.clear_btn)
+        file_btn = StyledButton("Open fansly_auth.json")
+        file_btn.clicked.connect(self._open_file)
+        buttons.addWidget(file_btn)
         folder_btn = StyledButton("Open folder")
         folder_btn.clicked.connect(self._open_folder)
         buttons.addWidget(folder_btn)
@@ -287,11 +300,11 @@ class FanslyAuthPage(QWidget):
         )
         return fansly_auth.normalize(current)
 
-    def _save(self) -> bool:
+    def _save(self, allow_incomplete=False) -> bool:
         fansly_auth = self._auth_module()
         auth = self._form_auth()
         issues = fansly_auth.problems(auth)
-        if issues:
+        if issues and not allow_incomplete:
             self._set_status("Not saved: " + "; ".join(issues) + ".", error=True)
             return False
         try:
@@ -390,6 +403,66 @@ class FanslyAuthPage(QWidget):
         self._import_worker = None
         self._set_status(f"Couldn't import from {self.import_combo.currentText()}: {message}",
                          error=True)
+
+    def _save_only(self):
+        fansly_auth = self._auth_module()
+        issues = fansly_auth.problems(self._form_auth())
+        if issues:
+            answer = QMessageBox.question(
+                self, "Save incomplete credentials?",
+                "These credentials look incomplete: " + "; ".join(issues)
+                + ".\n\nFansly scrapes won't work with them. Save anyway?",
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        if self._save(allow_incomplete=True):
+            self._set_status(
+                "Saved (not checked with Fansly)." if not issues
+                else "Saved, but incomplete: " + "; ".join(issues) + ".",
+                error=bool(issues),
+            )
+
+    def _clear(self):
+        box = QMessageBox(self)
+        box.setWindowTitle("Clear Fansly credentials")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText(
+            "Remove the saved Fansly token and user agent?\n\n"
+            "Fansly scrapes won't work until you sign in again."
+        )
+        sign_out = QCheckBox("Also sign out of Fansly in the built-in browser")
+        sign_out.setChecked(True)
+        sign_out.setToolTip(
+            "Otherwise \"Log in with browser\" signs straight back in with the same session."
+        )
+        box.setCheckBox(sign_out)
+        clear_btn = box.addButton("Clear", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() is not clear_btn:
+            return
+        fansly_auth = self._auth_module()
+        try:
+            fansly_auth.write_auth(fansly_auth.empty())
+        except Exception as e:
+            self._set_status(f"Could not clear the credentials: {e}", error=True)
+            return
+        browser_note = ""
+        if sign_out.isChecked():
+            shutil.rmtree(_browser_profile_dir(), ignore_errors=True)
+            browser_note = " The built-in browser is signed out."
+        self.token_input.clear()
+        self.ua_input.clear()
+        self.check_key_input.clear()
+        app_signals.auth_updated.emit()
+        self._set_status("Fansly credentials cleared." + browser_note)
+
+    def _open_file(self):
+        path = self._auth_module().auth_path()
+        if not path.exists():
+            self._set_status("Nothing saved yet: fansly_auth.json doesn't exist.", error=True)
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
     def _open_folder(self):
         path = self._auth_module().auth_path().parent
