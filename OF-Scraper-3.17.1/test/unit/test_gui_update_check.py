@@ -150,7 +150,9 @@ class FakeGitHub:
                 import httpx
 
                 req = httpx.Request("GET", url)
-                if url == vc.TESTING_CONTENTS_API:
+                if url == vc.TESTING_BRANCH_API:
+                    return httpx.Response(200, json={"commit": {"sha": "abc123"}}, request=req)
+                if url == vc.TESTING_CONTENTS_API.format(ref="abc123"):
                     return httpx.Response(200, json=[{"name": n} for n in gh.files], request=req)
                 name = url.rsplit("/", 1)[-1]
                 body = f'import os\n\nPATCH_ID = "{gh.patch_ids[name]}"\nZIP_B64 = "{"A" * 20000}"\n'
@@ -177,7 +179,9 @@ def test_testing_build_is_offered(monkeypatch):
     assert result.project_url == vc.TESTING_URL
     # only the highest version's script, and only its first bytes
     url, headers = gh.requests[-1]
-    assert url.endswith("/testing/patch_ofscraper_3.17.1_gui.py")
+    # read at the branch's commit, never the cached branch name
+    assert url.endswith("/abc123/patch_ofscraper_3.17.1_gui.py")
+    assert result.download_url == url
     assert headers["Range"] == f"bytes=0-{vc.PATCH_HEAD_BYTES - 1}"
 
 

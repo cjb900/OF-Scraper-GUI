@@ -24,8 +24,11 @@ LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/lates
 RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
 
 TESTING_BRANCH = "testing"
-TESTING_CONTENTS_API = f"https://api.github.com/repos/{GITHUB_REPO}/contents?ref={TESTING_BRANCH}"
-TESTING_RAW_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{TESTING_BRANCH}/{{name}}"
+# the branch's newest commit; files are then read at that commit, because
+# raw.githubusercontent.com caches a branch's files for up to 5 minutes
+TESTING_BRANCH_API = f"https://api.github.com/repos/{GITHUB_REPO}/branches/{TESTING_BRANCH}"
+TESTING_CONTENTS_API = f"https://api.github.com/repos/{GITHUB_REPO}/contents?ref={{ref}}"
+TESTING_RAW_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{{ref}}/{{name}}"
 TESTING_URL = f"https://github.com/{GITHUB_REPO}/tree/{TESTING_BRANCH}"
 last_testing_url = None
 RELEASE, TESTING = "release", "testing"
@@ -181,10 +184,17 @@ def fetch_testing_build(timeout: float = 8.0) -> PatchInfo | None:
     try:
         import httpx
 
+        api_headers = {"Accept": "application/vnd.github+json"}
         with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-            resp = client.get(
-                TESTING_CONTENTS_API, headers={"Accept": "application/vnd.github+json"}
-            )
+            # a commit id never serves a stale copy; the branch name can
+            ref = TESTING_BRANCH
+            try:
+                branch = client.get(TESTING_BRANCH_API, headers=api_headers)
+                branch.raise_for_status()
+                ref = str(branch.json()["commit"]["sha"]) or TESTING_BRANCH
+            except Exception as e:
+                log.debug(f"[GUI] Testing branch commit lookup failed: {e}")
+            resp = client.get(TESTING_CONTENTS_API.format(ref=ref), headers=api_headers)
             resp.raise_for_status()
             listing = resp.json()
             names = [
@@ -195,7 +205,7 @@ def fetch_testing_build(timeout: float = 8.0) -> PatchInfo | None:
             if not names:
                 return None
             _ver, name = max(names, key=lambda n: _version_key(n[0]))
-            last_testing_url = TESTING_RAW_URL.format(name=name)
+            last_testing_url = TESTING_RAW_URL.format(ref=ref, name=name)
             resp = client.get(
                 last_testing_url,
                 headers={"Range": f"bytes=0-{PATCH_HEAD_BYTES - 1}"},
