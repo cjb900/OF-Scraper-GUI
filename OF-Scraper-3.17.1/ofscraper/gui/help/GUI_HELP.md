@@ -320,6 +320,7 @@ Click the sidebar version button (e.g. **`v3.17.1`**) or **Help → About** to o
 - **Operating system**, **FFmpeg**, and **FFprobe**
 - **Updates** — status after **Check for updates**, which looks for a new release of the GUI on GitHub, plus **Open GUI releases**
 - On startup the GUI quietly checks GitHub; if a new GUI release exists you get a one-time prompt (Open release page / Dismiss this version / Later)
+- **Include testing builds** (About, off by default): also offers builds pushed to the GUI's `testing` branch before they're released. For testers; testing builds can have bugs
 - Newer OF-Scraper versions on PyPI are never offered: update by running the new release's patch script, which installs the OF-Scraper version the GUI was tested with. Upgrading OF-Scraper on its own can stop the GUI from starting
 
 **Text size (global GUI scaling)**

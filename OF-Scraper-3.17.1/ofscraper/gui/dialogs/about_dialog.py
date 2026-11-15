@@ -8,6 +8,7 @@ import shutil
 from PyQt6.QtCore import Qt, QThreadPool, QUrl
 from PyQt6.QtGui import QFont, QDesktopServices
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QHBoxLayout,
@@ -302,11 +303,24 @@ class AboutDialog(QDialog):
             pass
 
         update_btns = QHBoxLayout()
+        from ofscraper.gui.utils import version_check as _vc
+
+        self._testing_cb = QCheckBox("Include testing builds")
+        self._testing_cb.setToolTip(
+            "Also tell me about builds pushed to the testing branch on GitHub, before\n"
+            "they're released. Testing builds can have bugs; leave this off unless\n"
+            "you're helping test the GUI."
+        )
+        self._testing_cb.setChecked(_vc.update_channel() == _vc.TESTING)
+        self._testing_cb.toggled.connect(self._on_testing_toggled)
+        update_btns.addWidget(self._testing_cb)
         update_btns.addStretch()
         self._check_btn = StyledButton("Check for updates")
         self._check_btn.clicked.connect(self._check_for_updates)
         update_btns.addWidget(self._check_btn)
-        self._open_releases_btn = StyledButton("Open GUI releases")
+        self._open_releases_btn = StyledButton(
+            "Open testing branch" if _vc.update_channel() == _vc.TESTING else "Open GUI releases"
+        )
         self._open_releases_btn.setEnabled(False)
         self._open_releases_btn.clicked.connect(self._open_project_url)
         update_btns.addWidget(self._open_releases_btn)
@@ -315,7 +329,8 @@ class AboutDialog(QDialog):
         hint = QLabel(
             "Tip: clicking the version label in the sidebar opens this window. "
             "Opening it again raises this same window instead of creating another. "
-            "Update checks look for new GUI releases on GitHub, never a bare OF-Scraper upgrade. "
+            "Update checks look for new GUI releases on GitHub (or testing builds, when ticked), "
+            "never a bare OF-Scraper upgrade. "
             "Text size scales the whole GUI; Reset restores the default."
         )
         hint.setWordWrap(True)
@@ -415,11 +430,20 @@ class AboutDialog(QDialog):
         except Exception:
             pass
 
+    def _on_testing_toggled(self, on):
+        from ofscraper.gui.utils import version_check as _vc
+
+        _vc.set_update_channel(_vc.TESTING if on else _vc.RELEASE)
+        self._open_releases_btn.setText("Open testing branch" if on else "Open GUI releases")
+        self._project_url = _vc.TESTING_URL if on else RELEASES_URL
+        self._open_releases_btn.setEnabled(True)
+        self._check_for_updates()
+
     def _check_for_updates(self):
         if self._check_worker is not None:
             return
         self._check_btn.setEnabled(False)
-        self._update_status.setText("Checking GitHub for GUI releases…")
+        self._update_status.setText("Checking GitHub for GUI updates…")
         from ofscraper.gui.utils.version_check import check_for_updates
 
         worker = Worker(check_for_updates)

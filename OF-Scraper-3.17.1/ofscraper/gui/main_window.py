@@ -1461,13 +1461,19 @@ class MainWindow(QMainWindow):
         box.setWindowTitle("Update available")
         box.setIcon(QMessageBox.Icon.Information)
         box.setText(msg)
+        testing = getattr(result, "channel", "") == "testing"
         box.setInformativeText(
-            "Download the new patch script from the release page and run it; it "
+            ("This is a testing build from the testing branch; it may have bugs. "
+             if testing else "")
+            + "Download the new patch script from that page and run it; it "
             "installs the OF-Scraper version the GUI was tested with. Don't upgrade "
             "OF-Scraper on its own (pip, pipx or uv): a version the GUI wasn't built "
             "for can stop it from starting."
         )
-        open_btn = box.addButton("Open release page", QMessageBox.ButtonRole.AcceptRole)
+        open_btn = box.addButton(
+            "Open testing branch" if testing else "Open release page",
+            QMessageBox.ButtonRole.AcceptRole,
+        )
         dismiss_btn = box.addButton(
             "Dismiss this version", QMessageBox.ButtonRole.DestructiveRole
         )

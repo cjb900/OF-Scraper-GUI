@@ -5,6 +5,10 @@ the GUI patch replaces files inside ofscraper, so an ofscraper version the
 patch wasn't built and tested for can stop the GUI from starting. A release
 on GitHub ships the patch script for the ofscraper version it supports, and
 that script installs that version.
+
+Testers can opt in to testing builds (gui_settings "update_channel":
+"testing"): the check then reads the newest patch script on the repo's
+testing branch instead of the releases.
 """
 from __future__ import annotations
 
@@ -18,6 +22,14 @@ log = logging.getLogger("shared")
 GITHUB_REPO = "cjb900/OF-Scraper-GUI"
 LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
+
+TESTING_BRANCH = "testing"
+TESTING_CONTENTS_API = f"https://api.github.com/repos/{GITHUB_REPO}/contents?ref={TESTING_BRANCH}"
+TESTING_RAW_URL = f"https://raw.githubusercontent.com/{GITHUB_REPO}/{TESTING_BRANCH}/{{name}}"
+TESTING_URL = f"https://github.com/{GITHUB_REPO}/tree/{TESTING_BRANCH}"
+RELEASE, TESTING = "release", "testing"
+# PATCH_ID sits near the top of the patch script; its payload is ~1 MB
+PATCH_HEAD_BYTES = 8192
 
 # a patch id: 20261115_gui_3_17_1_v434 -> date 20261115, ofscraper 3.17.1, patch 434
 _PATCH_ID_RE = re.compile(r"(\d{8})_gui_(\d+(?:_\d+)+)_v(\d+)")
@@ -40,6 +52,7 @@ class VersionCheckResult:
     latest: str | None = None
     project_url: str | None = None
     message: str = ""
+    channel: str = RELEASE
 
 
 @dataclass(frozen=True)
@@ -123,6 +136,62 @@ def fetch_latest_release(timeout: float = 8.0) -> dict | None:
         return None
 
 
+def update_channel() -> str:
+    """RELEASE (default) or TESTING, from the GUI settings."""
+    try:
+        from ofscraper.gui.utils.gui_settings import load_gui_settings
+
+        value = str(load_gui_settings().get("update_channel") or RELEASE)
+    except Exception:
+        return RELEASE
+    return TESTING if value == TESTING else RELEASE
+
+
+def set_update_channel(channel: str) -> None:
+    try:
+        from ofscraper.gui.utils.gui_settings import load_gui_settings, save_gui_settings
+
+        settings = load_gui_settings()
+        settings["update_channel"] = TESTING if channel == TESTING else RELEASE
+        save_gui_settings(settings)
+    except Exception as e:
+        log.debug(f"[GUI] Could not save the update channel: {e}")
+
+
+def fetch_testing_build(timeout: float = 8.0) -> PatchInfo | None:
+    """The newest patch on the testing branch: the patch script for the
+    highest ofscraper version at the repo root, read from its first bytes."""
+    try:
+        import httpx
+
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.get(
+                TESTING_CONTENTS_API, headers={"Accept": "application/vnd.github+json"}
+            )
+            resp.raise_for_status()
+            listing = resp.json()
+            names = [
+                (m.group(1), str(item.get("name")))
+                for item in listing if isinstance(item, dict)
+                if (m := _PATCH_ASSET_RE.search(str(item.get("name") or "")))
+            ]
+            if not names:
+                return None
+            _ver, name = max(names, key=lambda n: _version_key(n[0]))
+            resp = client.get(
+                TESTING_RAW_URL.format(name=name),
+                headers={"Range": f"bytes=0-{PATCH_HEAD_BYTES - 1}"},
+            )
+            resp.raise_for_status()
+            head = resp.content[:PATCH_HEAD_BYTES].decode("utf-8", errors="replace")
+        m = re.search(r'^PATCH_ID\s*=\s*["\']([^"\']+)["\']', head, re.MULTILINE)
+        found = parse_patch_id(m.group(1) if m else "")
+        return found if found.patch is not None else None
+    except Exception as e:
+        log.debug(f"[GUI] Testing-build check failed: {e}")
+        return None
+
+
 def _is_newer(latest: PatchInfo, current: PatchInfo) -> bool | None:
     # patch numbers run across every ofscraper version (a 3.14.7 fix can get
     # a higher number than the 3.17.1 GUI), so the ofscraper version decides
@@ -142,14 +211,42 @@ def _is_newer(latest: PatchInfo, current: PatchInfo) -> bool | None:
     return None
 
 
+def _check_testing(cur: PatchInfo, timeout: float) -> VersionCheckResult:
+    latest = fetch_testing_build(timeout=timeout)
+    if latest is None:
+        return VersionCheckResult(
+            status="error", current=cur.label, project_url=TESTING_URL, channel=TESTING,
+            message="Could not read the newest testing build from GitHub.",
+        )
+    newer = _is_newer(latest, cur)
+    key = f"testing:v{latest.patch}:{latest.ofscraper}"
+    if newer:
+        return VersionCheckResult(
+            status="update_available", current=cur.label, latest=key,
+            project_url=TESTING_URL, channel=TESTING,
+            message=(
+                f"A new testing build is available: patch {latest.label} "
+                f"(you have {cur.label})."
+            ),
+        )
+    return VersionCheckResult(
+        status="up_to_date", current=cur.label, latest=key,
+        project_url=TESTING_URL, channel=TESTING,
+        message=f"You're on the newest testing build (patch {cur.label}).",
+    )
+
+
 def check_for_updates(
     current: PatchInfo | None = None,
     *,
     timeout: float = 8.0,
+    channel: str | None = None,
 ) -> VersionCheckResult:
-    """Compare this patch to the GUI's latest GitHub release (network call;
-    run off the UI thread)."""
+    """Compare this patch to the GUI's latest GitHub release, or to the
+    newest testing build when that channel is chosen (network call; run off
+    the UI thread)."""
     cur = current or installed_patch()
+    channel = channel or update_channel()
     if cur.patch is None and cur.date is None:
         return VersionCheckResult(
             status="unknown",
@@ -157,6 +254,9 @@ def check_for_updates(
             project_url=RELEASES_URL,
             message="Update check unavailable: the GUI patch version isn't known.",
         )
+
+    if channel == TESTING:
+        return _check_testing(cur, timeout)
 
     release = fetch_latest_release(timeout=timeout)
     if not release:

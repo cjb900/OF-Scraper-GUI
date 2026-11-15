@@ -12,6 +12,7 @@ Currently stored keys:
   "verbose_log"   -> bool
   "privacy_mode"  -> bool  (hide secrets/paths for screenshots)
   "dismissed_update_version" -> str  (GitHub GUI release tag the user dismissed)
+  "update_channel" -> str  ("release", or "testing" to be told about testing builds)
   "first_run_welcome_seen" -> bool  (first-run Getting started dialog shown)
   "skip_scrape_confirm" -> bool  (skip typical pre-scrape size/ETA confirms)
   "skip_cart_confirm" -> bool  (skip large download-cart confirms)
