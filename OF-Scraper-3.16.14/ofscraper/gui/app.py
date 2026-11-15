@@ -485,6 +485,13 @@ def launch_gui(manager=None):
 
     window = MainWindow(manager=manager)
     window.setWindowTitle(f"OF-Scraper — {site_context.site_label()}")
+    if site_context.is_embedded():
+        # inside the tab window: no frame of its own. A framed window keeps
+        # room for borders and a title bar it never draws (Windows: a black
+        # band right and bottom once the tab window resizes it)
+        from PyQt6.QtCore import Qt as _Qt
+
+        window.setWindowFlag(_Qt.WindowType.FramelessWindowHint, True)
     window.show()
 
     # Started by the tab window: report to it, and quit when it says so

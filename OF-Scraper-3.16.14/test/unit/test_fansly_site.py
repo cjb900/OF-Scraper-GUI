@@ -474,3 +474,14 @@ def test_default_save_folder_never_builds_the_settings(monkeypatch, tmp_path):
     assert site_context.default_save_folder() is None
     monkeypatch.setattr(common_paths, "get_config_path", lambda: tmp_path / "fansly" / "config.json")
     assert site_context.default_save_folder() == "Fansly"
+
+
+def test_embedded_site_window_has_no_frame():
+    """The site window drops its frame when the tab window embeds it."""
+    import inspect
+
+    from ofscraper.gui import app
+
+    src = inspect.getsource(app.launch_gui)
+    assert "site_context.is_embedded()" in src
+    assert src.index("FramelessWindowHint") < src.index("window.show()")
