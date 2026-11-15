@@ -361,3 +361,30 @@ def test_a_3_16_install_must_upgrade_to_3_17(patch_mod, installed, capsys):
     installed("3.16.14", answers=["no"])
     assert patch_mod._check_and_offer_upgrade("pipx") is False
     assert "would no longer start" in capsys.readouterr().out
+
+
+# --- install method on Windows ---------------------------------------------------
+
+def _method_printed(patch_mod, monkeypatch, capsys, detected, pipx_lists_it):
+    """Run main() until the version check and return the method it settled on."""
+    seen = []
+    monkeypatch.setattr(patch_mod.sys, "argv", ["patch", "-y"])
+    monkeypatch.setattr(patch_mod.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(patch_mod.sys, "version_info", _PY312)
+    monkeypatch.setattr(patch_mod, "_detect_install_method", lambda: detected)
+    monkeypatch.setattr(patch_mod, "_pipx_text_mentions_package", lambda *a: pipx_lists_it)
+    # a pip install also puts ofscraper.exe on PATH
+    monkeypatch.setattr(patch_mod, "_windows_ofscraper_cli_version", lambda: "3.16.14")
+    monkeypatch.setattr(patch_mod, "_check_and_offer_upgrade",
+                        lambda method: seen.append(method) or False)
+    patch_mod.main()
+    return seen[0]
+
+
+def test_a_pip_install_on_windows_stays_pip(patch_mod, monkeypatch, capsys):
+    assert _method_printed(patch_mod, monkeypatch, capsys, "pip", False) == "pip"
+    assert "Install method:  pip" in capsys.readouterr().out
+
+
+def test_an_unfound_pipx_install_on_windows_is_still_pipx(patch_mod, monkeypatch, capsys):
+    assert _method_printed(patch_mod, monkeypatch, capsys, "unknown", True) == "pipx"
