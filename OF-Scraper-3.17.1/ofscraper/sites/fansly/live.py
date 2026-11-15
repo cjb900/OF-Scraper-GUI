@@ -164,11 +164,24 @@ def folder_name(username) -> str:
     return name or "unknown"
 
 
+def _own_fansly_config() -> bool:
+    """The GUI's Fansly config.json: its save location is Fansly's alone."""
+    try:
+        from ofscraper.gui import site_context
+
+        return site_context.uses_own_fansly_config()
+    except Exception:
+        return False
+
+
 def recording_base(save_location, username, started_at) -> pathlib.Path:
     """``{save_location}/Fansly/{username}/Livestreams/{username}_{YYYYMMDD_HHMMSS}_live``"""
     stamp = utc_start(started_at).strftime("%Y%m%d_%H%M%S")
     username = folder_name(username)
-    folder = pathlib.Path(save_location) / "Fansly" / username / "Livestreams"
+    folder = pathlib.Path(save_location)
+    if not _own_fansly_config():
+        folder = folder / "Fansly"
+    folder = folder / username / "Livestreams"
     return folder / f"{username}_{stamp}_live"
 
 

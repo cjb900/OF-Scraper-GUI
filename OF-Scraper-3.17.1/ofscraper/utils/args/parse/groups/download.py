@@ -5,6 +5,8 @@ from ofscraper.utils.args.parse.arguments.download import (
     download_limit_option,
     show_download_bars_option,
     no_auto_resume_option,
+    allow_dupe_downloads_option,
+    keep_message_purchased_dupes_option,
 )
 
 download_options_desc = "Download Options"
@@ -14,6 +16,8 @@ download_options_tuple = (
     show_download_bars_option,
     download_sem_option,
     download_limit_option,
+    allow_dupe_downloads_option,
+    keep_message_purchased_dupes_option,
 )
 download_options = click.option_group(
     download_options_desc,

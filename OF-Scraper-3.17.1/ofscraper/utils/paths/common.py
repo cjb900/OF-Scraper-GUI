@@ -80,7 +80,16 @@ def get_config_path():
 
 def getlogpath():
     path = None
-    if data.get_rotate_logs():
+    is_daemon = False
+    try:
+        import ofscraper.utils.args.accessors.read as read_args
+        args = read_args.retriveArgs()
+        if args and getattr(args, "daemon", False):
+            is_daemon = True
+    except Exception:
+        pass
+
+    if data.get_rotate_logs() or is_daemon:
         path = (
             get_log_folder()
             / f'{data.get_main_profile()}_{dates_manager.getLogDate().get("day")}'
@@ -94,6 +103,7 @@ def getlogpath():
     path = pathlib.Path(path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
 
 
 def get_log_folder():
@@ -114,9 +124,25 @@ def get_profile_path(name=None):
     return pathlib.Path(tools.profile_name_fixer(str(profile)))
 
 
+def default_save_location():
+    """Built-in save location: ``~/Data/ofscraper/OnlyFans`` or ``.../Fansly``.
+
+    A Fansly run that shares a config with OnlyFans keeps the bare root, as
+    its files already go to ``<save location>/Fansly``.
+    """
+    root = of_env.getattr("SAVE_PATH_DEFAULT")
+    try:
+        from ofscraper.gui import site_context
+
+        folder = site_context.default_save_folder()
+    except Exception:
+        folder = None
+    return str(pathlib.Path(root) / folder) if folder else root
+
+
 def get_save_location(config=None):
     if config is False:
-        return of_env.getattr("SAVE_PATH_DEFAULT")
+        return default_save_location()
     config = config or config_file.open_config()
     # a file_options that isn't a dict, e.g. a hand-edited null, is empty
     file_options = config.get("file_options")
@@ -125,8 +151,20 @@ def get_save_location(config=None):
     return data.strip_path_quotes(
         config.get("save_location")
         or file_options.get("save_location")
-        or of_env.getattr("SAVE_PATH_DEFAULT")
+        or default_save_location()
     )
+
+
+def assert_path_under_root(path, root=None, *, label: str = "path"):
+    """Ensure *path* resolves under *root* (default: Save Location).
+
+    Returns the resolved path. Raises ValueError if it escapes the root
+    (absolute templates, ``..`` segments, or naming-script overrides).
+    """
+    from ofscraper.utils.hardening import assert_path_under_root as _assert
+
+    root_path = root if root is not None else get_save_location()
+    return _assert(path, root_path, label=label)
 
 
 def get_config_folder():

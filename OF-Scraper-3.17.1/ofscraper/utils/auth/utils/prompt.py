@@ -23,10 +23,19 @@ log = logging.getLogger("shared")
 
 
 def browser_cookie_helper(auth, browserSelect):
+    import ofscraper.utils.auth.cookie_allowlist as cookie_allowlist
+
     jar = getattr(browser_cookie3, browserSelect.lower())(domain_name="onlyfans")
     temp = {cookie.name: cookie.value for cookie in jar}
-    for key in ["sess", "auth_id", "auth_uid_"]:
-        auth[key] = auth[key] or temp.get(key, "")
+    temp = cookie_allowlist.filter_cookie_map(temp, keep_meta=False, keep_headers=False)
+    for key in ["sess", "auth_id", "auth_uid"]:
+        auth[key] = auth.get(key) or temp.get(key, "")
+    # Legacy key name from older cookie jars
+    if not auth.get("auth_uid"):
+        auth["auth_uid"] = temp.get("auth_uid_", "") or next(
+            (v for k, v in temp.items() if str(k).startswith("auth_uid")),
+            "",
+        )
     console.print(
         "You'll need to go to onlyfans.com and retrive/update header information\nGo to https://github.com/datawhores/OF-Scraper and find the section named 'Getting Your Auth Info'\nCookie information has been retived automatically\nSo You only need to retrive the x-bc header and the user-agent",
         style="yellow",

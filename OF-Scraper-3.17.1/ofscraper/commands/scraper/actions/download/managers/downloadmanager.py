@@ -40,8 +40,59 @@ from ofscraper.scripts.skip_download_script import (
     skip_download_script,
 )
 from ofscraper.scripts.after_download_script import after_download_script
+from ofscraper.utils.hardening import parse_expected_file_size
+
+# Allow tiny HTTP/filesystem slack; previously 500 bytes could hide truncated .part files.
+_DEFAULT_PART_SIZE_TOLERANCE = 64
+
+
+def get_part_size_tolerance() -> int:
+    try:
+        raw = of_env.getattr("PART_SIZE_TOLERANCE")
+        if raw is not None:
+            return max(0, int(raw))
+    except Exception:
+        pass
+    try:
+        val = getattr(settings.get_settings(), "part_size_tolerance", None)
+        if val is not None:
+            return max(0, int(val))
+    except Exception:
+        pass
+    return _DEFAULT_PART_SIZE_TOLERANCE
+
+
+# Re-export for callers/tests that imported from this module previously.
+__all__ = [
+    "DownloadManager",
+    "get_part_size_tolerance",
+    "parse_expected_file_size",
+]
 from ofscraper.commands.scraper.actions.download.utils.retries import NoRetry
 from ofscraper.commands.scraper.actions.download.utils.chunk import get_chunk_size
+
+
+def find_unique_path(path):
+    """Return path with (1), (2), ... suffix until a non-existing path is found."""
+    if not path.exists():
+        return path
+    stem, suffix, parent = path.stem, path.suffix, path.parent
+    counter = 1
+    while True:
+        candidate = parent / f"{stem}({counter}){suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def gui_cancel_check():
+    """Stop the transfer when the GUI asked to cancel the scrape."""
+    try:
+        from ofscraper.gui.utils.workflow import is_gui_cancelled
+    except Exception:
+        return
+    if is_gui_cancelled():
+        raise KeyboardInterrupt()
 
 
 class StartOver(Exception):
@@ -96,6 +147,7 @@ class DownloadManager:
 
             while True:
                 try:
+                    gui_cancel_check()
                     chunk = await chunk_iter.__anext__()
                     first = fileobject is None
                     if first:
@@ -112,11 +164,11 @@ class DownloadManager:
                     break
 
         # Catch native aiohttp socket read timeouts
-        except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
+        except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as E:
             self.ctx.log.info(
                 f"{common_logs.get_medialog(ele)}⚠️ CDN went silent (sock_read timeout). Connection stalled, forcing retry!"
             )
-            raise Exception("Chunk download timed out")
+            raise Exception("Chunk download timed out") from E
         except Exception as E:
             self.ctx.log.info(f"An error occurred during download for {ele}: {E}")
             raise E
@@ -313,6 +365,7 @@ class DownloadManager:
         )
 
     def _resume_cleaner(self, resume_size, total, path):
+        """Drop a .part that is larger than the expected full size (corrupt resume)."""
         if not resume_size:
             return 0
         elif total is None or resume_size > total:
@@ -441,18 +494,34 @@ class DownloadManager:
         return size
 
     async def _size_checker(self, path, ele, total, name=None):
+        """Strict .part finalize: reject missing/empty/truncated/oversized temps."""
         name = name or ele.filename
-        if total == 0:
+        try:
+            total_i = int(total or 0)
+        except (TypeError, ValueError):
+            total_i = 0
+        if total_i == 0:
             return True
-        if not pathlib.Path(path).exists():
-            s = f"{get_medialog(ele)} {path} was not created"
-            raise Exception(s)
-        elif total - pathlib.Path(path).absolute().stat().st_size > 500:
-            s = f"{get_medialog(ele)} {name} size mixmatch target: {total} vs current file: {pathlib.Path(path).absolute().stat().st_size}"
-            raise Exception(s)
-        elif (total - pathlib.Path(path).absolute().stat().st_size) < 0:
-            s = f"{get_medialog(ele)} {path} size mixmatch target item too large: {total} vs current file: {pathlib.Path(path).absolute().stat().st_size}"
-            raise Exception(s)
+        path_obj = pathlib.Path(path)
+        if not path_obj.exists():
+            raise Exception(f"{get_medialog(ele)} {path} was not created")
+        actual = path_obj.absolute().stat().st_size
+        if actual <= 0:
+            raise Exception(
+                f"{get_medialog(ele)} {name} empty .part file (0 bytes); expected {total_i}"
+            )
+        tolerance = get_part_size_tolerance()
+        if actual < total_i - tolerance:
+            raise Exception(
+                f"{get_medialog(ele)} {name} size mismatch target: {total_i} vs "
+                f"current file: {actual} (short by {total_i - actual})"
+            )
+        if actual > total_i + tolerance:
+            raise Exception(
+                f"{get_medialog(ele)} {path} size mismatch target item too large: "
+                f"{total_i} vs current file: {actual}"
+            )
+        return True
 
     async def _force_download(self, ele, username, model_id, skip_permanent=None):
         """Save the item as downloaded with no file. skip_permanent marks a
@@ -465,3 +534,21 @@ class DownloadManager:
             downloaded=True,
             skip_permanent=skip_permanent,
         )
+
+    async def _next_chunk(self, chunk_iter, ele):
+        """Read next chunk with an inactivity watchdog (sock_read + wait_for)."""
+        from ofscraper.commands.scraper.actions.download.utils.chunk import (
+            get_chunk_timeout,
+        )
+
+        timeout = get_chunk_timeout()
+        try:
+            return await asyncio.wait_for(chunk_iter.__anext__(), timeout=timeout)
+        except StopAsyncIteration:
+            raise
+        except asyncio.TimeoutError as exc:
+            self.ctx.log.info(
+                f"{get_medialog(ele)}⚠️ Download stalled "
+                f"(no data for {timeout}s). Forcing retry!"
+            )
+            raise Exception(f"Download stalled (no data for {timeout}s)") from exc

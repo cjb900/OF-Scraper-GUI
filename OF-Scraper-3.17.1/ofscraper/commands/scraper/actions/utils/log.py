@@ -44,10 +44,11 @@ def temp_file_logger(placeholderObj, ele, innerlog=None, attempt=None):
 
 def get_url_log(ele):
     url = ele.url or ele.mpd
-    url = re.sub(r"/\w{5}\w+", "/{hidden}", url)
-    if ele.url:
-        # plain replace: a filename such as "design (7)" isn't a valid pattern
+    if ele.url and ele.filename:
+        # plain replace: a filename such as "design (7)" isn't a valid pattern.
+        # Done first so the generic rule below can't eat part of the name.
         url = url.replace(ele.filename, "{hidden}")
+    url = re.sub(r"/\w{5}\w+", "/{hidden}", url)
     return url
 
 

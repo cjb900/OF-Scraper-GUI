@@ -49,7 +49,9 @@ async def get_text_process(username, ele):
 
         # captions often contain emoji, which Windows' default code page
         # (cp1252) can't encode before Python 3.15
-        async with aiofiles.open(placeholderObj.filepath, "w", encoding="utf-8") as p:
+        async with aiofiles.open(
+            placeholderObj.filepath, "w", encoding="utf-8", newline="\n"
+        ) as p:
             await p.write("\n".join(wrapped_text))
 
         await after_download_script(placeholderObj.filepath)

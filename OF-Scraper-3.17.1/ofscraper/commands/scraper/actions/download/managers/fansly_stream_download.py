@@ -42,6 +42,7 @@ from ofscraper.commands.scraper.actions.download.utils.refresh import (
 from ofscraper.managers.sessionmanager.sessionmanager import (
     HEADERS,
     is_provided_exception_number,
+    is_signed_cdn_forbidden,
 )
 from ofscraper.sites.fansly import auth as fansly_auth
 from ofscraper.sites.fansly import headers as fansly_headers
@@ -75,7 +76,16 @@ class StreamTimeout(Exception):
 
 
 class SegmentError(Exception):
-    """A stream file that couldn't be fetched; the whole download fails."""
+    """A stream file that couldn't be fetched; the whole download fails.
+
+    ``forbidden``: the CDN refused the file (403), which no retry changes,
+    so the download isn't retried and falls back to the direct file if any.
+    """
+
+    def __init__(self, message, forbidden=False):
+        super().__init__(message)
+        self.forbidden = forbidden
+        self.no_retry = forbidden
 
 
 def segment_limit() -> int:
@@ -298,6 +308,15 @@ class FanslyStreamDownloadManager(DownloadManager):
             await self._total_change_helper(total)
             await self._integrity_check(temp, ele)
             return await self._finish(temp, placeholderObj, ele, username, model_id, total)
+        except SegmentError as e:
+            temp.unlink(missing_ok=True)
+            if e.forbidden and ele.url and fansly_video.has_direct(fansly_video.raw_media(ele)):
+                # e.g. an older video whose separate audio track the CDN no
+                # longer serves: the direct MP4 has both
+                self.ctx.log.info(f"{medialog} {e}; downloading the direct file instead")
+                shutil.rmtree(segment_folder(temp), ignore_errors=True)
+                return None
+            raise
         except BaseException:
             temp.unlink(missing_ok=True)
             raise
@@ -449,6 +468,10 @@ class FanslyStreamDownloadManager(DownloadManager):
         except (KeyboardInterrupt, asyncio.CancelledError):
             raise
         except Exception as e:
+            if is_signed_cdn_forbidden(e):
+                raise SegmentError(
+                    f"stream file {path.name} was refused by the CDN (403)", forbidden=True
+                ) from e
             why = e if isinstance(e, SegmentError) else type(e).__name__
             raise SegmentError(
                 f"stream file {path.name} failed after its retries: {why}"
