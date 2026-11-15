@@ -291,3 +291,66 @@ def test_force_and_restore_together_is_an_error(main_env):
     with pytest.raises(SystemExit) as exc:
         main_env("pip", "--force", "--restore", "/tmp/x")
     assert exc.value.code == 2
+
+
+# --- upgrading an existing pipx install -----------------------------------------------------
+
+def test_pipx_upgrade_happens_inside_the_existing_venv(patch_mod, runs, monkeypatch, tmp_path):
+    # `pipx install --force` over an existing venv fails with pipx's uv backend
+    monkeypatch.setattr(patch_mod, "_find_pipx_ofscraper_pkg", lambda: tmp_path)
+    assert patch_mod._install_ofscraper("pipx")
+    assert runs == [["pipx", "runpip", "ofscraper", "install", "--upgrade", PKG]]
+
+
+def test_failed_in_place_upgrade_rebuilds_the_venv(patch_mod, monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(cmd, *a, **kw):
+        calls.append(list(cmd))
+        code = 1 if cmd[:2] == ["pipx", "runpip"] else 0
+        if kw.get("check") and code:
+            raise subprocess.CalledProcessError(code, cmd)
+        return subprocess.CompletedProcess(cmd, code, stdout="", stderr="")
+
+    monkeypatch.setattr(patch_mod.subprocess, "run", fake_run)
+    monkeypatch.setattr(patch_mod, "_get_installed_ofscraper_version",
+                        lambda method=None: patch_mod.TARGET_OFSCRAPER_VERSION)
+    monkeypatch.setattr(patch_mod.sys, "version_info", _PY312)
+    monkeypatch.setattr(patch_mod, "_legacy_install_present", lambda *a, **k: False)
+    monkeypatch.setattr(patch_mod, "_pipx_package_info", lambda *a, **k: None)
+    monkeypatch.setattr(patch_mod, "_get_pipx_home", lambda: None)
+    monkeypatch.setattr(patch_mod, "_find_pipx_ofscraper_pkg", lambda: tmp_path)
+    assert patch_mod._install_ofscraper("pipx")
+    assert [c[:2] for c in calls] == [["pipx", "runpip"], ["pipx", "uninstall"], ["pipx", "install"]]
+
+
+@pytest.fixture
+def installed(patch_mod, monkeypatch):
+    def set_version(version, upgrade_ok=True, answers=()):
+        monkeypatch.setattr(patch_mod, "_get_installed_ofscraper_version", lambda method=None: version)
+        monkeypatch.setattr(patch_mod, "_legacy_install_present", lambda *a, **k: False)
+        monkeypatch.setattr(patch_mod, "_install_ofscraper", lambda *a, **k: upgrade_ok)
+        replies = iter(answers)
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(replies))
+    return set_version
+
+
+def test_failed_upgrade_does_not_patch(patch_mod, installed):
+    installed("3.14.7", upgrade_ok=False, answers=["yes"])
+    assert patch_mod._check_and_offer_upgrade("pipx") is False
+
+
+def test_older_series_cannot_be_patched_without_upgrading(patch_mod, installed, capsys):
+    installed("3.14.7", answers=["no"])
+    assert patch_mod._check_and_offer_upgrade("pipx") is False
+    assert "would no longer start" in capsys.readouterr().out
+
+
+def test_same_series_may_still_continue(patch_mod, installed):
+    installed("3.16.13", answers=["no", "yes"])
+    assert patch_mod._check_and_offer_upgrade("pipx") is True
+
+
+def test_successful_upgrade_patches(patch_mod, installed):
+    installed("3.14.7", answers=["yes"])
+    assert patch_mod._check_and_offer_upgrade("pipx") is True
