@@ -154,7 +154,7 @@ If the window does not appear, confirm you launched with `--gui` and that the pa
 Quick scan of what this GUI patch adds on top of stock OF-Scraper. Details live in the linked sections.
 
 **About & display**
-- Sidebar **`v…`** → [About](#about-text-size) (versions, FFmpeg, PyPI update check)
+- Sidebar **`v…`** → [About](#about-text-size) (versions, FFmpeg, GUI update check)
 - Global **Text size** (**A−** / **A+** / 12–20 px / **Reset**) — scales the whole GUI; also on this Help toolbar — [About & text size](#about-text-size)
 
 **Safety & auth**
@@ -318,8 +318,9 @@ Click the sidebar version button (e.g. **`v3.17.1`**) or **Help → About** to o
 - **App version** — installed OF-Scraper version
 - **GUI patch** — applied patch id (include this when reporting issues)
 - **Operating system**, **FFmpeg**, and **FFprobe**
-- **Updates** — status after **Check for updates** (PyPI, same source as the CLI), plus **Open PyPI** when a newer release is available
-- On startup the GUI quietly checks PyPI; if a newer release exists you get a one-time prompt (Open PyPI / Dismiss this version / Later)
+- **Updates** — status after **Check for updates**, which looks for a new release of the GUI on GitHub, plus **Open GUI releases**
+- On startup the GUI quietly checks GitHub; if a new GUI release exists you get a one-time prompt (Open release page / Dismiss this version / Later)
+- Newer OF-Scraper versions on PyPI are never offered: update by running the new release's patch script, which installs the OF-Scraper version the GUI was tested with. Upgrading OF-Scraper on its own can stop the GUI from starting
 
 **Text size (global GUI scaling)**
 

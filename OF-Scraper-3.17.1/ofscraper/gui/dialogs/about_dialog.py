@@ -29,7 +29,7 @@ from ofscraper.gui.utils.thread_worker import Worker
 from ofscraper.gui.widgets.styled_button import StyledButton
 
 DISCORD_URL = "https://discord.gg/wN7uxEVHRK"
-PYPI_URL = "https://pypi.org/project/ofscraper/"
+from ofscraper.gui.utils.version_check import RELEASES_URL
 
 
 def _tool_version_line(binary_name: str, path: str | None) -> str:
@@ -207,7 +207,7 @@ class AboutDialog(QDialog):
         self.setWindowFlags(
             self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint
         )
-        self._project_url = PYPI_URL
+        self._project_url = RELEASES_URL
         self._check_worker = None
         self._setup_ui()
 
@@ -306,16 +306,16 @@ class AboutDialog(QDialog):
         self._check_btn = StyledButton("Check for updates")
         self._check_btn.clicked.connect(self._check_for_updates)
         update_btns.addWidget(self._check_btn)
-        self._open_pypi_btn = StyledButton("Open PyPI")
-        self._open_pypi_btn.setEnabled(False)
-        self._open_pypi_btn.clicked.connect(self._open_project_url)
-        update_btns.addWidget(self._open_pypi_btn)
+        self._open_releases_btn = StyledButton("Open GUI releases")
+        self._open_releases_btn.setEnabled(False)
+        self._open_releases_btn.clicked.connect(self._open_project_url)
+        update_btns.addWidget(self._open_releases_btn)
         layout.addLayout(update_btns)
 
         hint = QLabel(
             "Tip: clicking the version label in the sidebar opens this window. "
             "Opening it again raises this same window instead of creating another. "
-            "Update checks use PyPI (same source as the CLI). "
+            "Update checks look for new GUI releases on GitHub, never a bare OF-Scraper upgrade. "
             "Text size scales the whole GUI; Reset restores the default."
         )
         hint.setWordWrap(True)
@@ -419,7 +419,7 @@ class AboutDialog(QDialog):
         if self._check_worker is not None:
             return
         self._check_btn.setEnabled(False)
-        self._update_status.setText("Checking PyPI…")
+        self._update_status.setText("Checking GitHub for GUI releases…")
         from ofscraper.gui.utils.version_check import check_for_updates
 
         worker = Worker(check_for_updates)
@@ -433,10 +433,10 @@ class AboutDialog(QDialog):
         self._check_btn.setEnabled(True)
         try:
             self._update_status.setText(getattr(result, "message", str(result)))
-            url = getattr(result, "project_url", None) or PYPI_URL
+            url = getattr(result, "project_url", None) or RELEASES_URL
             self._project_url = url
             status = getattr(result, "status", "")
-            self._open_pypi_btn.setEnabled(status in ("update_available", "error", "up_to_date", "dev"))
+            self._open_releases_btn.setEnabled(status in ("update_available", "error", "up_to_date", "unknown"))
             if status == "update_available":
                 self._update_status.setStyleSheet(f"color: {c('peach')};")
             elif status == "up_to_date":
@@ -445,17 +445,17 @@ class AboutDialog(QDialog):
                 self._update_status.setStyleSheet("")
         except Exception:
             self._update_status.setText("Update check finished with an unexpected result.")
-            self._open_pypi_btn.setEnabled(True)
+            self._open_releases_btn.setEnabled(True)
 
     def _on_update_check_error(self, message: str):
         self._check_worker = None
         self._check_btn.setEnabled(True)
         self._update_status.setText(f"Update check failed: {message}")
         self._update_status.setStyleSheet("")
-        self._open_pypi_btn.setEnabled(True)
+        self._open_releases_btn.setEnabled(True)
 
     def _open_project_url(self):
-        QDesktopServices.openUrl(QUrl(self._project_url or PYPI_URL))
+        QDesktopServices.openUrl(QUrl(self._project_url or RELEASES_URL))
 
     def _open_help(self):
         try:
