@@ -158,8 +158,16 @@ class AreaSelectorPage(QWidget):
             "Streams": "Scrape livestream recordings.",
             "Labels": "Scrape content organized under the model's labels/categories.",
         }
+        from ofscraper.gui import site_context
+
+        if site_context.is_fansly():
+            _area_tips["Labels"] = (
+                "Scrape the creator's walls (named tabs on their Fansly profile)."
+            )
+            _area_tips["Purchased"] = "Scrape media you bought from this creator."
         for i, area in enumerate(DOWNLOAD_AREAS):
-            cb = QCheckBox(area)
+            # the box keeps the ofscraper area name; Fansly shows Labels as Walls
+            cb = QCheckBox(site_context.area_label(area))
             apply_font(cb, "Segoe UI", 11)
             cb.setChecked(True)
             cb.setToolTip(_area_tips.get(area, ""))
@@ -1615,6 +1623,12 @@ class AreaSelectorPage(QWidget):
             )
             self.areas_group.show()
 
+        from ofscraper.gui import site_context
+
+        site_areas = site_context.site_areas()
+        if site_areas is not None:
+            # Fansly: only the areas it supports
+            available = [a for a in available if a in site_areas]
         for area, cb in self._area_checks.items():
             if area in available:
                 cb.show()

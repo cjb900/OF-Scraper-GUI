@@ -83,6 +83,14 @@ class mainManager:
                     "Try reinstalling dependencies, then re-run `ofscraper --gui`.\n"
                 )
                 return
+            from ofscraper.gui import site_context
+
+            if not site_context.is_child() and site_context.tabs_enabled():
+                # the tab window: each site runs in its own GUI process
+                from ofscraper.gui.site_host import run_site_host
+
+                run_site_host(self)
+                return
             launch_gui(self)
             return
         self.initLogs()

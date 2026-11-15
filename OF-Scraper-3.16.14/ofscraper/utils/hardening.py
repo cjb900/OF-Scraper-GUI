@@ -15,6 +15,8 @@ from urllib.parse import urlparse
 _DEFAULT_MEDIA_HOST_SUFFIXES = (
     "onlyfans.com",
     "cloudfront.net",
+    # Fansly media (cdn3.fansly.com, ...)
+    "fansly.com",
 )
 
 

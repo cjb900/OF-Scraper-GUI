@@ -24,7 +24,30 @@ def gather_health() -> List[HealthChip]:
     return [_auth_chip(), _config_chip(), _key_chip()]
 
 
+def _fansly_auth_chip() -> HealthChip:
+    try:
+        import ofscraper.sites.fansly.auth as fansly_auth
+
+        auth = fansly_auth.read_auth()
+        issues = fansly_auth.problems(auth)
+    except Exception as e:
+        return HealthChip("auth", "Auth ✗", "error",
+                          f"Could not read the Fansly auth file: {e}", "auth")
+    if not auth.get("authorization_token") and not auth.get("user_agent"):
+        return HealthChip("auth", "Auth ✗", "error",
+                          "No Fansly credentials saved. Open Authentication to log in.", "auth")
+    if issues:
+        return HealthChip("auth", "Auth !", "warn",
+                          "Incomplete Fansly credentials: " + "; ".join(issues) + ".", "auth")
+    return HealthChip("auth", "Auth ✓", "ok",
+                      "Fansly credentials present (token, user agent).", "auth")
+
+
 def _auth_chip() -> HealthChip:
+    from ofscraper.gui import site_context
+
+    if site_context.is_fansly():
+        return _fansly_auth_chip()
     try:
         import ofscraper.utils.auth.utils.dict as auth_dict
 
@@ -120,6 +143,11 @@ def _config_chip() -> HealthChip:
 
 
 def _key_chip() -> HealthChip:
+    from ofscraper.gui import site_context
+
+    if site_context.is_fansly():
+        return HealthChip("key", "Key –", "ok",
+                          "Fansly videos aren't DRM-protected: no key mode needed.", "config")
     try:
         from ofscraper.gui.utils.key_mode_warning import (
             get_configured_key_mode,

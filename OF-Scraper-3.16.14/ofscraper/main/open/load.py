@@ -22,6 +22,12 @@ def main():
         setLogger()
         make_folder()
 
+        if _is_gui_tab_window():
+            # the tab window only starts the sites' GUI processes, which load
+            # the plugins themselves
+            run.main()
+            return
+
         # Initialize plugins for headless/scrape execution
         from ofscraper.plugins.manager import plugin_manager
         # On Windows, pre-load plugin DLLs (e.g. torch/c10.dll) BEFORE
@@ -48,6 +54,17 @@ def main():
         except Exception as E:
             print(E)
             print(traceback.format_exc())
+
+
+def _is_gui_tab_window() -> bool:
+    try:
+        if not getattr(settings.get_args(), "gui", False):
+            return False
+        from ofscraper.gui import site_context
+
+        return not site_context.is_child() and site_context.tabs_enabled()
+    except Exception:
+        return False
 
 
 def settings_loader():

@@ -13,6 +13,7 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
   - [First-time checklist](#getting-started-checklist)
   - [GUI patch](#getting-started-patch)
 - [GUI patch highlights](#gui-patch-highlights)
+- [OnlyFans and Fansly](#sites-root)
 - [Plugins](#plugins-root)
 - [Left navigation](#nav-left)
   - [About & text size](#about-text-size)
@@ -195,6 +196,36 @@ Quick scan of what this GUI patch adds on top of stock OF-Scraper. Details live 
 
 **Plugins**
 - Load / unload without restart — [Plugins](#plugins-root)
+
+---
+
+<a id="sites-root"></a>
+## OnlyFans and Fansly
+
+The window has an **OnlyFans** tab and a **Fansly** tab. Each tab is its own copy of the GUI with its own settings, login and databases, so both sites can scrape at the same time without mixing anything. A tab whose site is downloading shows **●** before its name.
+
+- The window opens on the last site you used (or the one given with `--site`). Click **Start Fansly** (or **Start OnlyFans**) in the other tab to run both.
+- Closing the window stops both sites cleanly; if one is still downloading you're asked first.
+- On macOS and on Linux sessions without X11 the window can't hold the sites as tabs, so it lists them and each site opens in its own window.
+- `OFSC_GUI_TABS=0` turns the tab window off: `ofscraper --gui` then opens a single OnlyFans GUI, as before.
+
+**Where each site's files are**
+
+| | OnlyFans | Fansly |
+|---|---|---|
+| Settings | `~/.config/ofscraper/config.json` | `~/.config/ofscraper/fansly/config.json` |
+| Login | `~/.config/ofscraper/main_profile/auth.json` | `~/.config/ofscraper/fansly/main_profile/fansly_auth.json` |
+| Databases, logs, GUI settings | under `~/.config/ofscraper/` | under `~/.config/ofscraper/fansly/` |
+
+Downloads go to each site's **Save Location** (Configuration → General); Fansly media goes into a `Fansly` subfolder of it. Give each site its own **Temp Folder** if you set one: a run clears leftover temporary files in its temp folder when it starts, which would remove the other site's downloads in progress.
+
+**Fansly differences**
+
+- Content areas: Timeline, Messages, Purchased and **Walls** (Fansly's named profile tabs; *Labels* in OnlyFans terms).
+- Not available on Fansly: Check Mode, Like / Unlike, metadata, all-purchased and post-URL scraping, and DRM keys (Fansly videos aren't DRM-protected).
+- **Authentication**: log in with the built-in browser, or paste the authorization token (browser developer tools on fansly.com → Application → Local Storage → `session_active_session` → `token`) and the user agent of that browser. **Save & Test** checks them with Fansly.
+- Plugins load per site: a plugin in `~/.config/ofscraper/plugins` runs for OnlyFans only.
+- The command line works the same: `ofscraper --config ~/.config/ofscraper/fansly/config.json` runs Fansly with the GUI's Fansly settings.
 
 ---
 

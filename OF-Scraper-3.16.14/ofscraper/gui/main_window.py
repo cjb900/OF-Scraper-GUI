@@ -551,6 +551,12 @@ class MainWindow(QMainWindow):
             ("help", "📖 Help / README"),
         ]
 
+        from ofscraper.gui import site_context
+
+        if site_context.is_fansly():
+            # Fansly videos aren't Widevine-protected: no CDM keys
+            nav_items = [item for item in nav_items if item[0] != "drm"]
+
         for page_id, label in nav_items:
             btn = NavButton(label)
             self._nav_group.addButton(btn)
@@ -1127,9 +1133,17 @@ class MainWindow(QMainWindow):
         self.scraper_stack.currentChanged.connect(self._on_scraper_stack_changed)
 
         self._add_page("scraper", self.scraper_stack)
-        self._add_page("auth", AuthPage(manager=self.manager))
+        from ofscraper.gui import site_context
+
+        if site_context.is_fansly():
+            from ofscraper.gui.dialogs.fansly_auth_dialog import FanslyAuthPage
+
+            self._add_page("auth", FanslyAuthPage(manager=self.manager))
+        else:
+            self._add_page("auth", AuthPage(manager=self.manager))
         self._add_page("config", ConfigPage(manager=self.manager))
-        self._add_page("drm", DRMKeyPage(manager=self.manager))
+        if not site_context.is_fansly():
+            self._add_page("drm", DRMKeyPage(manager=self.manager))
         self._add_page("profiles", ProfilePage(manager=self.manager))
         self._add_page("merge", MergePage(manager=self.manager))
         self.plugins_page = PluginsPage(manager=self.manager)
@@ -1539,6 +1553,12 @@ class MainWindow(QMainWindow):
                 missing_manual_cdm = not (Path(client_raw).is_file() and Path(priv_raw).is_file())
             except Exception:
                 missing_manual_cdm = True
+
+        from ofscraper.gui import site_context
+
+        if site_context.is_fansly():
+            # Fansly needs ffmpeg (to join video streams) but no CDM keys
+            missing_manual_cdm = False
 
         if not (missing_ffmpeg or missing_manual_cdm):
             _done()

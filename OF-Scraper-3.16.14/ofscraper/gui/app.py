@@ -468,26 +468,30 @@ def launch_gui(manager=None):
         target_logger = logging.getLogger(logger_name)
         target_logger.addHandler(gui_handler)
 
-    # Ensure auth.json exists (fresh installs won't have one yet).
-    # Create an empty one so the GUI auth page can load/save without errors.
-    try:
-        import json
-        import ofscraper.utils.paths.common as common_paths
-        import ofscraper.utils.auth.utils.dict as auth_dict
+    # This site's profile and auth file (auth.json, or fansly_auth.json and
+    # site.json for Fansly): fresh installs don't have them yet, and the auth
+    # page needs a file to load and save.
+    from ofscraper.gui import site_context
 
-        auth_file = common_paths.get_auth_file()
-        auth_file.parent.mkdir(parents=True, exist_ok=True)
-        if not auth_file.exists():
-            with open(auth_file, "w") as f:
-                f.write(json.dumps(auth_dict.get_empty(), indent=4))
-            log.info(f"Created empty auth.json at {auth_file}")
+    try:
+        site_context.prepare_site_files()
     except Exception as e:
-        log.warning(f"Could not create auth.json: {e}")
+        log.warning(f"Could not create the {site_context.site_label()} auth file: {e}")
+    _temp_conflict = site_context.temp_folder_conflict()
+    if _temp_conflict:
+        log.warning(_temp_conflict)
 
     from ofscraper.gui.main_window import MainWindow
 
     window = MainWindow(manager=manager)
+    window.setWindowTitle(f"OF-Scraper — {site_context.site_label()}")
     window.show()
+
+    # Started by the tab window: report to it, and quit when it says so
+    try:
+        site_context.install_child_channel(app, window)
+    except Exception as e:
+        log.warning(f"Could not connect to the tab window: {e}")
 
     # docker stop / SIGTERM: cancel the scrape and quit instead of dying mid-write.
     try:
@@ -500,7 +504,8 @@ def launch_gui(manager=None):
     # Set up a persistent system tray icon for notifications.
     # Must be created on the main thread and kept alive for the app lifetime.
     try:
-        if QSystemTrayIcon.isSystemTrayAvailable():
+        # in the tab window, the tab window shows the notices (one tray icon)
+        if QSystemTrayIcon.isSystemTrayAvailable() and not site_context.is_child():
             tray = QSystemTrayIcon(app)
             icon = app.windowIcon()
             if icon.isNull():

@@ -351,15 +351,7 @@ def fetch_subscription_models(
         breadcrumb("fetch_exit")
 
 
-def _fetch_subscription_models_locked(
-    *,
-    userlist: Optional[Iterable[str]],
-    timeout_sec: float,
-) -> list[dict]:
-    from ofscraper.gui.utils.crash_diagnostics import breadcrumb
-    import ofscraper.utils.auth.utils.dict as auth_dict_mod
-    import ofscraper.utils.paths.common as common_paths
-
+def _check_onlyfans_auth(common_paths, auth_dict_mod, breadcrumb) -> None:
     try:
         auth_path = common_paths.get_auth_file()
         auth_data = auth_dict_mod.get_auth_dict()
@@ -375,6 +367,34 @@ def _fetch_subscription_models_locked(
     except Exception as e:
         breadcrumb("auth_fail", str(e))
         raise
+
+
+def _fetch_subscription_models_locked(
+    *,
+    userlist: Optional[Iterable[str]],
+    timeout_sec: float,
+) -> list[dict]:
+    from ofscraper.gui.utils.crash_diagnostics import breadcrumb
+    import ofscraper.utils.auth.utils.dict as auth_dict_mod
+    import ofscraper.utils.paths.common as common_paths
+
+    from ofscraper.gui import site_context
+
+    if site_context.is_fansly():
+        import ofscraper.sites.fansly.auth as fansly_auth
+
+        issues = fansly_auth.problems(fansly_auth.read_auth())
+        if issues:
+            breadcrumb("auth_fail", "fansly: " + "; ".join(issues))
+            raise Exception(
+                "Fansly auth not configured: " + "; ".join(issues)
+                + ". Please fill in your Fansly credentials first."
+            )
+        breadcrumb("auth_ok", f"path={fansly_auth.auth_path()} site=fansly")
+        # Fansly has no user lists: the followed creators come from the site
+        userlist = None
+    else:
+        _check_onlyfans_auth(common_paths, auth_dict_mod, breadcrumb)
 
     ul = [str(u).lower() for u in (userlist or []) if u]
     timeout = float(timeout_sec) if timeout_sec and timeout_sec > 0 else _DEFAULT_TIMEOUT_SEC

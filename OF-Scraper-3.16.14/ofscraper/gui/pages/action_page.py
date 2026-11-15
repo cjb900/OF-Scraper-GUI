@@ -156,6 +156,11 @@ class ActionPage(QWidget):
         # All-purchased options sub-widget — inserted after its radio
         self._paid_all_widget = self._build_paid_all_widget()
 
+        from ofscraper.gui import site_context
+
+        def _supported(actions):
+            return all(site_context.action_supported(a) for a in actions)
+
         for i, (label, actions) in enumerate(ACTION_CHOICES):
             radio = QRadioButton(label.replace("&", "&&"))
             apply_font(radio, "Segoe UI", 13)
@@ -170,6 +175,9 @@ class ActionPage(QWidget):
                 layout.addWidget(self._metadata_widget)
             if "paid_all" in actions:
                 layout.addWidget(self._paid_all_widget)
+            if not _supported(actions):
+                # Fansly: OnlyFans-only action
+                radio.hide()
 
         # Separator between action modes and check modes
         sep = QFrame()
@@ -197,6 +205,13 @@ class ActionPage(QWidget):
 
             if "msg_check" in actions:
                 layout.addWidget(self._msg_filter_widget)
+            if not _supported(actions):
+                radio.hide()
+
+        if not any(_supported(actions) for _, actions in CHECK_CHOICES):
+            # Fansly has no check tables
+            sep.hide()
+            check_label.hide()
 
         # Options for every check action (hidden until one is selected)
         self._check_options_widget = self._build_check_options_widget()

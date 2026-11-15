@@ -173,7 +173,11 @@ class ConfigPage(QWidget):
         _add_tab(self._create_scripts_tab(), "Scripts")
         _add_tab(self._create_performance_tab(), "Performance")
         _add_tab(self._create_content_tab(), "Content")
-        _add_tab(self._create_cdm_tab(), "CDM")
+        from ofscraper.gui import site_context
+
+        if not site_context.is_fansly():
+            # Fansly videos aren't Widevine-protected: no CDM settings
+            _add_tab(self._create_cdm_tab(), "CDM")
         _add_tab(self._create_advanced_tab(), "Advanced")
         _add_tab(self._create_response_tab(), "Response Type")
         layout.addWidget(self.tabs)
@@ -882,6 +886,27 @@ class ConfigPage(QWidget):
             except Exception:
                 pass
 
+    # Advanced rows that only OnlyFans requests use (request signing, API paths)
+    _ONLYFANS_ONLY_ROWS = {
+        "Dynamic Mode", "API Path", "Manual Dynamic Rules", "Dynamic Rules URL",
+        "API Endpoint Overrides",
+    }
+
+    def _hide_onlyfans_only_rows(self, form):
+        """Fansly: hide OnlyFans-only rows (their values stay in config.json)."""
+        from ofscraper.gui import site_context
+
+        if not site_context.is_fansly():
+            return
+        from PyQt6.QtWidgets import QFormLayout
+
+        for row in range(form.rowCount()):
+            item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+            label = item.widget() if item is not None else None
+            text = label.text().rstrip(":").strip() if label is not None and hasattr(label, "text") else ""
+            if text in self._ONLYFANS_ONLY_ROWS:
+                form.setRowVisible(row, False)
+
     def _create_advanced_tab(self):
         scroll, form = self._create_scrollable_form()
         self._add_combo(
@@ -1062,6 +1087,7 @@ class ConfigPage(QWidget):
                 "Leave empty to disable."
             ),
         )
+        self._hide_onlyfans_only_rows(form)
         return scroll
 
     def _create_response_tab(self):
