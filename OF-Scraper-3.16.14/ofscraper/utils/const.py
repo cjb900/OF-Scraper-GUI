@@ -14,11 +14,18 @@ DYNAMIC_ALIASES = {
     "digitals": "digitalcriminals",
     "digitalcriminal": "digitalcriminals",
 }
-# the name the config menu lists and saves for a rule, when it isn't the
+# the name the config menus list and save for a rule, when it isn't the
 # rule's own name; "digital" is also the default in a new config.json
 DYNAMIC_MENU_NAMES = {
     "digitalcriminals": "digital",
 }
+
+
+def dynamic_menu_name(rule):
+    """The name the config menus list and save for a rule or any of its names."""
+    rule = str(rule or "").lower()
+    rule = DYNAMIC_ALIASES.get(rule, rule)
+    return DYNAMIC_MENU_NAMES.get(rule, rule)
 
 MEDIA_ALIASES = {
     "photo": "images",

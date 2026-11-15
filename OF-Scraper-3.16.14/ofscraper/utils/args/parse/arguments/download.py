@@ -46,3 +46,24 @@ download_limit_option = click.option(
     default=None,
     type=parse_size,
 )
+
+allow_dupe_downloads_option = click.option(
+    "-ad",
+    "--allow-dupe-downloads",
+    "--allow-dupes",
+    "allow_dupe_downloads",
+    help="Allow duplicates (do NOT skip duplicates; treat reposts as new items)",
+    default=False,
+    is_flag=True,
+)
+
+keep_message_purchased_dupes_option = click.option(
+    "--keep-message-purchased-dupes",
+    "keep_message_purchased_dupes",
+    help=(
+        "With --allow-dupe-downloads: also keep the same media from both Messages "
+        "and Purchased. Default is to keep Messages only for that overlap."
+    ),
+    default=False,
+    is_flag=True,
+)

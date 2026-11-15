@@ -33,6 +33,10 @@ log = logging.getLogger("shared")
 def manual_download(urls=None):
     """
     Main function to handle manual download of posts from URLs.
+
+    Returns the processed ``url_dicts`` mapping (model_id → collection data)
+    so GUI callers can populate the results table / summary. Returns ``{}``
+    when nothing was processed.
     """
     try:
         network.check_cdm()
@@ -43,7 +47,7 @@ def manual_download(urls=None):
         url_dicts = process_urls(urls)
         if not url_dicts:
             log.info("No valid data found from the provided URLs.")
-            return
+            return {}
 
         with progress_utils.setup_live("manual"):
             # Consolidate media and posts from all processed collections
@@ -62,7 +66,7 @@ def manual_download(urls=None):
 
             if not all_media and not all_posts:
                 log.info("No media or posts were found to process.")
-                return
+                return url_dicts
             # Set user data for models that will be processed
             set_user_data(url_dicts)
 
@@ -96,6 +100,7 @@ def manual_download(urls=None):
             )
             after_download_action_script(username, media)
         final_action()
+        return url_dicts
 
     except Exception as e:
         log.traceback_(e)

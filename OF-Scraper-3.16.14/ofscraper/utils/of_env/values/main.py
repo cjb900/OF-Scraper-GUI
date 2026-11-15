@@ -37,8 +37,8 @@ def load_main_config():
     config["CACHEDEFAULT"] = os.getenv("OFSC_CACHE_DEFAULT", "sqlite")
 
     # KEY_DEFAULT: Default key mode for content decryption.
-    # Default: "cdrm"
-    config["KEY_DEFAULT"] = os.getenv("OFSC_KEY_DEFAULT", "cdrm")
+    # Default: "manual" (local CDM; remote helpers are opt-in)
+    config["KEY_DEFAULT"] = os.getenv("OFSC_KEY_DEFAULT", "manual")
     config["KEY_OPTIONS"] = const.KEY_OPTIONS
 
     # FILE_SIZE_MAX_DEFAULT: Default maximum file size allowed (bytes, 0 for no limit).

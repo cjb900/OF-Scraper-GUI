@@ -25,6 +25,7 @@ class download_retry(AsyncRetrying):
             lambda e: str(e) != of_env.getattr("SPACE_DOWNLOAD_MESSAGE")
             and not isinstance(e, (KeyboardInterrupt, asyncio.CancelledError, NoRetry))
             and not is_signed_cdn_forbidden(e)
+            and not getattr(e, "no_retry", False)
         )
         
         def _log_retry(retry_state):

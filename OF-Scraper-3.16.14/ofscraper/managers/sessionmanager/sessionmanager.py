@@ -106,7 +106,7 @@ class SessionSleep:
         )  # <-- NEW: Tracks when the API was last hit
         # One asyncio.Lock per event loop: ofscraper runs async code in several
         # loops, and a single asyncio.Lock binds to the first loop that waits on it
-        self._alocks = weakref.WeakKeyDictionary()
+        self._alocks = {}
         self._alocks_guard = threading.Lock()
         self._lock = threading.Lock()
         self._init_sleep = (
@@ -162,6 +162,10 @@ class SessionSleep:
         with self._alocks_guard:
             lock = self._alocks.get(loop)
             if lock is None:
+                # Not a WeakKeyDictionary: a lock that has waited holds its loop,
+                # so the key would never expire. Drop finished loops instead.
+                for old in [l for l in self._alocks if l.is_closed()]:
+                    del self._alocks[old]
                 lock = self._alocks[loop] = asyncio.Lock()
         return lock
 
@@ -482,6 +486,7 @@ class sessionManager:
                     limit=self._connect_limit,
                     ssl=ssl_context,  # Passed to TCPConnector
                 ),
+                cookie_jar=aiohttp.DummyCookieJar(),
                 timeout=aiohttp.ClientTimeout(
                     total=self._total_timeout,
                     connect=self._connect_timeout,
@@ -777,6 +782,7 @@ class sessionManager:
         self._rate_limit_sleeper.sleep = val
 
     def _httpx_funct(self, method, follow_redirects=httpx.USE_CLIENT_DEFAULT, **kwargs):
+        self._session.cookies.clear()
         # Same as Client.request(), minus its deprecation warning for
         # per-request cookies: build_request merges them with the client's
         # cookies for this request only, without touching the client's jar

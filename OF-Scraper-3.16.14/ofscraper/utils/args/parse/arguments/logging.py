@@ -48,3 +48,14 @@ console_rich_toggle = click.option(
     help="Turn off rich ui live display features",
     is_flag=True,
 )
+
+discord_ping_option = click.option(
+    "-dp",
+    "--discord-ping",
+    "--daemon-ping",
+    "discord_ping",
+    help="Enable @here Discord mention in daemon mode when new content is found",
+    default=False,
+    is_flag=True,
+)
+

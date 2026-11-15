@@ -4,12 +4,16 @@ import ofscraper.data.api.init as init
 import ofscraper.sites as sites
 import ofscraper.utils.auth.file as auth_file
 import ofscraper.utils.auth.make as make
+import ofscraper.utils.settings as settings
 
 log = logging.getLogger("shared")
 
 
 class AuthCheckUnavailable(Exception):
-    """The auth couldn't be checked (network or server problem)."""
+    """The auth couldn't be checked (network, server or dynamic rule problem)."""
+
+    # auth_status has logged the reason; run.main needn't repeat it
+    already_logged = True
 
 
 class AuthCheckLeft(Exception):
@@ -25,12 +29,19 @@ def check_auth(include_main_menu=False):
         fansly_auth.load()
     while status != "UP":
         status = init.getstatus()
+        message = getattr(init, "last_unavailable_message", None) or "see the error above"
         if status == "UNAVAILABLE":
-            # the auth may be fine, so don't ask for it again. An ordinary
-            # exception ends a one-off run but lets the daemon try its next pass
-            raise AuthCheckUnavailable("couldn't check the auth, see the error above")
+            # The auth may be fine, so don't report it as failed or ask for it
+            # again, in the GUI or the CLI. An ordinary exception ends a one-off
+            # run or a GUI scrape with this message, and lets the daemon try
+            # its next pass.
+            raise AuthCheckUnavailable(f"Couldn't check the auth: {message}")
         if status != "UP":
             log.info("Auth Failed")
+            # In GUI mode skip interactive prompts; the GUI auth dialog handles re-auth
+            if getattr(settings.get_args(), "gui", False):
+                log.debug("GUI mode: skipping interactive auth prompt on auth failure")
+                return
             if sites.is_fansly():
                 fansly_auth.make_auth()
                 continue

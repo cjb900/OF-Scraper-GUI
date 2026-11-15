@@ -23,6 +23,8 @@ from ofscraper.utils.cache.profile import set_profile_cache
 from ofscraper.commands.scraper.actions.download.managers.downloadmanager import (
     DownloadManager,
     StartOver,
+    find_unique_path,
+    gui_cancel_check,
 )
 from ofscraper.commands.scraper.actions.download.utils.retries import (
     download_retry,
@@ -40,6 +42,7 @@ from ofscraper.managers.sessionmanager.sessionmanager import is_signed_cdn_forbi
 
 from ofscraper.classes.of.media import Media
 from ofscraper.db.operations_.media import mark_media_as_downloaded
+from ofscraper.utils.host_allowlist import ensure_allowed_download_url
 
 
 class MainDownloadManager(DownloadManager):
@@ -94,7 +97,8 @@ class MainDownloadManager(DownloadManager):
     async def _main_download_attempts(self, c, ele):
         self._downloadspace()
         tempholderObj = await placeholder.tempFilePlaceholder(
-            ele, f"{ele.filename}_{ele.id}_{ele.post_id}.part"
+            ele,
+            f"{ele.filename}_{ele.id}_{ele.post_id}" + (f"_{ele._dup_seq}" if hasattr(ele, "_dup_seq") else "") + ".part",
         ).init()
 
         common_globals.attempt.set(0)
@@ -192,11 +196,13 @@ class MainDownloadManager(DownloadManager):
             headers = self._get_resume_header(resume_size, total, validator)
             saved_total, total = total, None
             common_globals.log.debug(
-                f"{common_logs.get_medialog(ele)} [attempt {common_globals.attempt.get()}/{get_download_retries()}] Downloading media with url {ele.url}"
+                f"{common_logs.get_medialog(ele)} [attempt {common_globals.attempt.get()}/{get_download_retries()}] Downloading media with url {common_logs.get_url_log(ele)}"
             )
 
+            media_url = ensure_allowed_download_url(ele.url, kind="media")
+
             async with c.requests_async(
-                url=ele.url,
+                url=media_url,
                 stream=True,
                 headers=headers,
                 total_timeout=None,
@@ -314,6 +320,7 @@ class MainDownloadManager(DownloadManager):
 
             while True:
                 try:
+                    gui_cancel_check()
                     chunk = await chunk_iter.__anext__()
                     first = fileobject is None
                     if first:
@@ -329,11 +336,11 @@ class MainDownloadManager(DownloadManager):
                     break
 
         # Catch native aiohttp socket read timeouts
-        except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
+        except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as E:
             common_globals.log.info(
                 f"{common_logs.get_medialog(ele)}⚠️ CDN went silent (sock_read timeout). Connection stalled, forcing retry!"
             )
-            raise Exception("Chunk download timed out")
+            raise Exception("Chunk download timed out") from E
         except Exception as E:
             common_globals.log.info(f"An error occurred during download for {ele}: {E}")
             raise E
@@ -357,6 +364,11 @@ class MainDownloadManager(DownloadManager):
         stop.check()
         total, temp, placeholderObj = result
         path_to_file = placeholderObj.trunicated_filepath
+        if (
+            getattr(settings.get_settings(), "allow_dupe_downloads", False)
+            and path_to_file.exists()
+        ):
+            path_to_file = find_unique_path(path_to_file)
 
         # 1. Check that the file size matches the API reported size
         await self._size_checker(temp, ele, total)
@@ -371,6 +383,7 @@ class MainDownloadManager(DownloadManager):
             and settings.get_settings().verify_all_integrity
         ):
             expected_duration = ele.duration
+            # the match threshold comes from drm_duration_match_threshold
             valid = verify_media_integrity(temp, expected_duration)
             stop.check()
             if not valid:
@@ -420,6 +433,18 @@ class MainDownloadManager(DownloadManager):
         # 6. Run Post-Download Scripts
         await self._after_download_script(path_to_file)
 
+        # 7. Dispatch plugin event
+        try:
+            from ofscraper.plugins.manager import plugin_manager
+
+            common_globals.log.info(
+                f"[PluginManager] on_item_downloaded "
+                f"({len(plugin_manager.plugins)} plugin(s)) -> {pathlib.Path(str(path_to_file)).name}"
+            )
+            plugin_manager.dispatch_event("on_item_downloaded", ele, str(path_to_file))
+        except Exception as e:
+            common_globals.log.warning(f"[PluginManager] on_item_downloaded failed: {e}")
+
         return ele.mediatype, total
 
     async def _get_data(self, ele):
@@ -438,7 +463,7 @@ class MainDownloadManager(DownloadManager):
 
     async def _fresh_data_handler_main(self, ele, tempholderObj):
         common_globals.log.debug(
-            f"{common_logs.get_medialog(ele)} [attempt {common_globals.attempt.get()}/{get_download_retries()}] fresh download for media {ele.url}"
+            f"{common_logs.get_medialog(ele)} [attempt {common_globals.attempt.get()}/{get_download_retries()}] fresh download for media {common_logs.get_url_log(ele)}"
         )
         resume_size = self._get_resume_size(tempholderObj)
         common_globals.log.debug(

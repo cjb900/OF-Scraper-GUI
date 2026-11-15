@@ -3,7 +3,6 @@ import pathlib
 import re
 import traceback
 from functools import partial
-from urllib.parse import urlsplit, urlunsplit
 
 import aiofiles
 import arrow
@@ -27,6 +26,7 @@ import ofscraper.utils.auth.request as auth_requests
 import ofscraper.utils.cache.cache as cache
 import ofscraper.utils.dates as dates
 import ofscraper.utils.of_env.of_env as of_env
+import ofscraper.utils.settings as settings
 from ofscraper.utils.system.subprocess import async_run
 from ofscraper.utils.system.ffprobe import verify_media_integrity
 import ofscraper.utils.live.updater as progress_updater
@@ -34,6 +34,8 @@ import ofscraper.utils.live.updater as progress_updater
 from ofscraper.commands.scraper.actions.download.managers.downloadmanager import (
     DownloadManager,
     StartOver,
+    find_unique_path,
+    gui_cancel_check,
 )
 from ofscraper.commands.scraper.actions.download.utils.retries import (
     download_retry,
@@ -53,6 +55,9 @@ from ofscraper.managers.sessionmanager.sessionmanager import is_signed_cdn_forbi
 
 from ofscraper.classes.of.media import Media
 from ofscraper.db.operations_.media import mark_media_as_downloaded
+from ofscraper.utils.hardening import mpd_segment_url
+from ofscraper.utils.host_allowlist import ensure_allowed_download_url
+
 
 
 class AltDownloadManager(DownloadManager):
@@ -81,6 +86,12 @@ class AltDownloadManager(DownloadManager):
             f"{common_logs.get_medialog(ele)} Downloading with protected media downloader"
         )
 
+        if getattr(ele, "mpd", None):
+            ensure_allowed_download_url(ele.mpd, kind="drm-mpd")
+
+        # don't download a DRM video that can't be decrypted
+        await keyhelpers.check_manual_cdm(ele)
+
         sharedPlaceholderObj = await placeholder.Placeholders(ele, "mp4").init()
         common_globals.log.debug(
             f"{common_logs.get_medialog(ele)} download url:  {common_logs.get_url_log(ele)}"
@@ -104,7 +115,7 @@ class AltDownloadManager(DownloadManager):
             # the whole video: the video track isn't downloaded (#343).
             # Its part from an earlier run is removed with the audio's
             placeholderObj = await placeholder.tempFilePlaceholder(
-                ele, f"{video['name']}.part"
+                ele, f"{video['name']}" + (f"_{ele._dup_seq}" if hasattr(ele, "_dup_seq") else "") + ".part"
             ).init()
             video["path"] = placeholderObj.tempfilepath
             video["total"] = 0
@@ -168,7 +179,7 @@ class AltDownloadManager(DownloadManager):
         size. None checks no limits (another track comes after this one)."""
         self._downloadspace()
         placeholderObj = await placeholder.tempFilePlaceholder(
-            ele, f"{item['name']}.part"
+            ele, f"{item['name']}" + (f"_{ele._dup_seq}" if hasattr(ele, "_dup_seq") else "") + ".part"
         ).init()
         item["path"] = placeholderObj.tempfilepath
         item["total"] = None
@@ -265,6 +276,7 @@ class AltDownloadManager(DownloadManager):
             common_globals.log.debug(f"{get_medialog(ele)} resume header {headers}")
             params = get_alt_params(ele)
             url = _mpd_segment_url(ele.mpd, item["origname"])
+            url = ensure_allowed_download_url(url, kind="drm-media")
             headers = {
                 **(headers or {}),
                 "Cookie": f"{ele.hls_header}{auth_requests.get_cookies_str()}",
@@ -407,6 +419,7 @@ class AltDownloadManager(DownloadManager):
 
             while True:
                 try:
+                    gui_cancel_check()
                     chunk = await chunk_iter.__anext__()
                     first = fileobject is None
                     if first:
@@ -422,11 +435,11 @@ class AltDownloadManager(DownloadManager):
                     break  # Exit loop when no more chunks
 
         # Catch native aiohttp socket read timeouts
-        except (asyncio.TimeoutError, aiohttp.ServerTimeoutError):
+        except (asyncio.TimeoutError, aiohttp.ServerTimeoutError) as E:
             common_globals.log.info(
                 f"{common_logs.get_medialog(ele)}⚠️ CDN went silent (sock_read timeout). Connection stalled, forcing retry!"
             )
-            raise Exception("Chunk download timed out")
+            raise Exception("Chunk download timed out") from E
         except Exception as E:
             common_globals.log.info(f"An error occurred during download for {ele}: {E}")
             raise E
@@ -450,7 +463,8 @@ class AltDownloadManager(DownloadManager):
         self, sharedPlaceholderObj, ele, audio, video, username, model_id
     ):
         tempPlaceholder = await placeholder.tempFilePlaceholder(
-            ele, f"temp_{ele.id or await ele.final_filename}.mp4"
+            ele,
+            f"temp_{ele.id or await ele.final_filename}" + (f"_{ele._dup_seq}" if hasattr(ele, "_dup_seq") else "") + ".mp4",
         ).init()
         temp_path = tempPlaceholder.tempfilepath
         temp_path.unlink(missing_ok=True)
@@ -498,6 +512,7 @@ class AltDownloadManager(DownloadManager):
             audio["path"].unlink(missing_ok=True)
 
         expected_duration = ele.duration
+        # the match threshold comes from drm_duration_match_threshold
         if not verify_media_integrity(temp_path, expected_duration):
             common_globals.log.warning(
                 f"DRM Merge failed integrity check for {ele.id}: {temp_path}"
@@ -505,8 +520,15 @@ class AltDownloadManager(DownloadManager):
             temp_path.unlink(missing_ok=True)
             raise Exception("Merged DRM media failed integrity check")
 
+        alt_path_to_file = sharedPlaceholderObj.trunicated_filepath
+        if (
+            getattr(settings.get_settings(), "allow_dupe_downloads", False)
+            and alt_path_to_file.exists()
+        ):
+            alt_path_to_file = find_unique_path(alt_path_to_file)
+
         common_globals.log.debug(
-            f"Moving intermediate path {temp_path} to {sharedPlaceholderObj.trunicated_filepath}"
+            f"Moving intermediate path {temp_path} to {alt_path_to_file}"
         )
 
         # Thread executor for disk I/O move operation; the file can end up
@@ -516,7 +538,7 @@ class AltDownloadManager(DownloadManager):
             partial(
                 common_paths.moveHelper,
                 temp_path,
-                sharedPlaceholderObj.trunicated_filepath,
+                alt_path_to_file,
                 ele,
             ),
         )
@@ -550,6 +572,20 @@ class AltDownloadManager(DownloadManager):
         ele.add_filepath(final_path)
 
         await self._after_download_script(final_path)
+
+        try:
+            from ofscraper.plugins.manager import plugin_manager
+
+            _final_s = str(pathlib.Path(final_path))
+            common_globals.log.info(
+                f"[PluginManager] on_item_downloaded alt "
+                f"({len(plugin_manager.plugins)} plugin(s)) -> {pathlib.Path(_final_s).name}"
+            )
+            plugin_manager.dispatch_event("on_item_downloaded", ele, _final_s)
+        except Exception as e:
+            common_globals.log.warning(
+                f"[PluginManager] on_item_downloaded (alt) failed: {e}"
+            )
 
         audio_total = audio["total"] if audio else 0
         video_total = video["total"] if video else 0
@@ -682,13 +718,5 @@ class AltDownloadManager(DownloadManager):
         return task1
 
 def _mpd_segment_url(mpd_url: str, segment_name: str) -> str:
-    parts = urlsplit((mpd_url or "").strip())
-    name = (segment_name or "").strip().lstrip("/")
-    path = parts.path or ""
-    base_path = re.sub(r"[^/]+\.mpd$", "", path, flags=re.IGNORECASE)
-    if base_path == path:
-        base_path = (path.rsplit("/", 1)[0] + "/") if "/" in path else "/"
-    elif not base_path.endswith("/"):
-        base_path += "/"
-    return urlunsplit((parts.scheme, parts.netloc, base_path + name, parts.query, ""))
-
+    # hardening's version also rejects an empty or .mpd segment name
+    return mpd_segment_url(mpd_url, segment_name)
