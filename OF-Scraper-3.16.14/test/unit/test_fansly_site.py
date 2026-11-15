@@ -449,7 +449,7 @@ def test_embedded_window_is_only_resized_by_hand_on_windows(monkeypatch):
     from ofscraper.gui import site_host
 
     monkeypatch.setattr(site_host.platform, "system", lambda: "Linux")
-    assert site_host.fit_foreign_window(123, 800, 600, 1.5) is False
+    assert site_host.fit_foreign_window(123, 456) is False
 
 
 def test_logger_reset_has_its_helpers():

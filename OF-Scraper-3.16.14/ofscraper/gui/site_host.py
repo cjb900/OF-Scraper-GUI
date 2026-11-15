@@ -42,21 +42,75 @@ def embedding_supported(app) -> bool:
     return app.platformName() in ("xcb", "windows")
 
 
-def fit_foreign_window(win_id: int, width: int, height: int, ratio: float) -> bool:
-    """Windows: size an embedded window of another process to its container.
+# Windows: AppUserModelID shared with the site processes (app.launch_gui), so
+# the taskbar shows the GUI's icon instead of python.exe's
+WINDOWS_APP_ID = "OFScraper.GUI.1"
 
-    Qt sizes the foreign window in device-independent pixels; with display
-    scaling above 100% the child then fills only part of the tab, leaving a
-    black band on the right and bottom. MoveWindow takes physical pixels.
-    """
-    if platform.system() != "Windows" or not win_id:
-        return False
+
+def set_windows_app_id() -> None:
+    if platform.system() != "Windows":
+        return
     try:
         import ctypes
 
-        w = max(1, round(width * ratio))
-        h = max(1, round(height * ratio))
-        return bool(ctypes.windll.user32.MoveWindow(ctypes.c_void_p(win_id), 0, 0, w, h, True))
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
+    except Exception as e:
+        log.debug(f"[GUI] could not set the Windows app id: {e}")
+
+
+def _user32():
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    hwnd = wintypes.HWND
+    user32.GetParent.argtypes = [hwnd]
+    user32.GetParent.restype = hwnd
+    user32.GetClientRect.argtypes = [hwnd, ctypes.POINTER(wintypes.RECT)]
+    user32.MapWindowPoints.argtypes = [hwnd, hwnd, ctypes.POINTER(wintypes.POINT), wintypes.UINT]
+    user32.MoveWindow.argtypes = [hwnd, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.BOOL]
+    user32.GetWindowLongPtrW.argtypes = [hwnd, ctypes.c_int]
+    user32.GetWindowLongPtrW.restype = ctypes.c_ssize_t
+    user32.SetWindowLongPtrW.argtypes = [hwnd, ctypes.c_int, ctypes.c_ssize_t]
+    user32.SetWindowLongPtrW.restype = ctypes.c_ssize_t
+    user32.SetWindowPos.argtypes = [hwnd, hwnd, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wintypes.UINT]
+    return ctypes, wintypes, user32
+
+
+_GWL_STYLE = -16
+_WS_CHILD = 0x40000000
+_WS_POPUP = 0x80000000
+_WS_FRAME = 0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000  # caption, sizing border, menu, min/max
+_SWP_FRAME = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020  # no size/move/zorder/activate, frame changed
+
+
+def fit_foreign_window(win_id: int, container_id: int) -> bool:
+    """Windows: make an embedded window of another process fill its container.
+
+    Qt places the foreign window in device-independent pixels and the child
+    keeps its top-level frame, which leaves black bands. This reads the
+    container's client area in physical pixels, maps it into the child's
+    actual parent, strips the child's frame and moves it there.
+    """
+    if platform.system() != "Windows" or not win_id or not container_id:
+        return False
+    try:
+        ctypes, wintypes, user32 = _user32()
+        child, container = wintypes.HWND(win_id), wintypes.HWND(container_id)
+        style = user32.GetWindowLongPtrW(child, _GWL_STYLE) & 0xFFFFFFFF
+        wanted = (style & ~(_WS_FRAME | _WS_POPUP)) | _WS_CHILD
+        if wanted != style:
+            user32.SetWindowLongPtrW(child, _GWL_STYLE, ctypes.c_ssize_t(ctypes.c_int32(wanted).value).value)
+            user32.SetWindowPos(child, None, 0, 0, 0, 0, _SWP_FRAME)
+        rect = wintypes.RECT()
+        if not user32.GetClientRect(container, ctypes.byref(rect)):
+            return False
+        corner = wintypes.POINT(0, 0)
+        parent = user32.GetParent(child)
+        # the container's top-left in the coordinates MoveWindow uses for the child
+        user32.MapWindowPoints(container, parent, ctypes.byref(corner), 1)
+        w, h = max(1, rect.right - rect.left), max(1, rect.bottom - rect.top)
+        return bool(user32.MoveWindow(child, corner.x, corner.y, w, h, True))
     except Exception as e:
         log.debug(f"[GUI] could not size the embedded window: {e}")
         return False
@@ -89,6 +143,7 @@ def _remember_site(site: str) -> None:
 def run_site_host(manager=None) -> None:
     """Entry point for ``ofscraper --gui`` (outside a child process)."""
     prefer_x11()
+    set_windows_app_id()
 
     from PyQt6.QtCore import QTimer
     from PyQt6.QtGui import QIcon
@@ -324,12 +379,7 @@ def _define_classes():
         def fit_child(self):
             if self.container is None or not self._win_id:
                 return
-            fit_foreign_window(
-                self._win_id,
-                self.container.width(),
-                self.container.height(),
-                self.container.devicePixelRatioF(),
-            )
+            fit_foreign_window(self._win_id, int(self.container.winId()))
 
         def _finished(self, code, status):
             self.busy = False
