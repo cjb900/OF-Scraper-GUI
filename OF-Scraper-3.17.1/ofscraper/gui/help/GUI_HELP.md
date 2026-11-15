@@ -870,7 +870,7 @@ These settings impact DRM-protected content.
   - `manual`, `cdrm`, `cdrm2`, or `keydb`
   - **Default for new installs: `manual`** — local CDM files; most reliable for OnlyFans DRM.
   - Existing configs keep whatever you already saved (this change does not rewrite `config.json`).
-  - **`cdrm` / `cdrm2` / `keydb`** are remote helpers (opt-in). The GUI warns in this tab, on save, and before scrape.
+  - **`cdrm` / `cdrm2` / `keydb`** are remote helpers, **currently not working** (the list marks them so, and **manual** as recommended). They stay in the list in case they come back: `cdrm`'s service has been offline for years, and `cdrm2` / `keydb` aren't available, so downloads use `manual` instead. The GUI warns in this tab, on save, and before scrape.
   - Remote helpers send **only pssh + license URL** — never session cookies, sign, or x-bc headers.
   - Because OnlyFans license requests usually need those cookies, remote modes may fail; use **manual** + local CDM / DRM Key Creation.
   - Override the built-in default with env `OFSC_KEY_DEFAULT` if needed.

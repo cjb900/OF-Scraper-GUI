@@ -844,12 +844,13 @@ class ConfigPage(QWidget):
             ["manual", "cdrm", "cdrm2", "keydb"],
             tooltip=(
                 "Select how DRM keys are fetched.\n\n"
-                "manual — local CDM files (default / recommended; most reliable)\n"
-                "cdrm / cdrm2 / keydb — remote helpers (pssh + license URL only; "
-                "no session cookies; may fail for OnlyFans DRM)\n\n"
-                "Note: KeyDB mode is currently not working (no ETA)."
+                "manual — local CDM files from DRM Key Creation (recommended; the only "
+                "mode that works today)\n"
+                "cdrm / cdrm2 / keydb — remote helpers, kept in case they come back; "
+                "currently not working"
             ),
         )
+        self._label_key_modes(self._widgets.get("key-mode-default"))
         self._key_mode_warning = QLabel()
         self._key_mode_warning.setWordWrap(True)
         self._key_mode_warning.setTextFormat(Qt.TextFormat.RichText)
@@ -869,14 +870,40 @@ class ConfigPage(QWidget):
                        tooltip="Path to Widevine CDM private_key.pem file.\nRequired for 'manual' key mode to decrypt DRM content.")
         return scroll
 
+    @staticmethod
+    def _label_key_modes(combo):
+        """Show "(recommended)" / "(currently not working)" in the Key Mode list.
+        The items keep their plain values, which is what's read and saved."""
+        if not isinstance(combo, QComboBox):
+            return
+        from PyQt6.QtWidgets import QStyledItemDelegate
+
+        from ofscraper.gui.utils.key_mode_warning import key_mode_label, not_working_reason
+
+        class _Labels(QStyledItemDelegate):
+            def displayText(self, value, locale):
+                return key_mode_label(value)
+
+        delegate = _Labels(combo)
+        combo.setItemDelegate(delegate)
+        combo._key_mode_labels = delegate  # keep it alive
+        for i in range(combo.count()):
+            reason = not_working_reason(combo.itemText(i))
+            if reason:
+                combo.setItemData(i, reason[0].upper() + reason[1:] + ".", Qt.ItemDataRole.ToolTipRole)
+
     def _on_key_mode_changed(self, mode: str):
         """Show inline warning when a remote key helper is selected."""
         try:
-            from ofscraper.gui.utils.key_mode_warning import is_remote_key_mode
+            from ofscraper.gui.utils.key_mode_warning import is_remote_key_mode, not_working_reason
 
             if is_remote_key_mode(mode):
+                reason = not_working_reason(mode)
                 self._key_mode_warning.setText(
-                    f"<b>Note:</b> <code>{mode}</code> posts only pssh + license URL "
+                    (f"<b><code>{mode}</code> isn't working right now:</b> {reason}. "
+                     "Use <code>manual</code> (recommended) with CDM files from "
+                     "DRM Key Creation.<br><br>" if reason else "")
+                    + f"<b>Note:</b> <code>{mode}</code> posts only pssh + license URL "
                     "to a third-party helper (session cookies stay local). "
                     "OnlyFans DRM often still fails without auth on the license "
                     "request — prefer <code>manual</code> with local CDM files "

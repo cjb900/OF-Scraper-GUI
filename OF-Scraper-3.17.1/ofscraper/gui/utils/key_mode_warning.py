@@ -16,6 +16,31 @@ log = logging.getLogger("shared")
 
 REMOTE_KEY_MODES = frozenset({"cdrm", "cdrm2", "keydb"})
 
+# Kept in the list in case they come back, but none works today: cdrm's
+# service has been offline for years, and cdrm2 / keydb were never built in
+# (the config reader only accepts manual and cdrm, so they run as manual).
+NOT_WORKING_KEY_MODES = frozenset({"cdrm", "cdrm2", "keydb"})
+RECOMMENDED_KEY_MODE = "manual"
+
+
+def key_mode_label(mode) -> str:
+    """How the Key Mode list shows a mode: manual (recommended), or not working."""
+    mode = normalize_key_mode(mode)
+    if mode == RECOMMENDED_KEY_MODE:
+        return f"{mode} (recommended)"
+    if mode in NOT_WORKING_KEY_MODES:
+        return f"{mode} (currently not working)"
+    return mode
+
+
+def not_working_reason(mode) -> str:
+    mode = normalize_key_mode(mode)
+    if mode == "cdrm":
+        return "the cdrm service has been offline for years"
+    if mode in NOT_WORKING_KEY_MODES:
+        return f"{mode} isn't available, so downloads use manual instead"
+    return ""
+
 # Session-only: skip scrape-time warning after user checks "Don't ask again".
 _session_skip_scrape_warning = False
 # One-shot: table Start confirms first; workflow._start_scraping must not re-prompt.
@@ -51,8 +76,11 @@ def reset_session_skip() -> None:
 
 def _warning_body(key_mode: str) -> str:
     mode = normalize_key_mode(key_mode)
+    reason = not_working_reason(mode)
     return (
         f"Key Mode is set to <b><code>{mode}</code></b>.\n\n"
+        + (f"<b>This mode isn't working right now:</b> {reason}.\n\n" if reason else "")
+        + 
         "Remote helpers send only <b>pssh</b> and the <b>license URL</b> to a "
         "third-party service. Session cookies and signed auth headers stay on "
         "this machine.\n\n"
