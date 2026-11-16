@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -66,6 +67,54 @@ OUTPUT FILES
 """
 
 
+# KeyDive prints each secret after a line such as "Cdm: Received RSA private
+# key:". What follows is a PEM block or a JSON dump.
+_KEY_DUMP_START = re.compile(r"\bReceived\b.*:\s*$")
+_PEM_START = re.compile(r"-----BEGIN [A-Z0-9 ]+-----")
+_PEM_END = re.compile(r"-----END [A-Z0-9 ]+-----")
+_KEY_DUMP_BODY = re.compile(
+    r"""^\s*(
+        [\[\]{}],?                # a JSON bracket on its own
+        | "[^"]*"\s*:.*            # a JSON "name": value
+        | [A-Za-z0-9+/=]{16,}      # a line of base64
+    )\s*$""",
+    re.VERBOSE,
+)
+KEY_MATERIAL_HIDDEN = "[key material hidden]"
+
+
+class KeyMaterialFilter:
+    """Takes the extraction script's output a line at a time and drops the
+    Widevine key material from it (private key, client ID, keybox).
+
+    The keys are saved to the output folder. In the on-screen output and the
+    log file they would be handed on with every screenshot or shared log.
+    """
+
+    def __init__(self):
+        self._in_dump = False
+        self._in_pem = False
+
+    def filter(self, line: str):
+        """Returns the line to show, a placeholder, or None to show nothing."""
+        if self._in_pem:
+            if _PEM_END.search(line):
+                self._in_pem = False
+            return None
+        if _PEM_START.search(line):
+            self._in_pem = not _PEM_END.search(line)
+            # a marker line has already put the placeholder out
+            return None if self._in_dump else KEY_MATERIAL_HIDDEN
+        if self._in_dump:
+            if _KEY_DUMP_BODY.match(line):
+                return None
+            self._in_dump = False
+        if _KEY_DUMP_START.search(line):
+            self._in_dump = True
+            return f"{line} {KEY_MATERIAL_HIDDEN}"
+        return line
+
+
 class _ScriptRunner(QThread):
     """Runs drm_keydive.py in a subprocess and streams output line by line."""
 
@@ -110,6 +159,7 @@ class DRMKeyPage(QWidget):
         super().__init__(parent)
         self.manager = manager
         self._runner = None
+        self._key_filter = KeyMaterialFilter()
         self._last_output_dir = None
         self._setup_ui()
         self._paths = MaskedPathFields(self.script_input, self.output_input)
@@ -285,12 +335,16 @@ class DRMKeyPage(QWidget):
         self.generate_btn.setEnabled(False)
         app_signals.status_message.emit("DRM key extraction in progress...")
 
+        self._key_filter = KeyMaterialFilter()
         self._runner = _ScriptRunner(script, output_dir)
         self._runner.line_ready.connect(self._on_line)
         self._runner.finished.connect(self._on_finished)
         self._runner.start()
 
     def _on_line(self, line: str):
+        line = self._key_filter.filter(line)
+        if line is None:
+            return
         self.output_text.appendPlainText(redact_log_message(line))
         if line:
             try:
