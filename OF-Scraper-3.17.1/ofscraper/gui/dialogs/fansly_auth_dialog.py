@@ -69,6 +69,33 @@ def _browser_profile_dir() -> str:
     return str(site_context.fansly_config_home() / "browser_profile")
 
 
+def explain_test_failure(message) -> str:
+    """Save & Test's failure in plain words; the raw error for anything else."""
+    text = str(message or "")
+    low = text.lower()
+    fix = "Import it again from your browser, or log in with the built-in browser."
+    if "401" in low or "unauthorized" in low:
+        return (
+            "Fansly didn't accept this token: it's invalid, expired, or that browser "
+            "was signed out of Fansly. " + fix
+        )
+    if "403" in low or "forbidden" in low:
+        return (
+            "Fansly refused the request. The user agent may not match the browser "
+            "the token came from. " + fix
+        )
+    if "429" in low or "too many requests" in low:
+        return "Fansly is limiting requests right now. Wait a minute, then Save & Test again."
+    if any(word in low for word in (
+        "connecterror", "connection", "timed out", "timeout", "getaddrinfo",
+        "name or service", "nodename", "network is unreachable", "ssl",
+    )):
+        return "couldn't reach Fansly to check the token. Check your connection, then Save & Test again."
+    # drop httpx's "For more information check: <url>" tail
+    text = text.split("For more information", 1)[0].strip().rstrip(".")
+    return f"Fansly didn't accept it: {text}. " + fix
+
+
 class FanslyBrowserLogin(QDialog):
     """fansly.com in the built-in browser; closes with the token once signed in."""
 
@@ -343,11 +370,7 @@ class FanslyAuthPage(QWidget):
 
     def _on_test_failed(self, message):
         self.save_btn.setEnabled(True)
-        self._set_status(
-            f"Saved, but Fansly didn't accept it: {message}. Log in again with the browser, "
-            "or copy a fresh token.",
-            error=True,
-        )
+        self._set_status("Saved, but " + explain_test_failure(message), error=True)
         self._worker = None
 
     def _browser_login(self):
