@@ -1646,9 +1646,13 @@ def _emit_download_status(media, model_id, username, extra_table_rows=None):
         from ofscraper.db.operations_.media import get_media_ids_downloaded
         from ofscraper.gui.utils.progress_bridge import queue_cell_updates
 
-        downloaded_set = get_media_ids_downloaded(
-            model_id=model_id, username=username
-        )
+        # as text: the database gives numbers for OnlyFans ids, and the table
+        # rows below hold text, so a mixed lookup never matched and every
+        # already-downloaded row was set to False
+        downloaded_set = {
+            str(media_id)
+            for media_id in get_media_ids_downloaded(model_id=model_id, username=username)
+        }
         handled_ids = set()
         batch = []
         for ele in media:
@@ -1657,7 +1661,7 @@ def _emit_download_status(media, model_id, username, extra_table_rows=None):
                 continue
             handled_ids.add(str(media_id))
             canview = getattr(ele, "canview", True)
-            is_downloaded = media_id in downloaded_set
+            is_downloaded = str(media_id) in downloaded_set
             key = str(media_id)
 
             if not canview:

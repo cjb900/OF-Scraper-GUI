@@ -848,6 +848,26 @@ def update_media_table_via_api_helper(
     conn.commit()
 
 
+def _media_api_row(media, model_id, post_id):
+    """The mediaInsertAPI values for one media in one post."""
+    responsetype = getattr(media, "responsetype", None) or ""
+    mediatype = getattr(media, "mediatype", None) or ""
+    return [
+        media.id,
+        post_id,
+        getattr(media, "link", None),
+        responsetype.capitalize(),
+        mediatype.capitalize(),
+        getattr(media, "preview", None),
+        getattr(media, "linked", None),
+        getattr(media, "date", None),
+        getattr(media, "postdate", None),
+        model_id,
+        getattr(media, "duration_string", None),
+        getattr(media, "canview", None),
+    ]
+
+
 def update_media_table_download_helper(
     media,
     model_id,
@@ -882,6 +902,14 @@ def update_media_table_download_helper(
         WHERE media_id=(?) and model_id=(?) and post_id=(?);"""
         insertData.extend([media.id, model_id, _post_id])
         curr.execute(mediaUpdateDownloadUnique, insertData)
+        if curr.rowcount == 0:
+            # Media rows were saved one per media id, so a media sent in two
+            # posts (e.g. an unbought message, then the bought one) has no row
+            # for the post it was downloaded from: the update matched nothing
+            # and the download was never recorded, so it showed as missing and
+            # was downloaded again. Add this post's row, then mark it.
+            curr.execute(mediaInsertAPI, _media_api_row(media, model_id, _post_id))
+            curr.execute(mediaUpdateDownloadUnique, insertData)
     else:
         insertData.extend([media.id, model_id])
         curr.execute(mediaUpdateDownload, insertData)
