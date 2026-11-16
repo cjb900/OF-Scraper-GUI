@@ -30,6 +30,35 @@ _CANCEL_FORCE_GRACE_SECONDS = 5.0
 _pending_summary_data = None
 
 
+# options a check-mode run changes and a normal scrape must get back
+CHECK_MODE_ARGS = ("force_all", "force", "check_area", "check_usernames", "url")
+_LAUNCH_ARGS = CHECK_MODE_ARGS + (
+    "after", "no_cache", "no_api_cache", "discord_level",
+    "allow_dupe_downloads", "keep_message_purchased_dupes", "quality",
+)
+
+
+def launch_snapshot(args) -> dict:
+    """The run options as the GUI was launched, before any mode changed them."""
+    snap = {}
+    for name in _LAUNCH_ARGS:
+        value = getattr(args, name, None)
+        snap[name] = list(value) if isinstance(value, (list, tuple)) else value
+    return snap
+
+
+def restore_check_mode_args(args, launch: dict | None) -> None:
+    """Put back the options a check-mode run changed, as launched."""
+    launch = launch or {}
+    for name in CHECK_MODE_ARGS:
+        value = launch.get(name)
+        if name in ("force_all", "force"):
+            value = bool(value)
+        elif name in ("check_area", "check_usernames", "url"):
+            value = list(value or [])
+        setattr(args, name, value)
+
+
 def _snapshot_download_globals() -> dict:
     """Read current per-run download counters (reset between models by downloader)."""
     try:
@@ -2146,6 +2175,8 @@ class GUIWorkflow:
         self._metadata_options = {"mode": "update", "mark_stray": False, "hash": False}
         # args.command as parsed at launch; restored after metadata runs
         self._launch_command = None
+        # the run options as launched, before any GUI mode changed them
+        self._launch_args = None
         # All-purchased action (CLI: --scrape-paid --excluded-username ...)
         self._paid_all_options = {"excluded": [], "mediatypes": ["Images", "Videos", "Audios"]}
         self._paid_all_models = []  # creators processed in the last all-purchased run
@@ -2761,6 +2792,8 @@ class GUIWorkflow:
         import sys
 
         args = read_args.retriveArgs()
+        if self._launch_args is None:
+            self._launch_args = launch_snapshot(args)
         if self._launch_command is None:
             self._launch_command = getattr(args, "command", None)
         if self._launch_excluded is None:
@@ -2778,20 +2811,28 @@ class GUIWorkflow:
             self._set_check_args(args, write_args, _settings)
             return
 
+        # A check-mode run sets these for its table (every item, fresh data,
+        # its areas and creators); a normal scrape after it must not inherit
+        # them, or it downloads everything again regardless of the database.
+        restore_check_mode_args(args, self._launch_args)
+
         # Record baseline once (first GUI-driven run) so we can restore values when
-        # GUI options (like "rescrape") are toggled off on later runs.
+        # GUI options (like "rescrape") are toggled off on later runs. It comes
+        # from the launch snapshot: a check mode run first changes "after" (to
+        # scan from the start) and the cache options.
         if self._baseline_args is None:
             try:
+                launch = self._launch_args or {}
                 self._baseline_args = {
-                    "after": getattr(args, "after", None),
-                    "no_cache": bool(getattr(args, "no_cache", False)),
-                    "no_api_cache": bool(getattr(args, "no_api_cache", False)),
-                    "discord_level": getattr(args, "discord_level", "OFF"),
-                    "allow_dupe_downloads": bool(getattr(args, "allow_dupe_downloads", False)),
+                    "after": launch.get("after"),
+                    "no_cache": bool(launch.get("no_cache", False)),
+                    "no_api_cache": bool(launch.get("no_api_cache", False)),
+                    "discord_level": launch.get("discord_level", "OFF"),
+                    "allow_dupe_downloads": bool(launch.get("allow_dupe_downloads", False)),
                     "keep_message_purchased_dupes": bool(
-                        getattr(args, "keep_message_purchased_dupes", False)
+                        launch.get("keep_message_purchased_dupes", False)
                     ),
-                    "quality": getattr(args, "quality", None),
+                    "quality": launch.get("quality"),
                 }
             except Exception:
                 self._baseline_args = {
