@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -31,6 +32,43 @@ log = logging.getLogger("shared")
 # Bundled script location: ofscraper/gui/scripts/drm_keydive.py
 _BUNDLED_SCRIPT = os.path.join(os.path.dirname(__file__), "..", "scripts", "drm_keydive.py")
 _BUNDLED_SCRIPT = os.path.normpath(_BUNDLED_SCRIPT)
+
+_KEY_BEGIN_RE = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")
+_KEY_END_RE = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY-----")
+_KEY_BLOCK_RE = re.compile(
+    r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----", re.S
+)
+KEY_HIDDEN = "[private key hidden; it is saved in the device folder]"
+
+
+class PrivateKeyFilter:
+    """Hides private keys in the tool's output, line by line.
+
+    KeyDive prints the device's RSA private key ("Cdm: Received RSA private
+    key:") as a PEM block. The key is also saved as a file, so the log and the
+    output box only need to say it was hidden. ``filter`` returns the line to
+    show, or None for a line inside a key.
+    """
+
+    def __init__(self):
+        self.inside = False
+
+    def filter(self, line: str):
+        text = line or ""
+        if self.inside:
+            if _KEY_END_RE.search(text):
+                self.inside = False
+                rest = _KEY_END_RE.split(text, 1)[1].strip()
+                return rest or None
+            return None
+        text = _KEY_BLOCK_RE.sub(KEY_HIDDEN, text)
+        begin = _KEY_BEGIN_RE.search(text)
+        if begin:
+            self.inside = True
+            before = text[: begin.start()].rstrip()
+            return (before + " " if before else "") + KEY_HIDDEN
+        return text
+
 
 _REQUIREMENTS_TEXT = """\
 SYSTEM REQUIREMENTS
@@ -285,12 +323,19 @@ class DRMKeyPage(QWidget):
         self.generate_btn.setEnabled(False)
         app_signals.status_message.emit("DRM key extraction in progress...")
 
+        self._key_filter = PrivateKeyFilter()
         self._runner = _ScriptRunner(script, output_dir)
         self._runner.line_ready.connect(self._on_line)
         self._runner.finished.connect(self._on_finished)
         self._runner.start()
 
     def _on_line(self, line: str):
+        key_filter = getattr(self, "_key_filter", None)
+        if key_filter is None:
+            key_filter = self._key_filter = PrivateKeyFilter()
+        line = key_filter.filter(line)
+        if line is None:
+            return
         self.output_text.appendPlainText(redact_log_message(line))
         if line:
             try:
