@@ -31,6 +31,25 @@ log = logging.getLogger("shared")
 _COLS = ["Name", "Version", "Status", "Description"]
 
 
+
+def _empty_hint() -> str:
+    """The message when no plugins are installed, for this tab's site."""
+    try:
+        from ofscraper.gui import site_context
+
+        fansly = site_context.is_fansly()
+    except Exception:
+        fansly = False
+    if fansly:
+        return (
+            "No plugins exist for Fansly yet. Plugins made for OnlyFans don't run on "
+            "this tab; a Fansly plugin would go in this folder (then click Refresh)."
+        )
+    return (
+        "No plugins installed yet. Copy a plugin folder into the plugins "
+        "directory, then click Refresh (or restart the GUI)."
+    )
+
 class PluginsPage(QWidget):
     """Manage plugins in the user plugins folder."""
 
@@ -197,10 +216,7 @@ class PluginsPage(QWidget):
                 self.table.setItem(row, col, item)
 
         if not self._rows:
-            self.hint_label.setText(
-                "No plugins installed yet. Copy a plugin folder into the plugins "
-                "directory, then click Refresh (or restart the GUI)."
-            )
+            self.hint_label.setText(_empty_hint())
         else:
             self.hint_label.setText(
                 f"{len(self._rows)} plugin(s) found. "
