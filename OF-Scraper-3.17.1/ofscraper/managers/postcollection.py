@@ -226,6 +226,10 @@ class PostCollection:
         log.debug(f"{len(actionable_posts)} posts are actionable for liking.")
 
         final_posts_to_like = helpers.sort_by_date(actionable_posts)
+        # --after / --before (the GUI's Post Date Range) limit likes too: Labels,
+        # Archived and Pinned are fetched whole, so without this every post
+        # there was liked whatever the range
+        final_posts_to_like = helpers.posts_date_filter(final_posts_to_like)
         final_posts_to_like = helpers.dupefilterPost(final_posts_to_like)
         final_posts_to_like = helpers.temp_post_filter(final_posts_to_like)
         final_posts_to_like = helpers.final_post_sort(final_posts_to_like)

@@ -588,6 +588,34 @@ class TablePage(QWidget):
                 btn.setStyleSheet(_help_btn_qss())
         self._sync_toolbar_scroll_geometry()
 
+    def _current_actions(self) -> set:
+        """The actions of the run being started or running."""
+        try:
+            main = self.window()
+            for owner, name in (("workflow", "_selected_actions"),
+                                ("area_page", "_current_actions")):
+                actions = getattr(getattr(main, owner, None), name, None)
+                if actions:
+                    return set(actions)
+        except Exception:
+            pass
+        return set()
+
+    def _running_text(self, run_number=None) -> str:
+        """The Start button's text while a run is going: what the run does."""
+        actions = self._current_actions()
+        verb = "Scraping"
+        if "download" not in actions:
+            if "like" in actions:
+                verb = "Liking"
+            elif "unlike" in actions:
+                verb = "Unliking"
+        elif "like" in actions:
+            verb = "Scraping & liking"
+        elif "unlike" in actions:
+            verb = "Scraping & unliking"
+        return f"{verb} (run #{run_number})..." if run_number else f"{verb}..."
+
     def _is_check_mode(self) -> bool:
         """True when the current job is a check-mode action (manual cart downloads)."""
         if self._check_mode_active:
@@ -782,7 +810,7 @@ class TablePage(QWidget):
                 "Start Scraping >>",
                 "Scrape cancelled",
             ):
-                self.start_scraping_btn.setText("Scraping...")
+                self.start_scraping_btn.setText(self._running_text())
         except Exception:
             pass
         try:
@@ -1157,7 +1185,7 @@ class TablePage(QWidget):
 
         # Disable the button to prevent double-starts; show Cancel for stop UX
         self.start_scraping_btn.setEnabled(False)
-        self.start_scraping_btn.setText("Scraping...")
+        self.start_scraping_btn.setText(self._running_text())
         self._scrape_active = True
         self._cancelling = False
         try:
@@ -1767,7 +1795,7 @@ class TablePage(QWidget):
         # Defer Qt widget ops until this daemon run's scraping_finished fires.
         self.data_table.begin_deferred()
         self._update_row_count()
-        self.start_scraping_btn.setText(f"Scraping (run #{run_number})...")
+        self.start_scraping_btn.setText(self._running_text(run_number))
         self.daemon_status_label.setText(f"Daemon run #{run_number}")
         self.daemon_status_label.show()
         try:
