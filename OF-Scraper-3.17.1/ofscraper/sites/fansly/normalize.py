@@ -32,28 +32,22 @@ DIRECT_LOCATION = "1"
 
 HASHTAG_RE = re.compile(r"#+(\w+)")
 
-# Fansly marks text size in the post text: [s] small, [slg] large, [sxl]
-# extra large (and [/...] closing ones). Fansly draws them as styling; left
-# in, they end up in file names, the table and the database.
-# Only size codes: a real bracketed word like "[solo]" is kept.
-SIZE_TAG_RE = re.compile(r"\[/?s(?:xs|sm|md|lg|xl|xxl)?\]")
+# Fansly styles post text with its own codes and draws them as styling:
+# [s:lg] / [s:xl] (size), [c:blue] ... [/c] (colour), **bold** and *italic*.
+# Left in, they end up in file names, the table and the database.
+STYLE_CODE_RE = re.compile(r"\[(?:[sc]:[^\]\s]{1,20}|/[sc])\]")
+# a run of asterisks, except a single one inside a word ("f*ck")
+EMPHASIS_RE = re.compile(r"\*{2,}|(?<!\w)\*|\*(?!\w)")
 
 
 def plain_text(text):
-    """The post text without Fansly's size codes.
-
-    A code between two words becomes a space, so "18![s]Hi" reads "18! Hi".
-    """
-    text = text or ""
-
-    def _swap(m):
-        before = text[m.start() - 1] if m.start() else " "
-        after = text[m.end()] if m.end() < len(text) else " "
-        return "" if before.isspace() or after.isspace() else " "
-
-    out = SIZE_TAG_RE.sub(_swap, text)
-    # codes next to each other ("[slg][slg]Hi") leave no stray spaces
-    return re.sub(r"(?<=\S) {2,}(?=\S)", " ", out).strip()
+    """The post text as Fansly shows it, without its style codes."""
+    text = STYLE_CODE_RE.sub("", text or "")
+    text = EMPHASIS_RE.sub("", text)
+    # "TIMES 💦 *(40 mins)* **" leaves doubled and trailing spaces
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"[ \t]+(?=\n|$)", "", text)
+    return text.strip()
 
 
 def to_seconds(value):
