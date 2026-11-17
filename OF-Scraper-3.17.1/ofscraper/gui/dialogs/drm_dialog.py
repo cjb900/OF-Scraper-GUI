@@ -47,7 +47,7 @@ _KEY_END_RE = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY-----")
 _KEY_BLOCK_RE = re.compile(
     r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----", re.S
 )
-KEY_HIDDEN = "[private key hidden; it is saved in the device folder]"
+KEY_HIDDEN = "(private key hidden; it is saved in the device folder)"
 
 
 class PrivateKeyFilter:

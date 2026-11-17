@@ -68,3 +68,10 @@ def test_on_line_filters_before_logging(monkeypatch):
         drm_dialog.DRMKeyPage._on_line(page, line)
     assert not any("secret" in t for t in logged + shown)
     assert KEY_HIDDEN in logged and KEY_HIDDEN in shown
+
+
+def test_the_note_survives_rich_markup():
+    # the log goes through Rich, which drops "[...]" as a style tag
+    from rich.text import Text
+
+    assert KEY_HIDDEN in Text.from_markup(f"[DRM] {KEY_HIDDEN}").plain
