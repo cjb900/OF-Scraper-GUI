@@ -618,6 +618,73 @@ def private_channel():
     return stream
 
 
+# --- keyboard focus in an embedded window (Windows) -----------------------------------
+#
+# The tab window shows each site's window as a child window of another process.
+# Windows doesn't always move keyboard focus into it on a click (after Alt+Tab,
+# a dialog, a tab switch), and Qt in the site process then sees no focused
+# window: text fields show a cursor but take no typing. Both processes share
+# one input queue (parent and child windows), so either side can set the focus.
+
+
+def _focus_api():
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    user32.GetFocus.argtypes = []
+    user32.GetFocus.restype = wintypes.HWND
+    user32.SetFocus.argtypes = [wintypes.HWND]
+    user32.SetFocus.restype = wintypes.HWND
+    user32.IsChild.argtypes = [wintypes.HWND, wintypes.HWND]
+    user32.IsChild.restype = wintypes.BOOL
+    return user32
+
+
+def take_keyboard_focus(win_id, user32=None) -> bool:
+    """Give ``win_id`` the keyboard focus unless it or one of its children has
+    it. True when the focus was moved."""
+    if not win_id:
+        return False
+    try:
+        if user32 is None:
+            if sys.platform != "win32":
+                return False
+            user32 = _focus_api()
+        focused = int(user32.GetFocus() or 0)
+        if focused and (focused == int(win_id) or user32.IsChild(win_id, focused)):
+            return False
+        user32.SetFocus(win_id)
+        return True
+    except Exception as e:
+        log.debug(f"[GUI] could not set the keyboard focus: {e}")
+        return False
+
+
+def install_focus_on_click(app, window) -> None:
+    """In an embedded site window: a click inside it takes the keyboard focus
+    if Windows left it elsewhere (logged, so a log shows when it happened)."""
+    from PyQt6.QtCore import QEvent, QObject
+    from PyQt6.QtWidgets import QWidget
+
+    class _FocusOnClick(QObject):
+        def eventFilter(self, obj, event):
+            try:
+                if (
+                    event.type() == QEvent.Type.MouseButtonPress
+                    and isinstance(obj, QWidget)
+                    and obj.window() is window
+                    and take_keyboard_focus(int(window.winId()))
+                ):
+                    log.info("[GUI] this tab didn't have the keyboard focus; took it on a click")
+            except Exception:
+                pass
+            return False
+
+    app._ofs_focus_on_click = _FocusOnClick(app)  # keep it alive
+    app.installEventFilter(app._ofs_focus_on_click)
+
+
 def install_child_channel(app, window) -> None:
     """In a child process: report the window, busy/idle and notices to the tab
     window, and quit cleanly when it sends "quit" on stdin."""
@@ -672,6 +739,8 @@ def install_child_channel(app, window) -> None:
     )
 
     if is_embedded():
+        if sys.platform == "win32":
+            install_focus_on_click(app, window)
         # after show(): the window id must exist and the window be mapped
         QTimer.singleShot(0, lambda: send("window", {"id": int(window.winId())}))
     send("ready", {"site": current_site()})

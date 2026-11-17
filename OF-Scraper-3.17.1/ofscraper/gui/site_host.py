@@ -376,6 +376,15 @@ def _define_classes():
             self.stack.addWidget(self.container)
             self.stack.setCurrentWidget(self.container)
             QTimer.singleShot(0, self.fit_child)
+            QTimer.singleShot(0, self.focus_child)
+
+        def focus_child(self):
+            """Windows: put the keyboard focus in the embedded window, so typing
+            reaches it (see site_context.take_keyboard_focus)."""
+            if self.container is None or not self._win_id or not self.container.isVisible():
+                return
+            if site_context.take_keyboard_focus(self._win_id):
+                log.debug(f"[GUI] keyboard focus moved into the {self.label} tab")
 
         def fit_child(self):
             if self.container is None or not self._win_id:
@@ -461,6 +470,15 @@ def _define_classes():
             tab = self.tabs.widget(index)
             if tab is not None:
                 _remember_site(tab.site)
+                QTimer.singleShot(0, tab.focus_child)
+
+        def changeEvent(self, event):
+            super().changeEvent(event)
+            # back from Alt+Tab or a dialog: typing goes to the shown site
+            if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+                tab = self.tabs.currentWidget()
+                if tab is not None and hasattr(tab, "focus_child"):
+                    QTimer.singleShot(0, tab.focus_child)
 
         def update_tab(self, tab):
             index = self.tabs.indexOf(tab)
