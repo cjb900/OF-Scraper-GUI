@@ -32,6 +32,29 @@ DIRECT_LOCATION = "1"
 
 HASHTAG_RE = re.compile(r"#+(\w+)")
 
+# Fansly marks text size in the post text: [s] small, [slg] large, [sxl]
+# extra large (and [/...] closing ones). Fansly draws them as styling; left
+# in, they end up in file names, the table and the database.
+# Only size codes: a real bracketed word like "[solo]" is kept.
+SIZE_TAG_RE = re.compile(r"\[/?s(?:xs|sm|md|lg|xl|xxl)?\]")
+
+
+def plain_text(text):
+    """The post text without Fansly's size codes.
+
+    A code between two words becomes a space, so "18![s]Hi" reads "18! Hi".
+    """
+    text = text or ""
+
+    def _swap(m):
+        before = text[m.start() - 1] if m.start() else " "
+        after = text[m.end()] if m.end() < len(text) else " "
+        return "" if before.isspace() or after.isspace() else " "
+
+    out = SIZE_TAG_RE.sub(_swap, text)
+    # codes next to each other ("[slg][slg]Hi") leave no stray spaces
+    return re.sub(r"(?<=\S) {2,}(?=\S)", " ", out).strip()
+
 
 def to_seconds(value):
     """Epoch seconds from a Fansly time: above 1e10 is milliseconds, else seconds."""
@@ -277,7 +300,7 @@ def _item_dict(item, lookup, response_type):
     media = [m for account_media, _ in pairs for m in media_for(account_media, created)]
     out = {
         "id": int(item["id"]),
-        "text": item.get("content") or "",
+        "text": plain_text(item.get("content")),
         "createdAt": created,
         "postedAt": created,
         "price": _price(pairs) / 1000,
