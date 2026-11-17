@@ -880,9 +880,10 @@ class FilterSidebar(QWidget):
         self.ul_true.setChecked(True)
         self.ul_false.setChecked(True)
         self.ul_not_paid.setChecked(True)
-        for w in (self.min_date, self.max_date):
+        # the start-up defaults, not the widget's minimum (Qt's 9/14/1752)
+        for w, d in ((self.min_date, QDate(2000, 1, 1)), (self.max_date, QDate.currentDate())):
             w.blockSignals(True)
-            w.setDate(w.minimumDate())
+            w.setDate(d)
             w.blockSignals(False)
         self.after_mode_combo.setCurrentIndex(0)
         self.after_rel_value.setValue(1)

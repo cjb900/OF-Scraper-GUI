@@ -395,8 +395,13 @@ class _NullLive:
     def stop(self):
         self.is_started = False
 
-    def update(self, *args, **kwargs):
-        pass
+    def update(self, renderable=None, *args, **kwargs):
+        if renderable is not None:
+            self.renderable = renderable
+
+    def get_renderable(self):
+        # 3.17.1's stop_live_screen (metadata, prompts) asks for it
+        return self.renderable
 
     def refresh(self):
         pass
@@ -3235,6 +3240,7 @@ class GUIWorkflow:
                 "Check mode complete — select items in the table and click 'Send Downloads'"
             )
         except Exception as e:
+            self._last_run_failed = True
             log.error(f"Check mode error: {e}")
             log.debug(traceback.format_exc())
             app_signals.log_message.emit("ERROR", f"Check mode failed: {e}")
@@ -3368,6 +3374,8 @@ class GUIWorkflow:
         """Run the scraper pipeline in a background thread.
         If daemon mode is enabled, loops with the configured interval."""
         run_count = 0
+        # set when the run stops with an error: History and the run-end notice say so
+        self._last_run_failed = False
         try:
             # Live stubs were installed on the Qt main thread before start;
             # only prepare logging + progress hooks here.
@@ -4248,6 +4256,7 @@ class GUIWorkflow:
                 app_signals.status_message.emit("Scraping cancelled")
             app_signals.log_message.emit("WARNING", "Scraping was cancelled")
         except Exception as e:
+            self._last_run_failed = True
             log.error(f"Scraper error: {e}")
             log.debug(traceback.format_exc())
             app_signals.error_occurred.emit("Scraper Error", str(e))

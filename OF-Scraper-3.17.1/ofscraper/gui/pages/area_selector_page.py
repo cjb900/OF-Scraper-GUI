@@ -738,7 +738,8 @@ class AreaSelectorPage(QWidget):
                     fs.after_mode_combo.setCurrentText(gs["after_mode"])
                 if "after_date" in gs:
                     d = QDate.fromString(gs["after_date"], "yyyy-MM-dd")
-                    if d.isValid():
+                    # before 1900: saved after an older Reset that set 9/14/1752
+                    if d.isValid() and d.year() >= 1900:
                         fs.min_date.blockSignals(True)
                         fs.min_date.setDate(d)
                         fs.min_date.blockSignals(False)
@@ -755,7 +756,8 @@ class AreaSelectorPage(QWidget):
                     fs.before_mode_combo.setCurrentText(gs["before_mode"])
                 if "before_date" in gs:
                     d = QDate.fromString(gs["before_date"], "yyyy-MM-dd")
-                    if d.isValid():
+                    # before 1900: saved after an older Reset that set 9/14/1752
+                    if d.isValid() and d.year() >= 1900:
                         fs.max_date.blockSignals(True)
                         fs.max_date.setDate(d)
                         fs.max_date.blockSignals(False)

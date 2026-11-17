@@ -1521,7 +1521,7 @@ class TablePage(QWidget):
                     _as2.total_bytes_updated.emit(float(_total_bytes))
 
                 self._record_scrape_history(
-                    status="cancelled" if was_cancelling else "ok",
+                    status=self._run_status(was_cancelling),
                     run_dl=_run_dl,
                     failed=_sum_failed,
                     forced=_sum_forced,
@@ -1531,7 +1531,7 @@ class TablePage(QWidget):
                 _hist_done = True
             else:
                 self._record_scrape_history(
-                    status="cancelled" if was_cancelling else "ok",
+                    status=self._run_status(was_cancelling),
                 )
                 _hist_done = True
 
@@ -1552,6 +1552,13 @@ class TablePage(QWidget):
                     self._maybe_show_failure_summary(0)
                 except Exception:
                     pass
+
+    def _run_status(self, was_cancelling) -> str:
+        """History / notice status of the run that just ended."""
+        if was_cancelling:
+            return "cancelled"
+        workflow = getattr(self.window(), "workflow", None)
+        return "error" if getattr(workflow, "_last_run_failed", False) else "ok"
 
     def _notify_run_end(self, status, run_dl=0, failed=0):
         """One system notification when a run ends (Scraper page option, on by
