@@ -42,6 +42,7 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
   - [Daemon Mode](#sca-daemon-mode)
     - [Enable daemon mode](#sca-daemon-enable)
     - [Interval](#sca-daemon-interval)
+    - [System notification when a run finishes](#sca-notify-finished)
     - [System notification when scraping starts](#sca-daemon-notify)
     - [Sound alert when scraping starts](#sca-daemon-sound)
     - [@here Discord mention when new content is found](#sca-daemon-discord-ping)
@@ -583,6 +584,10 @@ Automatically re-runs scraping on a schedule.
 <a id="sca-daemon-interval"></a>
 #### Interval
 Minutes between runs.
+
+<a id="sca-notify-finished"></a>
+#### System notification when a run finishes
+Shows one desktop notification when a scrape, like or unlike run ends, also when it is cancelled or stops with an error; for example "Scrape finished: 644 downloaded, 2 failed". With OnlyFans and Fansly in tabs, the notice starts with the site's name. On by default; works with or without daemon mode (daemon runs report their start instead).
 
 <a id="sca-daemon-notify"></a>
 #### System notification when scraping starts

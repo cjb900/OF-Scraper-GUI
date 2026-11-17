@@ -64,6 +64,33 @@ def _make_help_btn(anchor: str) -> QToolButton:
     return b
 
 
+def run_end_notice(actions, status, run_dl=0, failed=0):
+    """(title, message) for the notification shown when a run ends."""
+    actions = set(actions or ())
+    if "download" not in actions and "like" in actions:
+        what = "Liking"
+    elif "download" not in actions and "unlike" in actions:
+        what = "Unliking"
+    else:
+        what = "Scrape"
+    title = {
+        "cancelled": f"{what} cancelled",
+        "error": f"{what} stopped with an error",
+    }.get(status, f"{what} finished")
+    run_dl, failed = int(run_dl or 0), int(failed or 0)
+    if what != "Scrape":
+        message = "See the Liked column for the result."
+    elif run_dl or failed:
+        message = f"{run_dl} downloaded" + (f", {failed} failed" if failed else "")
+    elif status == "ok":
+        message = "Nothing new to download."
+    else:
+        message = "Nothing was downloaded."
+    if status == "error":
+        message += " Check the log for details."
+    return title, message
+
+
 class TablePage(QWidget):
     """Main workspace page combining data table, filter sidebar,
     console log, and progress panel. Replaces the Textual InputApp."""
@@ -1526,6 +1553,21 @@ class TablePage(QWidget):
                 except Exception:
                     pass
 
+    def _notify_run_end(self, status, run_dl=0, failed=0):
+        """One system notification when a run ends (Scraper page option, on by
+        default). In the tab window it is shown as "<site>: <title>"."""
+        try:
+            area = getattr(self.window(), "area_page", None)
+            enabled = getattr(area, "is_notify_finished_enabled", None)
+            if enabled is not None and not enabled():
+                return
+            title, message = run_end_notice(self._current_actions(), status, run_dl, failed)
+            from ofscraper.gui.signals import app_signals as _sig
+
+            _sig.show_notification.emit(title, message)
+        except Exception as e:
+            log.debug(f"[GUI] run-end notification failed: {e}")
+
     def _record_scrape_history(
         self,
         *,
@@ -1558,6 +1600,7 @@ class TablePage(QWidget):
                 and status == "ok"
             ):
                 return
+            self._notify_run_end(status, run_dl, failed)
             row_count = 0
             try:
                 row_count = len(self.data_table._display_data or [])

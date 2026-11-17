@@ -507,6 +507,19 @@ class AreaSelectorPage(QWidget):
         interval_layout.addStretch()
         daemon_layout.addLayout(interval_layout)
 
+        self.notify_finished_check = QCheckBox("System notification when a run finishes")
+        apply_font(self.notify_finished_check, "Segoe UI", 11)
+        self.notify_finished_check.setChecked(True)
+        self.notify_finished_check.setToolTip(
+            "Show a system notification when a scrape, like or unlike run ends\n"
+            "(also when it is cancelled). Works with or without daemon mode."
+        )
+        row = QHBoxLayout()
+        row.addWidget(self.notify_finished_check)
+        row.addWidget(_make_help_btn("sca-notify-finished"))
+        row.addStretch()
+        daemon_layout.addLayout(row)
+
         self.notify_check = QCheckBox("System notification when scraping starts")
         apply_font(self.notify_check, "Segoe UI", 11)
         self.notify_check.setToolTip(
@@ -711,6 +724,8 @@ class AreaSelectorPage(QWidget):
                     pass
             if "daemon_notify" in gs:
                 self.notify_check.setChecked(bool(gs["daemon_notify"]))
+            if "notify_finished" in gs:
+                self.notify_finished_check.setChecked(bool(gs["notify_finished"]))
             if "daemon_sound" in gs:
                 self.sound_check.setChecked(bool(gs["daemon_sound"]))
 
@@ -780,6 +795,7 @@ class AreaSelectorPage(QWidget):
             gs["daemon_enabled"] = self.daemon_check.isChecked()
             gs["daemon_interval"] = self.daemon_interval.value()
             gs["daemon_notify"] = self.notify_check.isChecked()
+            gs["notify_finished"] = self.notify_finished_check.isChecked()
             gs["daemon_sound"] = self.sound_check.isChecked()
             # Date filter
             fs = self.filter_sidebar
@@ -804,6 +820,7 @@ class AreaSelectorPage(QWidget):
         "allow_dupes", "keep_msg_purchased_dupes", "rescrape_all",
         "delete_db", "delete_downloads", "quality",
         "daemon_enabled", "daemon_interval", "daemon_notify", "daemon_sound",
+        "notify_finished",
         "after_mode", "after_date", "after_rel_value", "after_rel_unit", "after_enabled",
         "before_mode", "before_date", "before_rel_value", "before_rel_unit", "before_enabled",
     )
@@ -870,6 +887,7 @@ class AreaSelectorPage(QWidget):
             self.daemon_check.setChecked(False)
             self.daemon_interval.setValue(30.0)
             self.notify_check.setChecked(False)
+            self.notify_finished_check.setChecked(True)
             self.sound_check.setChecked(False)
             # Date filter
             from PyQt6.QtCore import QDate
@@ -915,6 +933,7 @@ class AreaSelectorPage(QWidget):
         self.daemon_check.toggled.connect(self._save_area_settings)
         self.daemon_interval.valueChanged.connect(self._save_area_settings)
         self.notify_check.toggled.connect(self._save_area_settings)
+        self.notify_finished_check.toggled.connect(self._save_area_settings)
         self.sound_check.toggled.connect(self._save_area_settings)
         # Date filter
         fs = self.filter_sidebar
@@ -1083,6 +1102,7 @@ class AreaSelectorPage(QWidget):
         self.daemon_interval.setValue(30.0)
         self.daemon_interval.setEnabled(False)
         self.notify_check.setChecked(False)
+        self.notify_finished_check.setChecked(True)
         self.sound_check.setChecked(False)
         self.daemon_discord_ping_check.setChecked(False)
         self.daemon_discord_ping_check.setEnabled(False)
@@ -1699,6 +1719,9 @@ class AreaSelectorPage(QWidget):
 
     def is_notify_enabled(self):
         return self.notify_check.isChecked()
+
+    def is_notify_finished_enabled(self):
+        return self.notify_finished_check.isChecked()
 
     def is_sound_enabled(self):
         return self.sound_check.isChecked()
