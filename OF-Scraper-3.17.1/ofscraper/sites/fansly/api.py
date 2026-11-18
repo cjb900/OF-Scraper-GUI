@@ -151,6 +151,60 @@ async def timeline_stats(c, account_id):
     return (accounts[0] if accounts else {}).get("timelineStats") or None
 
 
+# the Media tab: media offers placed on a wall
+WALL_LOCATION = 1002
+MEDIA_TAB_LIMIT = 30
+
+
+async def media_tab_pages(c, account_id, location_id, after=None):
+    """The profile's Media tab, newest first, one raw page at a time.
+
+    ``before`` is the id of the previous page's last item; paging stops on an
+    empty page, or once a page's media are all older than ``after`` (epoch
+    seconds).
+    """
+    before = ""
+    for _ in range(MAX_PAGES):
+        response = await get_json(
+            c,
+            f"mediaoffers/location?locationId={location_id}&locationType={WALL_LOCATION}"
+            f"&accountId={account_id}&mediaType=&before={before}&after=0"
+            f"&limit={MEDIA_TAB_LIMIT}&offset=0",
+        )
+        response = response or {}
+        data = response.get("data") or []
+        if not data:
+            return
+        yield response
+        last = str(data[-1].get("id") or "")
+        if not last or last == before:
+            return
+        before = last
+        if after is not None:
+            times = [
+                normalize.to_seconds(m.get("createdAt"))
+                for m in (response.get("aggregationData") or {}).get("accountMedia") or []
+            ]
+            times = [t for t in times if t is not None]
+            if times and max(times) < after:
+                return
+
+
+async def media_tab_posts(c, account_id, location_id, known, after=None, report=None):
+    """Posts for the Media tab items the timeline didn't give (``known``:
+    accountMedia ids it did)."""
+    out = []
+    async for page in media_tab_pages(c, account_id, location_id, after=after):
+        if report is not None:
+            report.media_tab_items += len(page.get("data") or [])
+        agg = page.get("aggregationData") or {}
+        have = {str(m.get("id")) for m in agg.get("accountMedia") or []}
+        fetch = [i for i in normalize.media_tab_missing_ids(page, known) if i not in have]
+        extra = await account_media(c, fetch) if fetch else []
+        out.extend(normalize.media_tab_posts(page, known, extra, report=report))
+    return out
+
+
 async def walls(c, account_id):
     """The walls (profile tabs) of one account, from ``account?ids=``, and the
     account's ``hasMainWall`` (None when it isn't given)."""
