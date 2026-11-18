@@ -64,6 +64,10 @@ async def _add_media_tab(c, model_id, posts, report):
     try:
         walls, has_main_wall = await api.walls(c, model_id)
         location = normalize.main_wall_id(walls, has_main_wall)
+        log.debug(
+            f"Fansly walls: {[(w.get('id'), w.get('pos'), w.get('defaultWall'), w.get('mainWall')) for w in walls]}"
+            f", hasMainWall {has_main_wall}, Media tab location {location}"
+        )
         if not location:
             report.media_tab_note = "skipped, the creator has no main wall"
             return posts

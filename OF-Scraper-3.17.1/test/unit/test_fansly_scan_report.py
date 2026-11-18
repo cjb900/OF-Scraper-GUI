@@ -330,3 +330,29 @@ def test_paging_stops_at_the_after_date():
 
 async def _collect(agen):
     return [x async for x in agen]
+
+
+def test_an_empty_all_types_answer_is_asked_again_per_type(after_none, caplog):
+    known = known_timeline_id()
+    calls = []
+    base = route(account=account_with_main_wall())
+
+    def answer(path, query):
+        if path == "mediaoffers/location":
+            calls.append((query["mediaType"], query["before"]))
+            if query["mediaType"] == "2" and query["before"] == "":
+                return media_tab_page(known)
+            return envelope({"data": [], "aggregationData": {}})
+        if path == "account/media" and "100000000000000903" in query["ids"]:
+            return envelope([fake_account_media("100000000000000903", "100000000000000803")])
+        return base(path, query)
+
+    with caplog.at_level(logging.INFO, logger="shared"):
+        posts = asyncio.run(scrape.get_timeline_posts(CREATOR_ID, "samplecreator1", c=Session(answer)))
+    assert calls == [("", ""), ("1", ""), ("2", ""), ("2", "9001")]
+    ids = {m["fansly"]["accountMediaId"] for p in posts for m in p["media"]}
+    assert "100000000000000901" in ids
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    # the first page of each try is logged, without any login data
+    assert "Fansly Media tab: mediaoffers/location?locationId=" in text
+    assert "0 items" in text and "4 items" in text

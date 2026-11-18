@@ -156,24 +156,39 @@ WALL_LOCATION = 1002
 MEDIA_TAB_LIMIT = 30
 
 
-async def media_tab_pages(c, account_id, location_id, after=None):
+def _describe(response):
+    """A short, token-free description of a Media tab reply, for the log."""
+    if not isinstance(response, dict):
+        return f"{type(response).__name__}: {str(response)[:200]}"
+    agg = response.get("aggregationData") or {}
+    return (
+        f"keys {sorted(response)}, {len(response.get('data') or [])} items, "
+        f"aggregationData {({k: len(v) for k, v in agg.items() if isinstance(v, list)})}"
+    )
+
+
+async def media_tab_pages(c, account_id, location_id, after=None, media_type=""):
     """The profile's Media tab, newest first, one raw page at a time.
 
     ``before`` is the id of the previous page's last item; paging stops on an
     empty page, or once a page's media are all older than ``after`` (epoch
-    seconds).
+    seconds). ``media_type``: "" for all, 1 images, 2 videos.
     """
     before = ""
-    for _ in range(MAX_PAGES):
-        response = await get_json(
-            c,
+    for page_number in range(MAX_PAGES):
+        path = (
             f"mediaoffers/location?locationId={location_id}&locationType={WALL_LOCATION}"
-            f"&accountId={account_id}&mediaType=&before={before}&after=0"
-            f"&limit={MEDIA_TAB_LIMIT}&offset=0",
+            f"&accountId={account_id}&mediaType={media_type}&before={before}&after=0"
+            f"&limit={MEDIA_TAB_LIMIT}&offset=0"
         )
-        response = response or {}
+        response = await get_json(c, path)
+        if page_number == 0:
+            log.info(f"Fansly Media tab: {path} -> {_describe(response)}")
+        response = response if isinstance(response, dict) else {}
         data = response.get("data") or []
         if not data:
+            if page_number:
+                log.debug(f"Fansly Media tab: page {page_number + 1} is empty, done")
             return
         yield response
         last = str(data[-1].get("id") or "")
@@ -194,14 +209,28 @@ async def media_tab_posts(c, account_id, location_id, known, after=None, report=
     """Posts for the Media tab items the timeline didn't give (``known``:
     accountMedia ids it did)."""
     out = []
-    async for page in media_tab_pages(c, account_id, location_id, after=after):
-        if report is not None:
-            report.media_tab_items += len(page.get("data") or [])
-        agg = page.get("aggregationData") or {}
-        have = {str(m.get("id")) for m in agg.get("accountMedia") or []}
-        fetch = [i for i in normalize.media_tab_missing_ids(page, known) if i not in have]
-        extra = await account_media(c, fetch) if fetch else []
-        out.extend(normalize.media_tab_posts(page, known, extra, report=report))
+    seen = 0
+    # "" lists every type; if Fansly sends nothing for it, ask per type, as the
+    # web app does when Photos or Videos is picked
+    for media_type in ("", 1, 2):
+        if media_type != "" and seen:
+            break
+        async for page in media_tab_pages(
+            c, account_id, location_id, after=after, media_type=media_type
+        ):
+            seen += len(page.get("data") or [])
+            if report is not None:
+                report.media_tab_items += len(page.get("data") or [])
+            agg = page.get("aggregationData") or {}
+            have = {str(m.get("id")) for m in agg.get("accountMedia") or []}
+            fetch = [i for i in normalize.media_tab_missing_ids(page, known) if i not in have]
+            extra = await account_media(c, fetch) if fetch else []
+            found = normalize.media_tab_posts(page, known, extra, report=report)
+            out.extend(found)
+            # an item found for one type isn't asked about again
+            known = set(known) | {
+                m["fansly"]["accountMediaId"] for p in found for m in p["media"]
+            }
     return out
 
 
