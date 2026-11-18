@@ -87,28 +87,36 @@ async def account_media(c, ids):
     return out
 
 
-async def missing_media(c, response):
+async def missing_media(c, response, report=None):
     """accountMedia the response names but doesn't embed (bundles show only 5)."""
     missing = normalize.missing_account_media_ids(response)
     if not missing:
         return []
     log.debug(f"fetching {len(missing)} Fansly media the response left out")
-    return await account_media(c, missing)
+    found = await account_media(c, missing)
+    if len(found) < len(missing):
+        log.debug(f"Fansly returned {len(found)} of the {len(missing)} media asked for")
+    if report is not None:
+        report.backfill_asked += len(missing)
+        report.backfill_returned += len(found)
+    return found
 
 
 # ------------------------------------------------------------------ posts
 
 
-async def timeline(c, account_id, wall_id="", after=None):
+async def timeline(c, account_id, wall_id="", after=None, report=None):
     """All timeline post dicts, newest first."""
     return [
         post
-        async for page in timeline_pages(c, account_id, wall_id=wall_id, after=after)
+        async for page in timeline_pages(
+            c, account_id, wall_id=wall_id, after=after, report=report
+        )
         for post in page
     ]
 
 
-async def timeline_pages(c, account_id, wall_id="", after=None):
+async def timeline_pages(c, account_id, wall_id="", after=None, report=None):
     """Timeline post dicts one page at a time, newest first.
 
     ``before`` is the id of the last post of the previous page; paging stops
@@ -125,7 +133,9 @@ async def timeline_pages(c, account_id, wall_id="", after=None):
         page = response.get("posts") or []
         if not page:
             return
-        yield normalize.posts(response, await missing_media(c, response))
+        yield normalize.posts(
+            response, await missing_media(c, response, report), report=report
+        )
         last = str(page[-1]["id"])
         if last == before:
             return
@@ -133,6 +143,12 @@ async def timeline_pages(c, account_id, wall_id="", after=None):
         oldest = normalize.to_seconds(page[-1].get("createdAt"))
         if after is not None and oldest is not None and oldest < after:
             return
+
+
+async def timeline_stats(c, account_id):
+    """The media counts Fansly shows on the profile, or None."""
+    accounts = await accounts_by_id(c, [account_id])
+    return (accounts[0] if accounts else {}).get("timelineStats") or None
 
 
 async def walls(c, account_id):

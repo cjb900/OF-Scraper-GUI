@@ -41,8 +41,15 @@ async def get_timeline_posts(model_id, username, c=None, post_id=None):
         if post_id:
             posts = await api.posts_by_id(c, post_id)
             return [p for p in posts if str(p["id"]) in {str(x) for x in post_id}]
-        posts = await api.timeline(c, model_id, after=_after())
+        report = normalize.ScanReport()
+        posts = await api.timeline(c, model_id, after=_after(), report=report)
+        try:
+            stats = await api.timeline_stats(c, model_id)
+        except Exception as e:  # the check is only a report
+            log.debug(f"Fansly media counts not read: {e}")
+            stats = None
     log.debug(f"Fansly timeline: {len(posts)} posts for {username}")
+    log.info(report.summary(username, stats, after=_after()))
     return posts
 
 
