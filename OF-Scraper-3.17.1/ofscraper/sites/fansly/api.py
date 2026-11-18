@@ -154,6 +154,8 @@ async def timeline_stats(c, account_id):
 # the Media tab: media offers placed on a wall
 WALL_LOCATION = 1002
 MEDIA_TAB_LIMIT = 30
+# the Media tab's Photos and Videos views
+MEDIA_TAB_TYPES = (1, 2)
 
 
 def _describe(response):
@@ -188,7 +190,7 @@ async def media_tab_pages(c, account_id, location_id, after=None, media_type="")
         data = response.get("data") or []
         if not data:
             if page_number:
-                log.debug(f"Fansly Media tab: page {page_number + 1} is empty, done")
+                log.debug(f"Fansly Media tab: type {media_type!r} page {page_number + 1} is empty, done")
             return
         yield response
         last = str(data[-1].get("id") or "")
@@ -209,16 +211,15 @@ async def media_tab_posts(c, account_id, location_id, known, after=None, report=
     """Posts for the Media tab items the timeline didn't give (``known``:
     accountMedia ids it did)."""
     out = []
-    seen = 0
-    # "" lists every type; if Fansly sends nothing for it, ask per type, as the
-    # web app does when Photos or Videos is picked
-    for media_type in ("", 1, 2):
-        if media_type != "" and seen:
-            break
+    # one type at a time: Fansly pages the all-types list ("") only once (its
+    # second page is empty), while the Photos and Videos views page to the end
+    for media_type in MEDIA_TAB_TYPES:
+        pages = items = 0
         async for page in media_tab_pages(
             c, account_id, location_id, after=after, media_type=media_type
         ):
-            seen += len(page.get("data") or [])
+            pages += 1
+            items += len(page.get("data") or [])
             if report is not None:
                 report.media_tab_items += len(page.get("data") or [])
             agg = page.get("aggregationData") or {}
@@ -231,6 +232,7 @@ async def media_tab_posts(c, account_id, location_id, known, after=None, report=
             known = set(known) | {
                 m["fansly"]["accountMediaId"] for p in found for m in p["media"]
             }
+        log.info(f"Fansly Media tab: type {media_type}: {items} items in {pages} pages")
     return out
 
 

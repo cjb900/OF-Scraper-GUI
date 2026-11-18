@@ -216,7 +216,7 @@ def media_tab_route(known_id, pages=None):
         if path == "mediaoffers/location":
             calls.append(query)
             assert query["locationId"] == WALL and query["accountId"] == str(CREATOR_ID)
-            if query["before"] == "":
+            if query["before"] == "" and query["mediaType"] == "2":
                 return pages[0] if pages else media_tab_page(known_id)
             return envelope({"data": [], "aggregationData": {}})
         if path == "account/media" and "100000000000000903" in query["ids"]:
@@ -283,8 +283,9 @@ def test_the_scrape_adds_media_tab_items_and_reports_them(after_none, caplog):
 
     plain, _ = scan()
     assert uses(posts) == uses(plain)
-    # paged with the last item's id until an empty page
-    assert [q["before"] for q in answer.calls] == ["", "9001"]
+    # photos, then videos, each paged with the last item's id until an empty page
+    assert [(q["mediaType"], q["before"]) for q in answer.calls] == [
+        ("1", ""), ("2", ""), ("2", "9001")]
     text = "\n".join(r.getMessage() for r in caplog.records)
     assert "Media tab: 4 items" in text
     assert "Media tab only: 1 videos (locked)" in text
@@ -332,7 +333,9 @@ async def _collect(agen):
     return [x async for x in agen]
 
 
-def test_an_empty_all_types_answer_is_asked_again_per_type(after_none, caplog):
+def test_photos_and_videos_are_paged_separately(after_none, caplog):
+    # Fansly pages the all-types list only once (its second page is empty), so
+    # the Media tab is read per type, like its Photos and Videos views
     known = known_timeline_id()
     calls = []
     base = route(account=account_with_main_wall())
@@ -349,10 +352,30 @@ def test_an_empty_all_types_answer_is_asked_again_per_type(after_none, caplog):
 
     with caplog.at_level(logging.INFO, logger="shared"):
         posts = asyncio.run(scrape.get_timeline_posts(CREATOR_ID, "samplecreator1", c=Session(answer)))
-    assert calls == [("", ""), ("1", ""), ("2", ""), ("2", "9001")]
+    assert calls == [("1", ""), ("2", ""), ("2", "9001")]
     ids = {m["fansly"]["accountMediaId"] for p in posts for m in p["media"]}
     assert "100000000000000901" in ids
     text = "\n".join(r.getMessage() for r in caplog.records)
     # the first page of each try is logged, without any login data
     assert "Fansly Media tab: mediaoffers/location?locationId=" in text
     assert "0 items" in text and "4 items" in text
+    assert "type 1: 0 items in 0 pages" in text and "type 2: 4 items in 1 pages" in text
+
+
+def test_an_item_on_both_lists_is_added_once(after_none):
+    known = known_timeline_id()
+    base = route(account=account_with_main_wall())
+
+    def answer(path, query):
+        if path == "mediaoffers/location":
+            if query["before"] == "":
+                return media_tab_page(known)
+            return envelope({"data": [], "aggregationData": {}})
+        if path == "account/media" and "100000000000000903" in query["ids"]:
+            return envelope([fake_account_media("100000000000000903", "100000000000000803")])
+        return base(path, query)
+
+    posts = asyncio.run(scrape.get_timeline_posts(CREATOR_ID, "samplecreator1", c=Session(answer)))
+    added = [m["fansly"]["accountMediaId"] for p in posts for m in p["media"]
+             if m["fansly"]["accountMediaId"].startswith("1000000000000009")]
+    assert sorted(added) == sorted(set(added))
