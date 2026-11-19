@@ -163,7 +163,7 @@ def test_post_check_lists_every_timeline_media_item(env, caplog):
     # the creator came from Fansly's account lookup, by name
     assert env.session.calls("account")[0]["usernames"] == CREATOR
     assert all("onlyfans.com" not in url for url in env.session.urls)
-    assert f"[{CREATOR}] Check: {len(found)} items, 0 downloaded" in caplog.text
+    assert f"Check for {CREATOR}: {len(found)} items, 0 downloaded" in caplog.text
 
 
 def test_post_check_marks_what_was_downloaded(env, caplog, monkeypatch):
@@ -181,7 +181,7 @@ def test_post_check_marks_what_was_downloaded(env, caplog, monkeypatch):
     assert again[key]["downloaded"]
     assert again[key]["download_cart"] == "[downloaded]"
     assert sum(r["downloaded"] for r in again.values()) == 1
-    assert f"[{CREATOR}] Check: {len(again)} items, 1 downloaded" in caplog.text
+    assert f"Check for {CREATOR}: {len(again)} items, 1 downloaded" in caplog.text
 
 
 def test_post_check_skips_areas_fansly_does_not_have(env, caplog):
@@ -275,11 +275,11 @@ def test_totals_count_locked_items_apart():
         row("Images", True),
     ])
     assert line == (
-        "[someone] Check: 4 items, 2 downloaded, 1 not downloaded, 1 locked; "
+        "Check for someone: 4 items, 2 downloaded, 1 not downloaded, 1 locked; "
         "images 1/1, videos 1/3 (1 locked)"
     )
     assert check.check_totals("someone", []) == (
-        "[someone] Check: 0 items, 0 downloaded, 0 not downloaded, 0 locked"
+        "Check for someone: 0 items, 0 downloaded, 0 not downloaded, 0 locked"
     )
 
 

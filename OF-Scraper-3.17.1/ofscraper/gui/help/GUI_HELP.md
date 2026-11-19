@@ -1070,7 +1070,7 @@ Select a check mode from the **Select Action** step:
 <a id="check-mode-fansly"></a>
 **On Fansly**, Post Check scans the Timeline and, if ticked, Walls (Fansly has no separate pinned, archived or stream lists), Message Check scans the creator's conversation and your purchases from them, and Paid Check scans your purchases. Story Check is OnlyFans only.
 
-**Did I get everything?** Each check logs one line per creator, for example `[creator] Check: 120 items, 110 downloaded, 6 not downloaded, 4 locked; images 70/70, videos 40/50 (4 locked)`. *Not downloaded* are items you can view but haven't saved: add them to the cart. *Locked* are items you haven't bought, which can't be downloaded. Tick **Compare with files on disk** to count a deleted file as not downloaded. The site's own profile counts can be higher than the check's: Fansly, for one, counts reposts and media no longer on any post.
+**Did I get everything?** Each check logs one line per creator, for example `Check for creator: 120 items, 110 downloaded, 6 not downloaded, 4 locked; images 70/70, videos 40/50 (4 locked)`. *Not downloaded* are items you can view but haven't saved: add them to the cart. *Locked* are items you haven't bought, which can't be downloaded. Tick **Compare with files on disk** to count a deleted file as not downloaded. The site's own profile counts can be higher than the check's: Fansly, for one, counts reposts and media no longer on any post.
 
 <a id="check-mode-msg-filter"></a>
 ### Message filter (Message Check only)

@@ -1330,7 +1330,8 @@ def check_totals(username, rows):
     done = sum(1 for r in rows if r["downloaded"])
     locked = sum(1 for r in rows if not r["downloaded"] and not r["unlocked"])
     return (
-        f"[{username}] Check: {len(rows)} items, {done} downloaded, "
+        # no brackets round the name: the log file reads [name] as markup
+        f"Check for {username}: {len(rows)} items, {done} downloaded, "
         f"{len(rows) - done - locked} not downloaded, {locked} locked"
         + (f"; {', '.join(parts)}" if parts else "")
     )
