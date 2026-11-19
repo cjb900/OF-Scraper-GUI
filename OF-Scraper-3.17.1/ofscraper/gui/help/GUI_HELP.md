@@ -478,7 +478,7 @@ When to use:
 #### Name text files from post text (instead of post ID)
 Only available when **Include Post Text** is enabled.
 
-- **Off (default):** `.txt` filenames follow **Configuration → File Options → File Format** (for example `{media_id}.{ext}` becomes `{post_id}.txt` for text files).
+- **Off (default):** `.txt` filenames follow **Configuration → File Options → File Format** (for example `{media_id}.{ext}` becomes `{post_id}.txt` for text files). A text post has no media file, so `{filename}` stands for the post text; when the format also has `{text}` (for example `{date} {filename} {text}.{ext}`), `{filename}` is the post ID instead, so the text isn't written twice.
 - **On:** `.txt` filenames are built from the truncated/sanitized post caption (using **Text Length** / **Text Type**). Empty captions fall back to the post ID.
 
 Filename length warning:

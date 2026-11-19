@@ -497,6 +497,15 @@ class Placeholders(basePlaceholder):
             return self.trunicated_filepath.stat().st_size
 
 
+def text_format_fields():
+    """Placeholder names in the File Format ({args.x} and {a[0]} give "args" and "a")."""
+    try:
+        fields = string.Formatter().parse(data.get_fileformat() or "")
+        return {re.split(r"[.\[]", name, 1)[0] for _, name, _, _ in fields if name}
+    except (ValueError, TypeError):
+        return set()
+
+
 class Textholders(basePlaceholder):
     def __init__(self, ele, ext) -> None:
         super().__init__()
@@ -595,6 +604,13 @@ class Textholders(basePlaceholder):
         self._variables.update({"args": settings.get_args()})
 
         sanitized_name = ele.text_trunicate(ele.file_sanitized_text)
+        # A text post has no media file name, so the file name placeholders
+        # stand for the post text. When the File Format has {text} as well
+        # ("{date} {filename} {text}.{ext}"), that put the text in twice; the
+        # file name placeholders are then the post id, as a media file's are
+        # its media id.
+        if "text" in text_format_fields():
+            sanitized_name = str(ele.id)
 
         self._variables.update({"quality": "source"})
         self._variables.update({"file_name": sanitized_name})
