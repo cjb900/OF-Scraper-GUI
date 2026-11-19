@@ -224,13 +224,6 @@ class ScanReport:
         self.dropped = Counter()
         self.backfill_asked = 0
         self.backfill_returned = 0
-        # the profile's Media tab, compared with the timeline
-        self.media_tab_checked = False
-        self.media_tab_items = 0
-        # (kind, access) -> items the timeline didn't give
-        self.media_tab_missing = Counter()
-        self.media_tab_added = 0
-        self.media_tab_note = None
 
     def drop(self, why):
         self.dropped[why] += 1
@@ -258,6 +251,10 @@ class ScanReport:
                 f"{stats.get('videoCount', '?')} videos + {stats.get('bundleVideoCount', '?')} in bundles, "
                 f"{stats.get('bundleCount', '?')} bundles"
             )
+            lines.append(
+                "  (Fansly's counts include reposts and media no longer on any post, "
+                "so they can be higher than what the scan finds)"
+            )
         else:
             lines.append("  Fansly counts: not available")
         if after:
@@ -275,18 +272,6 @@ class ScanReport:
             lines.append(
                 f"  bundle media fetched separately: {self.backfill_returned} of {self.backfill_asked} returned"
             )
-        if self.media_tab_checked:
-            lines.append(f"  Media tab: {self.media_tab_items} items")
-            if self.media_tab_missing:
-                for (kind, access), n in sorted(self.media_tab_missing.items()):
-                    lines.append(
-                        f"  Media tab only: {n} {kind}s ({'viewable' if access else 'locked'})"
-                    )
-                lines.append(f"  Media tab only, added to the download: {self.media_tab_added}")
-            else:
-                lines.append("  Media tab only: nothing")
-        elif self.media_tab_note:
-            lines.append(f"  Media tab: {self.media_tab_note}")
         if self.dropped:
             for why, n in self.dropped.most_common():
                 lines.append(f"  not used: {n} x {why}")
@@ -485,78 +470,6 @@ def purchases(response, account_id, extra_account_media=()):
             }
         )
     return out
-
-
-def media_tab_missing_ids(response, known):
-    """accountMedia ids on one Media tab page that ``known`` lacks, in order."""
-    out = []
-    for item in (response or {}).get("data") or []:
-        offer = str(item.get("mediaOfferId") or "")
-        if offer and offer not in known and offer not in out:
-            out.append(offer)
-    return out
-
-
-def media_tab_posts(response, known, extra_account_media=(), report=None):
-    """Post dicts for the Media tab items that ``known`` (accountMedia ids the
-    timeline gave) lacks.
-
-    A Media tab page lists media offers (``data``: ``mediaOfferId`` is the
-    accountMedia id, ``correlationId`` the post it belongs to) and embeds the
-    accountMedia, bundles and posts in ``aggregationData``. An item whose post
-    is embedded is returned in that post, with only the missing media; any
-    other becomes its own post, keyed by its accountMedia id.
-    """
-    response = response or {}
-    agg = response.get("aggregationData") or {}
-    lookup = Lookup(agg, extra_account_media)
-    posts_by_id = {str(p["id"]): p for p in agg.get("posts") or [] if p.get("id")}
-    missing = {}
-    for item in response.get("data") or []:
-        offer = str(item.get("mediaOfferId") or "")
-        if not offer or offer in known or offer in missing:
-            continue
-        account_media = lookup.account_media.get(offer)
-        if account_media is None:
-            if report is not None:
-                report.drop("Media tab item Fansly didn't send")
-            continue
-        missing[offer] = (account_media, str(item.get("correlationId") or ""))
-    out = {}
-    for offer, (account_media, post_id) in missing.items():
-        media = media_for(account_media)
-        if report is not None:
-            kind = media_type((account_media.get("media") or {}).get("mimetype")) or "other"
-            report.media_tab_missing[(kind, bool(account_media.get("access")))] += 1
-        if post_id in posts_by_id:
-            if post_id not in out:
-                post = _item_dict(posts_by_id[post_id], lookup, "post")
-                post["media"] = []
-                out[post_id] = post
-            out[post_id]["media"].extend(media)
-            continue
-        created = iso(account_media.get("createdAt"))
-        out[offer] = {
-            "id": int(account_media["id"]),
-            "text": "",
-            "createdAt": created,
-            "postedAt": created,
-            "price": price_mills(account_media) / 1000,
-            "isOpened": bool(account_media.get("access")),
-            "responseType": "post",
-            "hashtags": [],
-            "media": media,
-        }
-    return list(out.values())
-
-
-def main_wall_id(walls, has_main_wall=None):
-    """The id of the wall holding every post (the Media tab's location), or None."""
-    walls = [w for w in walls or [] if isinstance(w, dict) and w.get("id") is not None]
-    for wall in walls:
-        if _is_main_wall(wall, walls, has_main_wall):
-            return str(wall["id"])
-    return None
 
 
 def _is_main_wall(wall, walls, has_main_wall=None):

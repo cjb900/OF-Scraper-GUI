@@ -48,46 +48,8 @@ async def get_timeline_posts(model_id, username, c=None, post_id=None):
         except Exception as e:  # the check is only a report
             log.debug(f"Fansly media counts not read: {e}")
             stats = None
-        posts = await _add_media_tab(c, model_id, posts, report)
     log.debug(f"Fansly timeline: {len(posts)} posts for {username}")
     log.info(report.summary(username, stats, after=_after()))
-    return posts
-
-
-async def _add_media_tab(c, model_id, posts, report):
-    """The timeline posts plus the Media tab items the timeline didn't give.
-
-    A creator can place media on the profile's Media tab that no timeline
-    post returns (seen: 3,512 videos on Fansly, 2,816 on the timeline). A
-    failure here leaves the timeline as it was.
-    """
-    try:
-        walls, has_main_wall = await api.walls(c, model_id)
-        location = normalize.main_wall_id(walls, has_main_wall)
-        log.debug(
-            f"Fansly walls: {[(w.get('id'), w.get('pos'), w.get('defaultWall'), w.get('mainWall')) for w in walls]}"
-            f", hasMainWall {has_main_wall}, Media tab location {location}"
-        )
-        if not location:
-            report.media_tab_note = "skipped, the creator has no main wall"
-            return posts
-        found = await api.media_tab_posts(
-            c, model_id, location, set(report.account_media), after=_after(), report=report
-        )
-    except Exception as e:
-        log.debug(f"Fansly Media tab not read: {e}")
-        report.media_tab_note = f"not read ({type(e).__name__})"
-        return posts
-    report.media_tab_checked = True
-    by_id = {str(p["id"]): p for p in posts}
-    for post in found:
-        report.media_tab_added += len(post["media"])
-        same = by_id.get(str(post["id"]))
-        if same is not None:
-            same["media"].extend(post["media"])
-        else:
-            posts.append(post)
-            by_id[str(post["id"])] = post
     return posts
 
 
@@ -130,7 +92,7 @@ async def get_paid_posts(model_id, username, c=None):
     return found
 
 
-async def get_models(usernames=None):
+async def get_models(usernames=None, c=None):
     """Creators to scrape, as OnlyFans-shaped model dicts.
 
     With usernames: every value goes to ``account?usernames=``, and the
@@ -142,7 +104,7 @@ async def get_models(usernames=None):
 
     usernames = [str(u) for u in (usernames or []) if u and u != "ALL"]
     ids = [u for u in usernames if u.isdigit()]
-    async with _session(None) as c:
+    async with _session(c) as c:
         if usernames:
             accounts = list(await api.accounts_by_username(c, usernames))
             if ids:

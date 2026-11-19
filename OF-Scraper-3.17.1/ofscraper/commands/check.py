@@ -26,6 +26,8 @@ import ofscraper.data.api.pinned as pinned
 import ofscraper.data.api.profile as profile
 import ofscraper.data.api.streams as streams
 import ofscraper.data.api.timeline as timeline
+import ofscraper.sites as sites
+from ofscraper.sites.fansly import scrape as fansly_scrape
 import ofscraper.classes.of.posts as posts_
 import ofscraper.classes.table.app as app
 import ofscraper.db.operations as operations
@@ -355,7 +357,11 @@ async def _refresh_failed_posts(username, model_id, media):
             if key in seen:
                 continue
             seen.add(key)
-            if area in {"timeline", "archived", "pinned", "streams"}:
+            if sites.is_fansly():
+                data = await _fansly_refresh_post(area, post_id, model_id, username)
+                if data is None:
+                    return False
+            elif area in {"timeline", "archived", "pinned", "streams"}:
                 data = await asyncio.to_thread(get_individual_timeline_post, post_id)
             elif area == "paid":
                 if paid_posts is None:
@@ -457,7 +463,17 @@ def checker(menu=False):
                 raise SystemExit(130)
 
 
+def _no_fansly_stories(command):
+    """Fansly has no stories check; True (after logging it) when asked."""
+    if command == "story_check" and sites.is_fansly():
+        log.error("The stories check is OnlyFans only; Fansly has no stories area")
+        return True
+    return False
+
+
 def _checker():
+    if _no_fansly_stories(settings.get_settings().command):
+        return
     check_auth()
     allow_check_dupes()
     set_after_check_mode()
@@ -534,7 +550,13 @@ async def post_check_retriver(forced=False, only_model_id=None):
             # areas read from the API in this run, not from the check cache
             fresh = set()
 
-            if name_match:
+            if sites.is_fansly():
+                user_name, model_id = await _fansly_creator(ele, c)
+                if model_id is not None:
+                    log.info(f"Getting Full Timeline for {user_name}")
+                    user_dict.setdefault(model_id, {})["model_id"] = model_id
+                    user_dict.setdefault(model_id, {})["username"] = user_name
+            elif name_match:
                 user_name = name_match.group(1)
                 log.info(f"Getting Full Timeline for {user_name}")
                 model_id = profile.get_id(user_name)
@@ -558,7 +580,7 @@ async def post_check_retriver(forced=False, only_model_id=None):
                     ),
                     visible=True,
                 )
-                areas = get_areas()
+                areas = _site_areas(get_areas(), user_name)
                 await operations.table_init_create(
                     username=user_name, model_id=model_id
                 )
@@ -571,9 +593,7 @@ async def post_check_retriver(forced=False, only_model_id=None):
                         log.info(
                             f"[{user_name}] Fetching fresh data for {timeline.API}"
                         )
-                        timeline_data = await timeline.get_timeline_posts(
-                            model_id, user_name, c=c
-                        )
+                        timeline_data = await _get_timeline(model_id, user_name, c=c)
                         set_check(timeline_data, model_id, timeline.API)
                         fresh.add("Timeline")
 
@@ -712,6 +732,68 @@ async def post_check_retriver(forced=False, only_model_id=None):
                 yield user_name, model_id, [data], None
 
 
+async def _fansly_creator(name, c=None):
+    """(username, account id) of the Fansly creator ``name`` (a username or
+    an account id), or (None, None) when Fansly has no such account."""
+    name = str(name or "").strip()
+    if name:
+        for found in await fansly_scrape.get_models([name], c=c):
+            if name.lower() in (str(found["username"]).lower(), str(found["id"])):
+                return found["username"], found["id"]
+    log.warning(f"Skipping {name}: Fansly has no account by that name")
+    return None, None
+
+
+def _site_areas(areas, user_name):
+    """The check areas the site has; Fansly has no pinned, archived or
+    streams lists (pinned and archived posts are on its timeline)."""
+    if not sites.is_fansly():
+        return areas
+    kept = [a for a in areas or [] if a in fansly_scrape.AREAS]
+    skipped = [a for a in areas or [] if a not in fansly_scrape.AREAS]
+    if skipped:
+        log.info(f"[{user_name}] Fansly has no {', '.join(skipped)} area; skipped")
+    return kept
+
+
+async def _get_timeline(model_id, user_name, c=None):
+    if sites.is_fansly():
+        return await fansly_scrape.get_timeline_posts(model_id, user_name, c=c)
+    return await timeline.get_timeline_posts(model_id, user_name, c=c)
+
+
+async def _get_messages(model_id, user_name, c=None):
+    if sites.is_fansly():
+        return await fansly_scrape.get_messages(model_id, user_name, c=c)
+    return await messages_.get_messages(model_id, user_name, c=c)
+
+
+async def _get_paid(user_name, model_id, c=None):
+    if sites.is_fansly():
+        return await fansly_scrape.get_paid_posts(model_id, user_name, c=c)
+    return await paid_.get_paid_posts(user_name, model_id, c=c)
+
+
+async def _fansly_refresh_post(area, post_id, model_id, username):
+    """A Fansly post again, by id, for a failed cart download; None when its
+    area can't be asked for one post."""
+    async with manager.Manager.session.aget_ofsession() as c:
+        if area in {"timeline", "labels", "pinned", "archived", "post"}:
+            return await fansly_scrape.get_timeline_posts(
+                model_id, username, c=c, post_id=[post_id]
+            )
+        if area in {"messages", "message"}:
+            return await fansly_scrape.get_messages(
+                model_id, username, c=c, post_id=[post_id]
+            )
+        if area in {"paid", "purchased"}:
+            return [
+                p for p in await fansly_scrape.get_paid_posts(model_id, username, c=c)
+                if str(p.get("id")) == str(post_id)
+            ]
+    return None
+
+
 def reset_data():
     # clean up args once check modes are ready to launch
     args = settings.get_args()
@@ -770,7 +852,11 @@ async def message_check_retriver(forced=False, only_model_id=None):
             model_id = None
             user_name = None
 
-            if num_match:
+            if sites.is_fansly():
+                user_name, model_id = await _fansly_creator(item, c)
+                if model_id is None:
+                    continue
+            elif num_match:
                 model_id = num_match.group(1)
                 user_name = profile.scrape_profile(model_id)["username"]
             elif name_match:
@@ -805,7 +891,7 @@ async def message_check_retriver(forced=False, only_model_id=None):
                     messages = oldmessages
                 else:
                     log.info(f"[{user_name}] Fetching fresh data for {messages_.API}")
-                    messages = await messages_.get_messages(model_id, user_name, c=c)
+                    messages = await _get_messages(model_id, user_name, c=c)
                     set_check(messages, model_id, messages_.API)
                     messages_fresh = True
 
@@ -831,7 +917,7 @@ async def message_check_retriver(forced=False, only_model_id=None):
                     paid = oldpaid
                 else:
                     log.info(f"[{user_name}] Fetching fresh data for {paid_.API}")
-                    paid = await paid_.get_paid_posts(user_name, model_id, c=c)
+                    paid = await _get_paid(user_name, model_id, c=c)
                     set_check(paid, model_id, paid_.API)
                     paid_fresh = True
 
@@ -879,17 +965,21 @@ async def purchase_checker_runner():
 @run
 async def purchase_check_retriver(forced=False, only_model_id=None):
     user_dict = {}
-    auth_requests.make_headers()
+    if not sites.is_fansly():
+        auth_requests.make_headers()
     if settings.get_settings().force:
         forced = True
     async with manager.Manager.session.aget_ofsession(
         sem_count=of_env.getattr("API_REQ_CHECK_MAX"),
     ) as c:
         for name in check_usernames():
-            user_name = profile.scrape_profile(name)["username"]
-            model_id = (
-                name if name.isnumeric() else profile.get_id(user_name, asked_for=name)
-            )
+            if sites.is_fansly():
+                user_name, model_id = await _fansly_creator(name, c)
+            else:
+                user_name = profile.scrape_profile(name)["username"]
+                model_id = (
+                    name if name.isnumeric() else profile.get_id(user_name, asked_for=name)
+                )
             if model_id is None or _other_creator(model_id, only_model_id):
                 continue
             progress_updater.activity.update_task(
@@ -923,7 +1013,7 @@ async def purchase_check_retriver(forced=False, only_model_id=None):
                 ]
             else:
                 log.info(f"[{user_name}] Fetching fresh data for {paid_.API}")
-                paid = await paid_.get_paid_posts(user_name, model_id, c=c)
+                paid = await _get_paid(user_name, model_id, c=c)
                 set_check(paid, model_id, paid_.API)
             posts_array = list(
                 map(lambda x: posts_.Post(x, model_id, user_name, purchased=True), paid)
@@ -1220,8 +1310,30 @@ async def row_gather(username, model_id):
             }
         )
 
+    log.info(check_totals(username, out))
     ROWS = ROWS or []
     ROWS.extend(out)
+
+
+def check_totals(username, rows):
+    """One line per creator: how much of what the site lists is downloaded.
+    Locked items (not bought) can't be downloaded, so they count apart."""
+    parts = []
+    for kind in sorted({r["mediatype"] for r in rows}):
+        of_kind = [r for r in rows if r["mediatype"] == kind]
+        done = sum(1 for r in of_kind if r["downloaded"])
+        locked = sum(1 for r in of_kind if not r["downloaded"] and not r["unlocked"])
+        part = f"{kind.lower()} {done}/{len(of_kind)}"
+        if locked:
+            part += f" ({locked} locked)"
+        parts.append(part)
+    done = sum(1 for r in rows if r["downloaded"])
+    locked = sum(1 for r in rows if not r["downloaded"] and not r["unlocked"])
+    return (
+        f"[{username}] Check: {len(rows)} items, {done} downloaded, "
+        f"{len(rows) - done - locked} not downloaded, {locked} locked"
+        + (f"; {', '.join(parts)}" if parts else "")
+    )
 
 
 def missing_downloaded_files(paths: dict) -> set:
@@ -1322,6 +1434,9 @@ def gui_checker(check_mode, msg_filter="paid_only", disk_check=False):
     allow_check_dupes()
     set_after_check_mode()
 
+    if _no_fansly_stories(check_mode):
+        app_signals.scraping_finished.emit()
+        return
     try:
         check_auth()
         if check_mode == "post_check":

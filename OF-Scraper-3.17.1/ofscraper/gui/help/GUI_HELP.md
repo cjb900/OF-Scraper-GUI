@@ -224,7 +224,8 @@ Downloads go to each site's own **Save Location** (Configuration → File Option
 
 - Content areas: Timeline, Messages, Purchased and **Walls** (Fansly's named profile tabs; *Labels* in OnlyFans terms). Walls start unticked: they hold timeline posts, so scanning them reads most of the timeline again, once per wall, and a first scan can take many minutes under Fansly's rate limit. Tick Walls only if you sort files by wall.
 - Some older Fansly videos have a separate audio track the CDN no longer serves. Those download as the plain MP4 when the post has one; otherwise they fail at once instead of being retried.
-- Not available on Fansly: Check Mode, Like / Unlike, metadata, all-purchased and post-URL scraping, and DRM keys (Fansly videos aren't DRM-protected).
+- Check Mode works on Fansly for posts (Timeline and Walls), messages and purchased content; see [Check Mode](#check-mode-fansly).
+- Not available on Fansly: Story Check, Like / Unlike, metadata, all-purchased and post-URL scraping, and DRM keys (Fansly videos aren't DRM-protected).
 - **Authentication**: log in with the built-in browser; or pick a browser on this computer that is signed in to fansly.com (Firefox, Zen, LibreWolf, Floorp, Waterfox, Chrome, Edge, Brave, Opera, Vivaldi or Chromium) and click **Import from browser**, which reads the token from that browser's saved site data and checks it; or paste the authorization token (browser developer tools on fansly.com → Application → Local Storage → `session_active_session` → `token`) and the user agent of that browser. **Save & Test** checks them with Fansly; **Save** keeps edits without checking; **Clear** removes the saved token and user agent (and can sign the built-in browser out of Fansly); **Open fansly_auth.json** opens the file.
 - Plugins load per site: a plugin in `~/.config/ofscraper/plugins` runs for OnlyFans only, and one in `~/.config/ofscraper/fansly/plugins` for Fansly only. **No plugins exist for Fansly yet**, so the Fansly tab's Plugins page is empty; OnlyFans plugins aren't loaded there.
 - The command line works the same: `ofscraper --config ~/.config/ofscraper/fansly/config.json` runs Fansly with the GUI's Fansly settings.
@@ -1065,6 +1066,11 @@ Select a check mode from the **Select Action** step:
 | **Story Check** | Stories and highlights |
 
 > If you are looking for PPV messages (pay-per-view content sent via DMs), use **Message Check** — these do not appear in Post Check.
+
+<a id="check-mode-fansly"></a>
+**On Fansly**, Post Check scans the Timeline and, if ticked, Walls (Fansly has no separate pinned, archived or stream lists), Message Check scans the creator's conversation and your purchases from them, and Paid Check scans your purchases. Story Check is OnlyFans only.
+
+**Did I get everything?** Each check logs one line per creator, for example `[creator] Check: 120 items, 110 downloaded, 6 not downloaded, 4 locked; images 70/70, videos 40/50 (4 locked)`. *Not downloaded* are items you can view but haven't saved: add them to the cart. *Locked* are items you haven't bought, which can't be downloaded. Tick **Compare with files on disk** to count a deleted file as not downloaded. The site's own profile counts can be higher than the check's: Fansly, for one, counts reposts and media no longer on any post.
 
 <a id="check-mode-msg-filter"></a>
 ### Message filter (Message Check only)

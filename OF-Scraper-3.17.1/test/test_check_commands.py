@@ -55,8 +55,11 @@ def test_every_paid_lookup_in_check_passes_username_first():
     calls = [
         n for n in ast.walk(tree)
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "get_paid_posts"
+        # Fansly's get_paid_posts takes the account id first
+        and ast.unparse(n.func.value) == "paid_"
     ]
-    assert len(calls) == 3
+    # get_paid_ids, and _get_paid for the messages and purchased checks
+    assert len(calls) == 2
     for call in calls:
         assert [a.id for a in call.args[:2]] == ["user_name", "model_id"], ast.unparse(call)
 

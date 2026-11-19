@@ -166,11 +166,16 @@ def test_onlyfans_areas_are_unchanged(onlyfans):
     assert site_context.area_label("Labels") == "Labels"
 
 
-@pytest.mark.parametrize("action", ["like", "unlike", "post_check", "msg_check", "paid_check",
-                                    "story_check", "metadata", "paid_all", "manual_url"])
+@pytest.mark.parametrize("action", ["like", "unlike", "story_check", "metadata", "paid_all",
+                                    "manual_url"])
 def test_onlyfans_only_actions(fansly, action):
     assert not site_context.action_supported(action)
     assert site_context.action_supported(action, site=site_context.ONLYFANS)
+
+
+@pytest.mark.parametrize("action", ["post_check", "msg_check", "paid_check"])
+def test_check_tables_are_offered_on_fansly(fansly, action):
+    assert site_context.action_supported(action)
 
 
 def test_download_is_offered_on_fansly(fansly):
@@ -227,7 +232,8 @@ def test_action_page_hides_onlyfans_only_choices(qapp, fansly):
         for b in page._button_group.buttons()
         if not b.isHidden()
     }
-    assert shown == {("download",)}
+    assert shown == {("download",), ("post_check",), ("msg_check",), ("paid_check",)}
+    assert page._check_fresh_check.text() == "Fetch fresh data from Fansly"
 
 
 def test_area_page_offers_fansly_areas(qapp, fansly, monkeypatch):

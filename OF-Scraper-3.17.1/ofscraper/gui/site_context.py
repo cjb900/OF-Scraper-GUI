@@ -88,11 +88,11 @@ def tabs_enabled() -> bool:
 
 # --- what each site supports ---------------------------------------------------------
 
-# GUI actions that read OnlyFans only: the check tables, likes, purchases of
-# every creator, metadata and manual URLs
+# GUI actions that read OnlyFans only: likes, the stories check, purchases of
+# every creator, metadata and manual URLs. The posts, messages and purchased
+# check tables work on Fansly too.
 ONLYFANS_ONLY_ACTIONS = frozenset(
-    {"like", "unlike", "post_check", "msg_check", "paid_check", "story_check",
-     "metadata", "paid_all", "manual_url"}
+    {"like", "unlike", "story_check", "metadata", "paid_all", "manual_url"}
 )
 
 

@@ -209,7 +209,7 @@ class ActionPage(QWidget):
                 radio.hide()
 
         if not any(_supported(actions) for _, actions in CHECK_CHOICES):
-            # Fansly has no check tables
+            # a site with none of the check tables
             sep.hide()
             check_label.hide()
 
@@ -695,7 +695,11 @@ class ActionPage(QWidget):
         apply_font(label, "Segoe UI", 10)
         label.setProperty("muted", True)
         inner.addWidget(label)
-        self._check_fresh_check = QCheckBox("Fetch fresh data from OnlyFans")
+        from ofscraper.gui import site_context
+
+        self._check_fresh_check = QCheckBox(
+            f"Fetch fresh data from {site_context.site_label()}"
+        )
         apply_font(self._check_fresh_check, "Segoe UI", 11)
         self._check_fresh_check.setToolTip(
             "Checks keep each creator's results for 3 days and reuse them.\n"
