@@ -186,3 +186,11 @@ def test_avatar_setting_is_kept_in_the_saved_config():
 
     assert schema.get_current_config_schema({"discord_avatars": True})["discord_avatars"] is True
     assert schema.get_current_config_schema({})["discord_avatars"] is False
+
+
+def test_code_blocks_drop_bold_marks():
+    from ofscraper.utils.logs.classes.handlers.discord import code_blocks
+
+    (block,) = code_blocks("**[a][Action Download]** (**1 downloads total**)")
+    assert "**" not in block.strip("`")
+    assert "[a][Action Download] (1 downloads total)" in block

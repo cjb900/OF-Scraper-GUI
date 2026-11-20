@@ -106,6 +106,8 @@ def cut_totals(text: str) -> str:
 
 
 def code_blocks(text: str) -> list:
+    # bold marks show as literal ** inside a code block
+    text = text.replace("**", "")
     return [f"```\n{piece}\n```" for piece in split_lines(text.strip("\n"), MAX_MESSAGE - 8)]
 
 
