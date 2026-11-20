@@ -48,6 +48,11 @@ _KEY_BLOCK_RE = re.compile(
     r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----", re.S
 )
 KEY_HIDDEN = "(private key hidden; it is saved in the device folder)"
+# the other dumps ("Cdm: Received client ID:", "... encrypted keybox:") come
+# as JSON or base64 lines under their heading
+_DUMP_START_RE = re.compile(r"\bReceived\b.*:\s*$")
+_DUMP_BODY_RE = re.compile(r'^\s*([\[\]{}],?|"[^"]*"\s*:.*|[A-Za-z0-9+/=]{16,})\s*$')
+DUMP_HIDDEN = "(key data hidden)"
 
 
 class PrivateKeyFilter:
@@ -55,12 +60,15 @@ class PrivateKeyFilter:
 
     KeyDive prints the device's RSA private key ("Cdm: Received RSA private
     key:") as a PEM block. The key is also saved as a file, so the log and the
-    output box only need to say it was hidden. ``filter`` returns the line to
-    show, or None for a line inside a key.
+    output box only need to say it was hidden. The client ID and keybox come
+    as JSON under their own "Received ...:" heading; each becomes one
+    ``DUMP_HIDDEN`` line. ``filter`` returns the line to show, or None for a
+    line inside a key.
     """
 
     def __init__(self):
         self.inside = False
+        self.dump = None  # None, "start" after a heading, "hidden" once noted
 
     def filter(self, line: str):
         text = line or ""
@@ -70,6 +78,14 @@ class PrivateKeyFilter:
                 rest = _KEY_END_RE.split(text, 1)[1].strip()
                 return rest or None
             return None
+        if self.dump:
+            if _DUMP_BODY_RE.match(text):
+                first = self.dump == "start"
+                self.dump = "hidden"
+                return DUMP_HIDDEN if first else None
+            self.dump = None
+        if _DUMP_START_RE.search(text):
+            self.dump = "start"
         text = _KEY_BLOCK_RE.sub(KEY_HIDDEN, text)
         begin = _KEY_BEGIN_RE.search(text)
         if begin:
