@@ -528,6 +528,7 @@ class ConfigPage(QWidget):
         try:
             from ofscraper.gui.utils.privacy_mode import (
                 PRIVACY_CONFIG_KEYS,
+                PRIVACY_EDIT_HINT,
                 PRIVACY_PLACEHOLDER,
                 is_privacy_mode,
             )
@@ -548,6 +549,10 @@ class ConfigPage(QWidget):
                 actual = self._privacy_actual.get(key, "")
                 w.setText(PRIVACY_PLACEHOLDER if actual else "")
                 w.setReadOnly(True)
+                # an empty locked field looked like a box that ignores typing
+                if not hasattr(w, "_privacy_placeholder_saved"):
+                    w._privacy_placeholder_saved = w.placeholderText()
+                w.setPlaceholderText(PRIVACY_EDIT_HINT)
                 if not hasattr(w, "_privacy_tip_saved"):
                     w._privacy_tip_saved = w.toolTip() or ""
                 base_tip = getattr(w, "_privacy_tip_saved", "") or ""
@@ -562,6 +567,8 @@ class ConfigPage(QWidget):
                         actual = _display_fs_path(actual)
                     w.setText(actual)
                 w.setReadOnly(False)
+                if hasattr(w, "_privacy_placeholder_saved"):
+                    w.setPlaceholderText(w._privacy_placeholder_saved)
                 if hasattr(w, "_privacy_tip_saved"):
                     w.setToolTip(w._privacy_tip_saved)
 

@@ -266,7 +266,7 @@ Bottom of the sidebar:
 - **Privacy**: Privacy / demo mode for safe screenshots. When **On**:
   - Auth credential fields are masked (password dots); reveal eye is disabled
   - **Test Credentials** hides your account name and @username in its result and in the status bar
-  - Save Location, Discord webhook, FFmpeg / CDM paths show `[Hidden for Privacy]`
+  - Save Location, Discord webhook, FFmpeg / CDM paths show `[Hidden for Privacy]` and can't be edited; an empty one says *Hidden by Privacy mode — turn it off to edit*. Turn Privacy off to change them.
   - **Select Models** list shows `[Hidden for Privacy]` instead of creator names/prices (search still works)
   - Table **UserName** column shows `[Hidden for Privacy]`
   - **Download all purchased content**: the **Exclude creators** box and its **Pick…** list show `[Hidden for Privacy]` (search in Pick… still matches real names; the exclusions still apply)

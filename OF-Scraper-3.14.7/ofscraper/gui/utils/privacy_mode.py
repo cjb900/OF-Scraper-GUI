@@ -12,6 +12,8 @@ from typing import Optional
 log = logging.getLogger("shared")
 
 PRIVACY_PLACEHOLDER = "[Hidden for Privacy]"
+# grey hint in a locked, empty Configuration field
+PRIVACY_EDIT_HINT = "Hidden by Privacy mode — turn it off to edit"
 
 # Config QLineEdit keys that should show the placeholder when privacy is on.
 PRIVACY_CONFIG_KEYS = frozenset(
