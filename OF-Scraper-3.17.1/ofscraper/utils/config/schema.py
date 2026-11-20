@@ -12,6 +12,7 @@ def get_current_config_schema(config: dict = None) -> dict:
         ): data.get_main_profile(config=config),
         "metadata": data.get_metadata(config=config),
         "discord": data.get_discord(config=config),
+        "discord_avatars": data.get_discord_avatars(config=config),
         "file_options": {
             "save_location": common_paths.get_save_location(config=config),
             "dir_format": data.get_dirformat(config=config),

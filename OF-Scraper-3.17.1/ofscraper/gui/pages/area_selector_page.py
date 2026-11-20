@@ -334,6 +334,26 @@ class AreaSelectorPage(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(self.discord_updates_check)
         row.addWidget(self.discord_level_combo)
+        # avatars show in Discord as large pictures, so they're off by default
+        self.discord_avatars_check = QCheckBox("Show model avatars")
+        apply_font(self.discord_avatars_check, "Segoe UI", 11)
+        self.discord_avatars_check.setToolTip(
+            "Post each model's avatar picture to Discord at the start of its scrape.\n"
+            "Off: avatar links are left out and Discord shows no link previews.\n"
+            "Saved as discord_avatars in config.json."
+        )
+        try:
+            self.discord_avatars_check.setChecked(bool(config_data.get_discord_avatars()))
+        except Exception:
+            self.discord_avatars_check.setChecked(False)
+        self.discord_avatars_check.setEnabled(False)
+        self.discord_updates_check.toggled.connect(
+            lambda checked: self.discord_avatars_check.setEnabled(
+                checked and self.discord_updates_check.isEnabled()
+            )
+        )
+        self.discord_avatars_check.toggled.connect(self._on_discord_avatars_toggled)
+        row.addWidget(self.discord_avatars_check)
         row.addWidget(_make_help_btn("sca-discord-updates"))
         row.addStretch()
         extras_layout.addWidget(self._discord_row)
@@ -1045,6 +1065,12 @@ class AreaSelectorPage(QWidget):
             self.discord_level_combo.setEnabled(
                 has_webhook and self.discord_updates_check.isChecked()
             )
+            self.discord_avatars_check.setEnabled(
+                has_webhook and self.discord_updates_check.isChecked()
+            )
+            self.discord_avatars_check.blockSignals(True)
+            self.discord_avatars_check.setChecked(bool(config_data.get_discord_avatars()))
+            self.discord_avatars_check.blockSignals(False)
         except Exception:
             pass
         # Load saved daemon discord ping preference
@@ -1055,6 +1081,16 @@ class AreaSelectorPage(QWidget):
             )
         except Exception:
             pass
+
+    def _on_discord_avatars_toggled(self, checked: bool):
+        """Save "Show model avatars" as discord_avatars in config.json."""
+        try:
+            import ofscraper.utils.config.config as config_mod
+
+            config_mod.update_config("discord_avatars", bool(checked))
+            log.info(f"[GUI] Discord avatars {'on' if checked else 'off'}")
+        except Exception as e:
+            log.warning(f"Couldn't save the Discord avatar setting: {e}")
 
     def _on_discord_check_toggled(self, checked: bool):
         """Show a one-time prompt asking whether Discord should always be enabled."""

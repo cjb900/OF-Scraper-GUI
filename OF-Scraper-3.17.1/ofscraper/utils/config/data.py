@@ -501,6 +501,18 @@ def get_discord(config=None):
 
 
 @wrapper.config_reader
+def get_discord_avatars(config=None):
+    """Post creator avatars to Discord (they show as large pictures); off
+    unless "discord_avatars" is true."""
+    if config is False:
+        return False
+    value = _first_set(config, "discord_avatars")
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+@wrapper.config_reader
 def get_filter(config=None):
     # config=False goes through _value() too, so the default is normalised
     final_filter = _value(

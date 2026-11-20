@@ -1497,7 +1497,9 @@ class TablePage(QWidget):
 
                 # Global totals block (matches TUI output).
                 _summary_lines.append("\n" + "=" * 50)
-                _summary_lines.append("📊 GLOBAL RUN TOTALS (ALL MODELS)")
+                from ofscraper.managers.stats import totals_title as _totals_title
+
+                _summary_lines.append(_totals_title())
                 _summary_lines.append("=" * 50)
                 if _run_dl > 0 or _sum_forced > 0 or _sum_failed > 0:
                     _summary_lines.append("\n--- MEDIA DOWNLOADS ---")
@@ -1513,8 +1515,24 @@ class TablePage(QWidget):
                 _summary_text = "\n".join(_summary_lines)
 
                 # Write to log file; GUILogHandler routes this to the GUI console too.
+                # Discord shows the totals as a card.
                 from ofscraper.gui.signals import app_signals as _as2
-                log.warning(_summary_text)
+                from ofscraper.managers.stats import totals_embed as _totals_embed
+
+                try:
+                    _embed = _totals_embed(
+                        downloaded=_run_dl,
+                        videos=_run_videos,
+                        audios=_run_audios,
+                        photos=_run_photos,
+                        skipped=_sum_forced,
+                        failed=_sum_failed,
+                        data=_size_str if _total_bytes else "",
+                        models=list(_model_names or []),
+                    )
+                except Exception:
+                    _embed = None
+                log.warning(_summary_text, extra={"discord_embed": _embed})
 
                 # Refresh the bytes label in the footer with the final total.
                 if _total_bytes > 0:

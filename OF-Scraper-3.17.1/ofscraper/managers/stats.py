@@ -9,6 +9,85 @@ from ofscraper.managers.utils.state import EActivity, string_to_activity
 from ofscraper.classes.of.posts import Post
 from ofscraper.classes.of.media import Media
 
+# how the run totals name the site the run was for
+SITE_LABELS = {"onlyfans": "OnlyFans", "fansly": "Fansly"}
+
+
+def run_site_label() -> str:
+    try:
+        import ofscraper.sites as sites
+
+        return SITE_LABELS.get(sites.current_site(), "OnlyFans")
+    except Exception:
+        return "OnlyFans"
+
+
+DISCORD_GREEN = 0x2EA043
+DISCORD_RED = 0xD1453B
+
+
+def totals_embed(
+    *,
+    downloaded=0,
+    videos=0,
+    audios=0,
+    photos=0,
+    skipped=0,
+    failed=0,
+    data="",
+    models=None,
+    text=None,
+    metadata=None,
+) -> dict:
+    """The run totals as a Discord embed card: green when nothing failed,
+    red otherwise. ``text`` and ``metadata`` are (saved/changed, skipped or
+    unchanged, failed) when those actions ran."""
+    failures = failed + (text[2] if text else 0) + (metadata[2] if metadata else 0)
+    site = run_site_label()
+    embed = {
+        "title": f"{'⚠️' if failures else '✅'} Run finished · {site}",
+        "color": DISCORD_RED if failures else DISCORD_GREEN,
+        "fields": [],
+    }
+    names = [str(m) for m in (models or []) if m]
+    if names:
+        shown = ", ".join(names[:30])
+        more = f" and {len(names) - 30} more" if len(names) > 30 else ""
+        embed["description"] = (
+            f"{len(names)} model{'s' if len(names) != 1 else ''}: {shown}{more}"
+        )[:4000]
+    fields = embed["fields"]
+    if downloaded or skipped or failed or not (text or metadata):
+        fields.append({
+            "name": "Downloaded",
+            "value": f"{downloaded} ({videos} videos, {audios} audios, {photos} images)",
+            "inline": False,
+        })
+        if data:
+            fields.append({"name": "Data", "value": str(data), "inline": True})
+        fields.append({"name": "Skipped", "value": str(skipped), "inline": True})
+        fields.append({"name": "Failed", "value": str(failed), "inline": True})
+    if text:
+        fields.append({
+            "name": "Text files",
+            "value": f"{text[0]} saved, {text[1]} skipped, {text[2]} failed",
+            "inline": False,
+        })
+    if metadata:
+        fields.append({
+            "name": "Metadata",
+            "value": f"{metadata[0]} changed, {metadata[1]} unchanged, {metadata[2]} failed",
+            "inline": False,
+        })
+    return embed
+
+
+def totals_title() -> str:
+    """The run totals heading, naming the site: OnlyFans and Fansly runs can
+    share a log folder and a Discord channel."""
+    return f"📊 GLOBAL RUN TOTALS (ALL MODELS) · {run_site_label()}"
+
+
 log = logging.getLogger("shared")
 
 
@@ -558,7 +637,7 @@ class StatsManager:
         # 4. Build the Output String
         output_lines = [
             "\n" + "=" * 50,
-            "📊 GLOBAL RUN TOTALS (ALL MODELS)",
+            totals_title(),
             "=" * 50
         ]
 
@@ -592,5 +671,19 @@ class StatsManager:
 
         output_lines.append("\n" + "=" * 50 + "\n")
 
-        # 5. Log the final warning block
-        log.warning("\n".join(output_lines))
+        # 5. Log the final warning block; Discord shows it as a card
+        embed = totals_embed(
+            downloaded=dl_vids + dl_auds + dl_pics,
+            videos=dl_vids,
+            audios=dl_auds,
+            photos=dl_pics,
+            skipped=dl_skip,
+            failed=dl_fail,
+            data=format_size(dl_bytes) if dl_bytes else "",
+            models=list(self._stats.keys()),
+            text=(text_count, text_skip, text_fail)
+            if any([text_count, text_skip, text_fail]) else None,
+            metadata=(meta_vids + meta_auds + meta_pics, meta_unchanged, meta_fail)
+            if any([meta_vids, meta_auds, meta_pics, meta_unchanged, meta_fail]) else None,
+        )
+        log.warning("\n".join(output_lines), extra={"discord_embed": embed})

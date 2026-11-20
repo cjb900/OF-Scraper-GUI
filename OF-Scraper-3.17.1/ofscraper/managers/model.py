@@ -180,6 +180,16 @@ class ModelManager:
         log.info(
             f"Final selection contains {len(final_selection)} models. Queuing for all activities."
         )
+        # one line at the start of each run, for Discord at its LOW level
+        try:
+            from ofscraper.managers.stats import run_site_label
+
+            count = len(final_selection)
+            log.warning(
+                f"▶ Scrape started · {run_site_label()} · {count} model{'s' if count != 1 else ''}"
+            )
+        except Exception:
+            pass
         for act in activities_to_process:
             self.state.set_queue(act, [model.name for model in final_selection])
 
