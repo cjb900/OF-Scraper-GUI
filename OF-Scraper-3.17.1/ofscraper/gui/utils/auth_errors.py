@@ -114,9 +114,54 @@ def format_cred_test_failure(exc) -> str:
     )
 
 
-def model_load_failure_dialog_text(detail=None) -> tuple[str, str | None]:
-    """Main + optional detailed text for Unable to Load Models dialogs."""
+def active_user_lists() -> list[str]:
+    """The User Lists filter now in effect, without the built-in list names."""
+    try:
+        import ofscraper.utils.of_env.of_env as of_env
+        import ofscraper.utils.settings as settings
+
+        reserved = {
+            (of_env.getattr(key) or "").lower()
+            for key in (
+                "OFSCRAPER_RESERVED_LIST",
+                "OFSCRAPER_RESERVED_LIST_ALT",
+                "OFSCRAPER_ACTIVE_LIST",
+                "OFSCRAPER_ACTIVE_LIST_ALT",
+                "OFSCRAPER_EXPIRED_LIST",
+                "OFSCRAPER_EXPIRED_LIST_ALT",
+            )
+        }
+        lists = getattr(settings.get_settings(), "userlist", None) or []
+        return [u for u in lists if u and str(u).lower() not in reserved]
+    except Exception:
+        return []
+
+
+def model_load_failure_dialog_text(detail=None, user_lists=None) -> tuple[str, str | None]:
+    """Main + optional detailed text for Unable to Load Models dialogs.
+
+    user_lists: the User Lists filter; read from the settings when not given.
+    """
     detail_s = str(detail).strip() if detail else ""
+    if not detail_s:
+        # the fetch worked and found nobody: with a User Lists filter set,
+        # the filter is the likely reason, not the auth
+        if user_lists is None:
+            user_lists = active_user_lists()
+        if user_lists:
+            names = ", ".join(str(u) for u in user_lists)
+            return (
+                f"No models found in the User Lists filter: {names}\n\n"
+                "The User Lists box on the Scraper page takes the names of "
+                "your OnlyFans lists (for example Favorites), not creator "
+                "usernames. OnlyFans returned no models for these list "
+                "names.\n\n"
+                "Go back to the Scraper page, clear the User Lists box to "
+                "load all subscribed models, or correct the list names, "
+                "then click Next again. Pick creators on the model list "
+                "that follows.",
+                None,
+            )
     if NETWORK_PROBLEM_PREFIX in detail_s:
         problem = detail_s.split(NETWORK_PROBLEM_PREFIX, 1)[1]
         return (
