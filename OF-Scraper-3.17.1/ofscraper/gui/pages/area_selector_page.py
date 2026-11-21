@@ -165,7 +165,7 @@ class AreaSelectorPage(QWidget):
                 "Scrape the creator's walls (named tabs on their Fansly profile).\n"
                 "Walls hold timeline posts, so this reads most of the timeline again,\n"
                 "once per wall, and a first scan can take many minutes under Fansly's\n"
-                "rate limit. Leave it off unless you sort files by wall."
+                "rate limit. Untick it for a faster scan if you don't sort files by wall."
             )
             _area_tips["Purchased"] = "Scrape media you bought from this creator."
         for i, area in enumerate(DOWNLOAD_AREAS):
@@ -883,7 +883,7 @@ class AreaSelectorPage(QWidget):
             log.debug(f"[GUI] Could not clear area settings: {e}")
         # Reset all controls to defaults
         try:
-            # Content areas — all checked (Fansly: all but walls)
+            # Content areas — all checked
             from ofscraper.gui import site_context
 
             for area, cb in self._area_checks.items():

@@ -329,19 +329,18 @@ def test_table_opens_the_fansly_post(qapp, fansly, monkeypatch):
 
 # --- walls --------------------------------------------------------------------------------------------
 
-def test_walls_are_opt_in_on_fansly_only():
-    assert not site_context.area_default("Labels", site="fansly")
-    assert site_context.area_default("Timeline", site="fansly")
-    assert site_context.area_default("Labels", site="onlyfans")
+def test_every_area_starts_ticked_on_both_sites():
+    for site in ("fansly", "onlyfans"):
+        for area in ("Timeline", "Messages", "Purchased", "Labels"):
+            assert site_context.area_default(area, site=site)
 
 
-def test_area_page_leaves_walls_unticked(qapp, fansly, monkeypatch):
+def test_area_page_ticks_walls(qapp, fansly, monkeypatch):
     from ofscraper.gui.pages import area_selector_page
 
     monkeypatch.setattr(area_selector_page.AreaSelectorPage, "_load_area_settings", lambda self: None)
     page = area_selector_page.AreaSelectorPage()
-    assert not page._area_checks["Labels"].isChecked()
-    assert page._area_checks["Timeline"].isChecked()
+    assert all(cb.isChecked() for cb in page._area_checks.values())
 
 
 # --- save locations --------------------------------------------------------------------------------------

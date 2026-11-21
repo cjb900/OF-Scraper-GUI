@@ -116,9 +116,9 @@ def area_label(area: str, site: str | None = None) -> str:
 
 
 def area_default(area: str, site: str | None = None) -> bool:
-    """Whether an area starts ticked. Fansly's walls re-read the timeline
-    once per wall, slowly under its rate limit, so they are opt-in."""
-    return not (area == "Labels" and (site or current_site()) == FANSLY)
+    """Whether an area starts ticked: every area on both sites (Fansly's
+    walls included, as OnlyFans' labels are)."""
+    return True
 
 
 def action_supported(action: str, site: str | None = None) -> bool:

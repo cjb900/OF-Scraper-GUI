@@ -222,7 +222,7 @@ Downloads go to each site's own **Save Location** (Configuration → File Option
 
 **Fansly differences**
 
-- Content areas: Timeline, Messages, Purchased and **Walls** (Fansly's named profile tabs; *Labels* in OnlyFans terms). Walls start unticked: they hold timeline posts, so scanning them reads most of the timeline again, once per wall, and a first scan can take many minutes under Fansly's rate limit. Tick Walls only if you sort files by wall.
+- Content areas: Timeline, Messages, Purchased and **Walls** (Fansly's named profile tabs; *Labels* in OnlyFans terms). All four start ticked, as on OnlyFans. Walls hold timeline posts, so scanning them reads most of the timeline again, once per wall, and a first scan can take many minutes under Fansly's rate limit; untick Walls for a faster scan if you don't sort files by wall.
 - Some older Fansly videos have a separate audio track the CDN no longer serves. Those download as the plain MP4 when the post has one; otherwise they fail at once instead of being retried.
 - Check Mode works on Fansly for posts (Timeline and Walls), messages and purchased content; see [Check Mode](#check-mode-fansly).
 - Not available on Fansly: Story Check, Like / Unlike, metadata, all-purchased and post-URL scraping, and DRM keys (Fansly videos aren't DRM-protected).
