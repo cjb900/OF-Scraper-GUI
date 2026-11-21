@@ -19,10 +19,20 @@ services:
       - VNC_PORT=5900
       # Seconds to wait before relaunching the GUI if it exits/crashes.
       - GUI_RESTART_DELAY=5
-      # CLI args appended to "ofscraper --gui" at startup.
+      # CLI args appended to "ofscraper --gui" at startup. They go to ONE site:
+      # the tab used last, or the one named with --site onlyfans / --site fansly.
       # Leave blank (or remove) to open the GUI without auto-starting a scrape.
-      # Example: --daemon 120 --username ALL -ts --posts all --discord low
+      # Example: --site onlyfans --daemon 120 --username ALL -ts --posts all --discord low
       - GUI_ARGS=
+      # Start BOTH sites at once (3.17.1): each variable that is set starts that
+      # site's tab with its own scrape and its own daemon timer. When either is
+      # set, GUI_ARGS is not used. Blank = that site waits for a click in noVNC.
+      # Fansly: -ts / --sub-status active keeps only paid subscriptions; creators
+      # you follow for free are dropped, so leave it out to scrape them too.
+      # Example OnlyFans: --daemon 120 --username ALL -ts --posts all --discord low
+      # Example Fansly:   --daemon 120 --username ALL --posts all --discord low
+      - ONLYFANS_GUI_ARGS=
+      - FANSLY_GUI_ARGS=
       # gui (default): the GUI over noVNC, as above.
       # cli: no GUI, display or VNC; runs "ofscraper CLI_ARGS" instead.
       #   Meant for --daemon runs (a one-shot run would be restarted by
@@ -66,9 +76,15 @@ services:
       #    looks here on its own, only at paths config.json points to.
       - /home/YOU/.config/ofscraper:/home/YOU/.config/ofscraper
       #
-      # 3) REQUIRED — download / Save Location folder. The container path (right)
-      #    must match file_options.save_location in your config.json.
+      # 3) REQUIRED — download / Save Location folders. The container path (right)
+      #    must match file_options.save_location in each site's config.json:
+      #    OnlyFans: config.json   Fansly: fansly/config.json (both in mount 1).
+      #    A site left on its default saves to /root/Data/ofscraper/<site>,
+      #    which isn't on a volume: downloads there are lost when the
+      #    container is recreated. Mounting one parent folder (e.g.
+      #    /home/YOU/Photos) covers both sites' folders under it.
       - /home/YOU/Photos/OnlyFans:/home/YOU/Photos/OnlyFans
+      - /home/YOU/Photos/Fansly:/home/YOU/Photos/Fansly
       #
       # ffmpeg is installed natively in the container (see Dockerfile) — do not
       # bind-mount a host ffmpeg binary (it often breaks DRM remux in the image).

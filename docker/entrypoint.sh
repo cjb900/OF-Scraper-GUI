@@ -114,6 +114,12 @@ echo "[entrypoint] Logs:    ${LOG_FILE}"
 echo "[entrypoint] Crash:   ${CRASH_DIR}"
 echo "[entrypoint] noVNC:   http://<host>:${NOVNC_PORT}/"
 echo "[entrypoint] Launching OF-Scraper GUI (auto-restart on exit): ofscraper ${CMD_ARGS}"
+if [ -n "${ONLYFANS_GUI_ARGS:-}" ]; then
+    echo "[entrypoint] OnlyFans start-up: ${ONLYFANS_GUI_ARGS}"
+fi
+if [ -n "${FANSLY_GUI_ARGS:-}" ]; then
+    echo "[entrypoint] Fansly start-up:   ${FANSLY_GUI_ARGS}"
+fi
 
 # Restart loop: if the GUI process dies (crash or quit), bring it back so the
 # container remains usable over noVNC without a full docker compose restart.

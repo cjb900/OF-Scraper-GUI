@@ -14,7 +14,7 @@ Run the **patched GUI** on a machine without a desktop. You open the GUI from an
 
 ## What you get
 
-- OF-Scraper installed and patched with the GUI (default **3.14.7**)
+- OF-Scraper installed and patched with the GUI (default **3.17.1**, with OnlyFans and Fansly tabs)
 - A virtual display with a built-in VNC server (TigerVNC) and a small window manager
 - **The desktop resizes to fit your browser window**, and the GUI stays maximized in it
 - **noVNC** on port **6699** (browser) and raw **VNC** on port **5900**, no password
@@ -32,10 +32,10 @@ OF-Scraper-GUI/                          ← run all docker compose commands her
 ├── docker/
 │   ├── Dockerfile
 │   └── entrypoint.sh
-└── patch_ofscraper_3.14.7_gui.py        ← the patch for the version you build (at the repo root)
+└── patch_ofscraper_3.17.1_gui.py        ← the patch for the version you build (at the repo root)
 ```
 
-The Dockerfile copies `patch_ofscraper_*_gui.py` from the **repo root**, not from `OF-Scraper-3.14.7/`. Only the patch for the version you build has to be there; keeping all four is fine.
+The Dockerfile copies `patch_ofscraper_*_gui.py` from the **repo root**, not from `OF-Scraper-3.17.1/`. Only the patch for the version you build has to be there; keeping all of them is fine.
 
 `docker/comfyui-joycaption/` is a separate, optional stack for the JoyCaption plugin; see [Plugins](plugins.md#joycaption-tagger-joycaption_tagger).
 
@@ -60,9 +60,12 @@ volumes:
   # 2) OPTIONAL — only if config.json stores absolute paths under your host home
   #    (e.g. CDM keys at /home/YOU/.config/ofscraper/client_id.bin). Same path on both sides.
   - /home/YOU/.config/ofscraper:/home/YOU/.config/ofscraper
-  # 3) REQUIRED — downloads. Same path on both sides, matching Save Location in config.json
+  # 3) REQUIRED — downloads. Same path on both sides, matching each site's Save Location
   - /home/YOU/Photos/OnlyFans:/home/YOU/Photos/OnlyFans
+  - /home/YOU/Photos/Fansly:/home/YOU/Photos/Fansly
 ```
+
+- **Each site has its own Save Location.** OnlyFans reads `config.json`, Fansly reads `fansly/config.json`; both files are in the config folder (volume 1). Set each one (in that tab's **Configuration → File Options**) to a mounted folder. A site left on its default saves to `/root/Data/ofscraper/OnlyFans` or `/root/Data/ofscraper/Fansly` inside the container, which isn't on a volume, so those downloads are lost when the container is recreated. Mounting one parent folder (e.g. `/home/YOU/Photos:/home/YOU/Photos`) covers both sites' folders under it.
 
 - **Volume 1 must end in `/root/.config/ofscraper`.** Inside the container OF-Scraper runs as `root`, so its home folder is `/root`. It always reads `config.json`, auth, the databases and the `plugins/` folder from `/root/.config/ofscraper`, whatever path you mount elsewhere.
 - **Volume 2 doesn't replace volume 1.** It only makes absolute paths saved in `config.json` (like CDM key paths) work. If you mount your config folder **only** at `/home/YOU/.config/ofscraper`, the file browser will show your files there, but the GUI will use an empty `/root/.config/ofscraper`: no plugins on the Plugins page, default settings, no auth, and anything you save is lost when the container is recreated.
@@ -124,6 +127,7 @@ The desktop follows the size of your browser window: resize the window or go ful
 |---|---|
 | `auth.json` / profile auth | Session credentials |
 | `config.json` | OF-Scraper settings (save location, webhook, CDM mode, …) |
+| `fansly/` | The Fansly tab's own `config.json`, `fansly_auth.json`, profile and databases |
 | `gui_settings.json` | GUI-only preferences |
 | `logging/` | OF-Scraper logs, plus `gui-docker.log` (everything the GUI prints) |
 | `gui_crash_logs/` | Breadcrumbs and crash dumps |
@@ -165,6 +169,25 @@ docker compose up -d --force-recreate ofscraper-gui
 ```
 
 Leave `GUI_ARGS` empty to just open the GUI and use it through noVNC.
+
+`GUI_ARGS` starts **one** site: the tab used last, or the one you name with `--site onlyfans` or `--site fansly`. To keep a daemon on OnlyFans whichever tab you last clicked in noVNC, add `--site onlyfans`.
+
+## Scraping both sites at start-up (`ONLYFANS_GUI_ARGS`, `FANSLY_GUI_ARGS`)
+
+With the 3.17.1 patch, one container can scrape OnlyFans and Fansly at the same time. Each variable takes the same flags as `GUI_ARGS`, for that site only:
+
+```yaml
+environment:
+  - ONLYFANS_GUI_ARGS=--daemon 120 --username ALL -ts --posts all --discord low
+  - FANSLY_GUI_ARGS=--daemon 120 --username ALL --posts all --discord low
+```
+
+- Each site that has a variable set starts in its tab with its own scrape and its own daemon timer. Their files, databases and settings stay separate.
+- A blank variable leaves that site's tab waiting for a click in noVNC.
+- When either variable is set, `GUI_ARGS` is not used (the log says so). Leave it blank.
+- `--site`, `--config` and `--gui` are set by the tab window for each site and are ignored here.
+- **Fansly and `-ts` / `--sub-status active`:** on Fansly this keeps only creators with a paid subscription that hasn't ended. Creators you follow for free have no subscription, so they're dropped. Leave the flag out to scrape everyone you follow.
+- Discord messages say which site they come from ("OF-Scraper · OnlyFans" / "OF-Scraper · Fansly").
 
 ## Running the CLI instead of the GUI (`MODE=cli`)
 

@@ -28,6 +28,7 @@ import json
 import logging
 import os
 import pathlib
+import shlex
 import sys
 import threading
 
@@ -425,6 +426,44 @@ def strip_site_args(argv: list[str]) -> list[str]:
             continue
         out.append(arg)
     return out
+
+
+# Per-site start-up options (Docker: one container scraping both sites).
+# Each holds what GUI_ARGS would, for that site only.
+SITE_ARGS_ENV = {ONLYFANS: "ONLYFANS_GUI_ARGS", FANSLY: "FANSLY_GUI_ARGS"}
+
+
+def startup_site_args(env=None) -> dict[str, list[str]]:
+    """{site: options} from ONLYFANS_GUI_ARGS / FANSLY_GUI_ARGS, for the
+    sites where one is set. --gui, --site and --config are dropped: the tab
+    window sets those for each site."""
+    env = os.environ if env is None else env
+    found = {}
+    for site, name in SITE_ARGS_ENV.items():
+        raw = (env.get(name) or "").strip()
+        if raw:
+            found[site] = strip_site_args(shlex.split(raw))
+    return found
+
+
+def startup_plan(
+    initial: str, forwarded: list[str], per_site: dict[str, list[str]]
+) -> list[tuple[str, list[str]]]:
+    """The sites the tab window starts at launch, with their options; the
+    shown site first.
+
+    Without per-site options this is as before: only ``initial`` starts, with
+    the command line's options (Docker's GUI_ARGS). With them, every site
+    that has options starts with its own, and the command line's options are
+    not used (they would land on whichever tab was used last).
+    """
+    if not per_site:
+        return [(initial, list(forwarded))]
+    plan = [(initial, list(per_site.get(initial, [])))]
+    for site in SITES:
+        if site != initial and site in per_site:
+            plan.append((site, list(per_site[site])))
+    return plan
 
 
 def site_arguments(site: str, extra: list[str] | None = None, config: str | None = None) -> list[str]:

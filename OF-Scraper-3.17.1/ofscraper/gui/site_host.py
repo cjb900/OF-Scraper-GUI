@@ -186,7 +186,17 @@ def run_site_host(manager=None) -> None:
         embed=embedding_supported(app),
     )
     window.show()
-    window.start_site(initial)
+    per_site = site_context.startup_site_args()
+    if per_site and forwarded:
+        log.warning(
+            "[GUI] ONLYFANS_GUI_ARGS / FANSLY_GUI_ARGS are set, so the other "
+            f"start-up options are not used: {' '.join(forwarded)}"
+        )
+    plan = site_context.startup_plan(initial, forwarded, per_site)
+    for site, extra in plan:
+        if extra:
+            log.info(f"[GUI] starting {site} with: {' '.join(extra)}")
+    window.start_sites(plan)
 
     # docker stop / SIGTERM: stop the children the clean way, then exit
     def _on_sigterm(signum, frame):
@@ -460,11 +470,20 @@ def _define_classes():
             except Exception:
                 self.tray = None
 
-        def start_site(self, site):
+        def start_site(self, site, extra=None):
             tab = self.site_tabs[site]
             self.tabs.setCurrentWidget(tab)
-            # command-line options (e.g. Docker's GUI_ARGS) go to the first site
-            tab.start(extra=self.forwarded if site == self.initial else [])
+            tab.start(extra=list(extra or []))
+
+        def start_sites(self, plan):
+            """Start the sites in ``plan`` ([(site, options)], the one to show
+            first): GUI_ARGS goes to one site, ONLYFANS_GUI_ARGS and
+            FANSLY_GUI_ARGS each start their own (see site_context.startup_plan)."""
+            for i, (site, extra) in enumerate(plan):
+                if i == 0:
+                    self.start_site(site, extra)
+                else:
+                    self.site_tabs[site].start(extra=list(extra))
 
         def _on_tab_changed(self, index):
             tab = self.tabs.widget(index)

@@ -122,7 +122,7 @@ ofscraper --gui
 Notes:
 
 - Without `--gui`, OF-Scraper starts the **terminal** (TUI) prompts instead of this window.
-- You can still pass normal scrape flags with `--gui` (action, usernames, areas, daemon, etc.). When enough args are present, the GUI can **auto-start** the scrape without clicking through the wizard. Unattended CLI / Docker `GUI_ARGS` also skip interactive confirm dialogs.
+- You can still pass normal scrape flags with `--gui` (action, usernames, areas, daemon, etc.). When enough args are present, the GUI can **auto-start** the scrape without clicking through the wizard. Unattended CLI / Docker `GUI_ARGS` also skip interactive confirm dialogs. These options go to one site (the tab used last, or the one named with `--site`); to start both, set `ONLYFANS_GUI_ARGS` and `FANSLY_GUI_ARGS` instead (each site's own options, e.g. in Docker).
 - Click the sidebar version (`v…`) any time for **About** (app version, GUI patch id, FFmpeg, update check, and **Text size**).
 - The first-run **Welcome** tip can be reopened anytime with **Help / README → Show Welcome** (toolbar button next to About).
 - Hard crashes write diagnostics under your config home → `gui_crash_logs/` (see [Troubleshooting](#troubleshooting-crash)).
