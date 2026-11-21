@@ -33,6 +33,19 @@ from ofscraper.gui.widgets.sidebar import FilterSidebar
 from ofscraper.gui.widgets.status_strip import StatusStrip
 from ofscraper.gui.widgets.styled_button import StyledButton
 
+
+def _defer_daemon_table() -> bool:
+    """Whether a daemon run holds the table back until it finishes: only in
+    Docker, where the GUI draws through Xvfb and a repaint per model is slow.
+    On a desktop the table fills live, as for any other scrape."""
+    try:
+        from ofscraper.gui.app import _is_docker
+
+        return _is_docker()
+    except Exception:
+        return False
+
+
 log = logging.getLogger("shared")
 
 # Cart / Send Downloads toolbar is only for check modes (manual queue).
@@ -1272,11 +1285,10 @@ class TablePage(QWidget):
         except Exception as _e:
             log.warning(f"[GUI] Exception reading date filter state: {_e}")
 
-        # Defer Qt widget rebuilds only in daemon mode. Interactive scrapes use
-        # incremental append_data so the table fills as each model is processed.
-        # Daemon + Xvfb previously paid for a full viewport repaint per model;
-        # one bulk rebuild on scraping_finished is cheaper there.
-        if daemon_enabled:
+        # The table fills as each model is processed. Only a daemon run in
+        # Docker (Xvfb over VNC, where each repaint is costly) holds the rows
+        # back for one bulk rebuild on scraping_finished.
+        if daemon_enabled and _defer_daemon_table():
             self.data_table.begin_deferred()
 
         try:
@@ -1764,8 +1776,9 @@ class TablePage(QWidget):
             self.progress_summary.clear_all()
         except Exception:
             pass
-        # Defer Qt widget ops until this daemon run's scraping_finished fires.
-        self.data_table.begin_deferred()
+        # Docker only: defer Qt widget ops until this run's scraping_finished
+        if _defer_daemon_table():
+            self.data_table.begin_deferred()
         self._update_row_count()
         self.start_scraping_btn.setText(f"Scraping (run #{run_number})...")
         self.daemon_status_label.setText(f"Daemon run #{run_number}")
