@@ -1802,7 +1802,22 @@ class ConfigPage(QWidget):
                 app_signals.config_updated.emit()
             except Exception:
                 pass
-            QMessageBox.information(self, "Saved", "Configuration saved successfully.")
+            conflict = None
+            try:
+                from ofscraper.gui import site_context
+
+                conflict = site_context.temp_folder_conflict(config)
+            except Exception as e:
+                log.debug(f"[GUI] temp folder check skipped: {e}")
+            if conflict:
+                log.warning(conflict)
+                QMessageBox.warning(
+                    self,
+                    "Same temp folder as the other site",
+                    f"Configuration saved.\n\n{conflict}",
+                )
+            else:
+                QMessageBox.information(self, "Saved", "Configuration saved successfully.")
         except Exception as e:
             log.error(f"Failed to save config: {e}")
             QMessageBox.critical(self, "Error", f"Failed to save config:\n{e}")

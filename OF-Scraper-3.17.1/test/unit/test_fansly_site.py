@@ -153,6 +153,20 @@ def test_shared_temp_folder_is_reported(monkeypatch, tmp_path, fansly):
     assert site_context.temp_folder_conflict() is None
 
 
+
+def test_shared_temp_folder_from_the_config_just_saved(monkeypatch, tmp_path, fansly):
+    # Configuration → Save passes the settings it wrote; the real reader is used
+    shared = str(tmp_path / "Downloads")
+    monkeypatch.setattr(site_context, "default_config_home", lambda: tmp_path)
+    (tmp_path / "config.json").write_text(
+        json.dumps({"config": {"advanced_options": {"temp_dir": shared}}})
+    )
+    saved = {"advanced_options": {"temp_dir": shared}}
+    assert "same temp folder" in site_context.temp_folder_conflict(saved)
+
+    saved = {"advanced_options": {"temp_dir": str(tmp_path / "elsewhere")}}
+    assert site_context.temp_folder_conflict(saved) is None
+
 # --- what Fansly offers --------------------------------------------------------------------------
 
 def test_fansly_areas_and_walls(fansly):

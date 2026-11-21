@@ -519,16 +519,21 @@ def _seed_gui_settings() -> None:
         log.debug(f"[GUI] could not copy the GUI look to the new site: {e}")
 
 
-def temp_folder_conflict() -> str | None:
+def temp_folder_conflict(config: dict | None = None) -> str | None:
     """A warning when both sites download to the same temp folder.
 
     A run cleans up stray .part/temp_ files in its temp folder when it starts,
-    which would delete the other site's files mid-download.
+    which would delete the other site's files mid-download. ``config`` is this
+    site's settings as just saved; without it the current config is read.
     """
     try:
         import ofscraper.utils.config.data as config_data
 
-        mine = config_data.get_TempDir()
+        mine = (
+            config_data.get_TempDir(config=config)
+            if config is not None
+            else config_data.get_TempDir()
+        )
         if not mine:
             return None
         other_site = ONLYFANS if is_fansly() else FANSLY
