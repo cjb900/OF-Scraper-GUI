@@ -227,7 +227,7 @@ Downloads go to each site's own **Save Location** (Configuration → File Option
 - Check Mode works on Fansly for posts (Timeline and Walls), messages and purchased content; see [Check Mode](#check-mode-fansly).
 - Not available on Fansly: Story Check, Like / Unlike, metadata, all-purchased and post-URL scraping, and DRM keys (Fansly videos aren't DRM-protected).
 - **Authentication**: log in with the built-in browser; or pick a browser on this computer that is signed in to fansly.com (Firefox, Zen, LibreWolf, Floorp, Waterfox, Chrome, Edge, Brave, Opera, Vivaldi or Chromium) and click **Import from browser**, which reads the token from that browser's saved site data and checks it; or paste the authorization token (browser developer tools on fansly.com → Application → Local Storage → `session_active_session` → `token`) and the user agent of that browser. **Save & Test** checks them with Fansly; **Save** keeps edits without checking; **Clear** removes the saved token and user agent (and can sign the built-in browser out of Fansly); **Open fansly_auth.json** opens the file.
-- Plugins load per site: a plugin in `~/.config/ofscraper/plugins` runs for OnlyFans only, and one in `~/.config/ofscraper/fansly/plugins` for Fansly only. **No plugins exist for Fansly yet**, so the Fansly tab's Plugins page is empty; OnlyFans plugins aren't loaded there.
+- Plugins load per site: a plugin in `~/.config/ofscraper/plugins` runs for OnlyFans only, and one in `~/.config/ofscraper/fansly/plugins` for Fansly only. **Plugins are OnlyFans only for now.** Every plugin available today is made for OnlyFans; plugins aren't supported on Fansly yet, and the Fansly tab's Plugins page says so at the top. OnlyFans plugins aren't loaded there.
 - The command line works the same: `ofscraper --config ~/.config/ofscraper/fansly/config.json` runs Fansly with the GUI's Fansly settings.
 
 ---
@@ -252,7 +252,7 @@ Plugins load from a `plugins` folder next to your config home:
 - **Windows:** `%USERPROFILE%\.config\ofscraper\plugins\`
 - **Linux / macOS:** `~/.config/ofscraper/plugins/`
 
-Those are the OnlyFans plugins. The Fansly tab has its own folder, `fansly\plugins` inside the same config folder (`%USERPROFILE%\.config\ofscraper\fansly\plugins\`, `~/.config/ofscraper/fansly/plugins/`). No plugins exist for Fansly yet.
+Those are the OnlyFans plugins. The Fansly tab has its own folder, `fansly\plugins` inside the same config folder (`%USERPROFILE%\.config\ofscraper\fansly\plugins\`, `~/.config/ofscraper/fansly/plugins/`). Plugins aren't supported on Fansly yet: every plugin available today is made for OnlyFans and runs only on the OnlyFans tab.
 
 The folder is created automatically on first launch if it does not exist.
 

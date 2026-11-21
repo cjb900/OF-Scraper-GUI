@@ -32,19 +32,27 @@ _COLS = ["Name", "Version", "Status", "Description"]
 
 
 
-def _empty_hint() -> str:
-    """The message when no plugins are installed, for this tab's site."""
+FANSLY_NOTICE = (
+    "<b>Plugins are OnlyFans only.</b> Every plugin available today is made for "
+    "OnlyFans and runs only on the OnlyFans tab. Plugins aren't supported on "
+    "Fansly yet: OnlyFans plugins won't load here, even if you copy them into "
+    "this folder."
+)
+
+
+def _is_fansly() -> bool:
     try:
         from ofscraper.gui import site_context
 
-        fansly = site_context.is_fansly()
+        return site_context.is_fansly()
     except Exception:
-        fansly = False
-    if fansly:
-        return (
-            "No plugins exist for Fansly yet. Plugins made for OnlyFans don't run on "
-            "this tab; a Fansly plugin would go in this folder (then click Refresh)."
-        )
+        return False
+
+
+def _empty_hint() -> str:
+    """The message when no plugins are installed, for this tab's site."""
+    if _is_fansly():
+        return "No Fansly plugins found."
     return (
         "No plugins installed yet. Copy a plugin folder into the plugins "
         "directory, then click Refresh (or restart the GUI)."
@@ -68,6 +76,14 @@ class PluginsPage(QWidget):
         header = QLabel("Plugins")
         style_page_title(header)
         layout.addWidget(header)
+
+        # Fansly tab: say up front that plugins are for OnlyFans
+        self.fansly_notice = QLabel(FANSLY_NOTICE)
+        self.fansly_notice.setWordWrap(True)
+        self.fansly_notice.setTextFormat(Qt.TextFormat.RichText)
+        self.fansly_notice.setStyleSheet(self._notice_style())
+        self.fansly_notice.setVisible(_is_fansly())
+        layout.addWidget(self.fansly_notice)
 
         subtitle = QLabel(
             "Install plugins by copying a folder into your plugins directory. "
@@ -147,7 +163,16 @@ class PluginsPage(QWidget):
 
         self._update_buttons()
 
+    @staticmethod
+    def _notice_style() -> str:
+        return (
+            f"color: {c('text')}; background: {c('surface0')}; "
+            f"border: 1px solid {c('warning')}; border-left: 4px solid {c('warning')}; "
+            "border-radius: 6px; padding: 10px 12px;"
+        )
+
     def _apply_theme(self, *_args):
+        self.fansly_notice.setStyleSheet(self._notice_style())
         self.path_label.setStyleSheet(f"color: {c('subtext')};")
         self.hint_label.setStyleSheet(f"color: {c('subtext')};")
 
