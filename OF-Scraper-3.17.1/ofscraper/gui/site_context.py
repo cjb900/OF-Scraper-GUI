@@ -126,11 +126,6 @@ def action_supported(action: str, site: str | None = None) -> bool:
     return (site or current_site()) != FANSLY or action not in ONLYFANS_ONLY_ACTIONS
 
 
-def userlists_supported(site: str | None = None) -> bool:
-    """OnlyFans user lists (--ul) filter the model list; Fansly has none."""
-    return (site or current_site()) != FANSLY
-
-
 # --- links to the site ---------------------------------------------------------------
 
 def profile_url(username: str, site: str | None = None) -> str:

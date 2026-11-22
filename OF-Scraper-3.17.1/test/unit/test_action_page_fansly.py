@@ -1,5 +1,5 @@
-"""Select Action on the Fansly tab: no User Lists box (Fansly has no user
-lists) and the posts check is labelled with Fansly's timeline and walls."""
+"""Select Action on the Fansly tab: User Lists is offered with Fansly wording,
+and the posts check is labelled with Fansly's timeline and walls."""
 import pytest
 
 pytestmark = pytest.mark.unit
@@ -31,9 +31,9 @@ def _radio_texts(page):
     return [b.text() for b in page._button_group.buttons()]
 
 
-def test_userlists_supported_per_site():
-    assert site_context.userlists_supported(site_context.ONLYFANS)
-    assert not site_context.userlists_supported(site_context.FANSLY)
+def _hint(page):
+    labels = page._userlist_widget.findChildren(QtWidgets.QLabel)
+    return " ".join(l.text() for l in labels)
 
 
 def test_check_choice_text():
@@ -45,24 +45,25 @@ def test_check_choice_text():
     assert action_page._check_choice_text(other, True)[0] == other
 
 
-def test_fansly_hides_user_lists(qapp, monkeypatch):
+def test_fansly_offers_user_lists(qapp, monkeypatch):
     page = _page(monkeypatch, site_context.FANSLY)
-    assert page._userlist_widget.isHidden()
-    page._on_action_changed(0)  # Download
-    assert page._userlist_widget.isHidden()
-    page.reset_to_defaults()
-    assert page._userlist_widget.isHidden()
-    # a value set from --ul is never used on Fansly
-    page._userlist_input.setText("vip")
-    assert page.get_userlist() == []
+    assert not page._userlist_widget.isHidden()
+    hint = _hint(page)
+    assert "Fansly list" in hint and "OnlyFans" not in hint
+    assert "VIP" in hint
+    assert "Fansly" in page._userlist_input.toolTip()
+    page._userlist_input.setText("Test, vip")
+    assert page.get_userlist() == ["test", "vip"]
     texts = _radio_texts(page)
     assert "Check posts: build table of timeline/walls media" in texts
     assert POSTS not in texts
 
 
-def test_onlyfans_keeps_user_lists(qapp, monkeypatch):
+def test_onlyfans_user_lists(qapp, monkeypatch):
     page = _page(monkeypatch, site_context.ONLYFANS)
     assert not page._userlist_widget.isHidden()
+    hint = _hint(page)
+    assert "OnlyFans list" in hint and "VIP" not in hint
     page._userlist_input.setText("VIP, testing")
     assert page.get_userlist() == ["vip", "testing"]
     page._on_action_changed(0)

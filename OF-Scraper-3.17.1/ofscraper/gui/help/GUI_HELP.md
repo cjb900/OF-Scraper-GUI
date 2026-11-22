@@ -225,7 +225,7 @@ Downloads go to each site's own **Save Location** (Configuration → File Option
 - Content areas: Timeline, Messages, Purchased and **Walls** (Fansly's named profile tabs; *Labels* in OnlyFans terms). All four start ticked, as on OnlyFans. Walls hold timeline posts, so scanning them reads most of the timeline again, once per wall, and a first scan can take many minutes under Fansly's rate limit; untick Walls for a faster scan if you don't sort files by wall.
 - Some older Fansly videos have a separate audio track the CDN no longer serves. Those download as the plain MP4 when the post has one; otherwise they fail at once instead of being retried.
 - Check Mode works on Fansly for posts (Timeline and Walls), messages and purchased content; see [Check Mode](#check-mode-fansly).
-- Not available on Fansly: User Lists, Story Check, Like / Unlike, metadata, all-purchased and post-URL scraping, and DRM keys (Fansly videos aren't DRM-protected).
+- Not available on Fansly: Story Check, Like / Unlike, metadata, all-purchased and post-URL scraping, and DRM keys (Fansly videos aren't DRM-protected).
 - **Authentication**: log in with the built-in browser; or pick a browser on this computer that is signed in to fansly.com (Firefox, Zen, LibreWolf, Floorp, Waterfox, Chrome, Edge, Brave, Opera, Vivaldi or Chromium) and click **Import from browser**, which reads the token from that browser's saved site data and checks it; or paste the authorization token (browser developer tools on fansly.com → Application → Local Storage → `session_active_session` → `token`) and the user agent of that browser. **Save & Test** checks them with Fansly; **Save** keeps edits without checking; **Clear** removes the saved token and user agent (and can sign the built-in browser out of Fansly); **Open fansly_auth.json** opens the file.
 - Plugins load per site: a plugin in `~/.config/ofscraper/plugins` runs for OnlyFans only, and one in `~/.config/ofscraper/fansly/plugins` for Fansly only. **Plugins are OnlyFans only for now.** Every plugin available today is made for OnlyFans; plugins aren't supported on Fansly yet, and the Fansly tab's Plugins page says so at the top. OnlyFans plugins aren't loaded there.
 - The command line works the same: `ofscraper --config ~/.config/ofscraper/fansly/config.json` runs Fansly with the GUI's Fansly settings.
@@ -362,12 +362,12 @@ Controls are in **About** and on this Help toolbar: **A−**, size dropdown, **A
 
 When **Download content from a user** is selected, a **User Lists** field appears below it.
 
-- Enter one or more OnlyFans list name(s), comma-separated (e.g. `testing, vip`).
+- Enter one or more list name(s) from your OnlyFans or Fansly account, comma-separated (e.g. `testing, vip`).
 - Only models who are members of those lists will be loaded — the full subscription list is not fetched.
 - Leave blank to load all subscribed models (default behavior).
 - Equivalent to the `--ul` / `--userlist` CLI flag.
 - Reserved internal names (`main`, `ofscraper.main`) are automatically ignored even if entered.
-- OnlyFans only: Fansly has no user lists, so the Fansly tab doesn't show this field.
+- **Fansly:** use lists you made on fansly.com (Lists → **+**). Fansly's built-in lists (VIP Accounts, Blocked, Muted, DM Allow) can't be read, so they can't be used here. A name that matches none of your lists is logged as not found. Black lists (`-bl` / `--blacklist`) work the same way and leave their creators out.
 
 After models load, a **Reload Models** button appears in the navigation bar — use it to re-fetch models without going all the way back to the Select Action page.
 

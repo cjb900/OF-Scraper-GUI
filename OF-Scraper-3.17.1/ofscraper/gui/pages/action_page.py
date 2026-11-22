@@ -279,19 +279,22 @@ class ActionPage(QWidget):
         """Build the User List Filter sub-widget shown under Download."""
         from ofscraper.gui import site_context
 
-        # Fansly has no user lists: the box is never shown there
-        self._userlist_supported = site_context.userlists_supported()
+        site = site_context.site_label()
         container = QWidget()
-        # visible by default (Download is default)
-        container.setVisible(self._userlist_supported)
+        container.setVisible(True)  # visible by default (Download is default)
 
         inner = QVBoxLayout(container)
         inner.setContentsMargins(28, 0, 0, 4)
         inner.setSpacing(4)
 
         hint = QLabel(
-            "Filter which models are loaded from the OnlyFans API by your custom list(s).\n"
-            "Leave blank to load all subscribed models (default)."
+            f"Load only the models on your {site} list(s).\n"
+            + (
+                "Use lists you made on Fansly (VIP, Blocked, Muted and DM Allow can't be used).\n"
+                if site_context.is_fansly()
+                else ""
+            )
+            + "Leave blank to load all subscribed models (default)."
         )
         apply_font(hint, "Segoe UI", 10)
         hint.setProperty("muted", True)
@@ -306,7 +309,7 @@ class ActionPage(QWidget):
         self._userlist_input = QLineEdit()
         self._userlist_input.setPlaceholderText("e.g.  testing, vip  (comma-separated list names)")
         self._userlist_input.setToolTip(
-            "Enter one or more OnlyFans list names separated by commas.\n"
+            f"Enter one or more {site} list names separated by commas.\n"
             "Only models who are members of these lists will be loaded.\n"
             "List names are case-insensitive.\n"
             "Leave blank to load all subscribed models."
@@ -341,7 +344,7 @@ class ActionPage(QWidget):
     def get_userlist(self):
         """Return the current userlist as a list of lowercase strings (empty = no filter)."""
         text = self._userlist_input.text().strip()
-        if not text or not self._userlist_supported:
+        if not text:
             return []
         raw = [u.strip().lower() for u in text.split(",") if u.strip()]
         return self._strip_reserved_lists(raw)
@@ -765,7 +768,7 @@ class ActionPage(QWidget):
         self._check_fresh_check.setChecked(False)
         self._check_disk_check.setChecked(False)
         self._userlist_input.clear()
-        self._userlist_widget.setVisible(self._userlist_supported)
+        self._userlist_widget.setVisible(True)
         self._metadata_widget.setVisible(False)
         self._metadata_mode_radios["update"].setChecked(True)
         self._metadata_mark_stray_check.setChecked(False)
@@ -782,7 +785,7 @@ class ActionPage(QWidget):
         self._metadata_widget.setVisible("metadata" in self._selected_actions)
         self._paid_all_widget.setVisible("paid_all" in self._selected_actions)
         # Show userlist widget only for "Download content from a user" (btn_id 0)
-        self._userlist_widget.setVisible(btn_id == 0 and self._userlist_supported)
+        self._userlist_widget.setVisible(btn_id == 0)
 
     def _on_msg_filter_changed(self, btn_id):
         checked = self._msg_filter_group.checkedButton()

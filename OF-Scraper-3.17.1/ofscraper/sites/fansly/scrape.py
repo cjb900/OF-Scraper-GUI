@@ -92,19 +92,72 @@ async def get_paid_posts(model_id, username, c=None):
     return found
 
 
-async def get_models(usernames=None, c=None):
+def _list_names(names):
+    """User list names without OF-Scraper's reserved ones ('main',
+    'ofscraper.main'), which mean "no list filter"."""
+    try:
+        import ofscraper.utils.of_env.of_env as of_env
+
+        reserved = {
+            str(of_env.getattr("OFSCRAPER_RESERVED_LIST") or "").lower(),
+            str(of_env.getattr("OFSCRAPER_RESERVED_LIST_ALT") or "").lower(),
+        }
+    except Exception:
+        reserved = {"ofscraper.main", "main"}
+    out = []
+    for n in names or []:
+        n = str(n).strip().lower()
+        if n and n not in reserved and n not in out:
+            out.append(n)
+    return out
+
+
+async def get_models(usernames=None, c=None, userlists=None, blacklists=None):
     """Creators to scrape, as OnlyFans-shaped model dicts.
 
     With usernames: every value goes to ``account?usernames=``, and the
     all-digit ones (which may be account ids, or all-digit usernames) to
-    ``account?ids=`` as well. Otherwise every followed account
-    (``account/<me>/following``, then ``account?ids=``).
+    ``account?ids=`` as well. With user lists (and no usernames): the
+    accounts on the user's Fansly lists with those names. Otherwise every
+    followed account (``account/<me>/following``, then ``account?ids=``).
+    Without usernames, accounts on a black list are left out (as on OnlyFans,
+    named creators are never filtered).
+
+    userlists / blacklists default to the run's settings (--ul / --bl, or
+    the config's default lists).
     """
     import ofscraper.utils.me as me_util
 
     usernames = [str(u) for u in (usernames or []) if u and u != "ALL"]
     ids = [u for u in usernames if u.isdigit()]
+    if userlists is None or blacklists is None:
+        try:
+            run = settings.get_settings()
+        except Exception:
+            run = None
+        if userlists is None:
+            userlists = getattr(run, "userlist", None)
+        if blacklists is None:
+            blacklists = getattr(run, "blacklist", None)
+    userlists = _list_names(userlists)
+    blacklists = _list_names(blacklists)
     async with _session(c) as c:
+        blocked = set()
+        if blacklists and not usernames:
+            blocked_ids, missing = await api.accounts_on_lists(c, blacklists)
+            blocked = set(blocked_ids)
+            if missing:
+                log.warning(f"Fansly black list(s) not found: {', '.join(missing)}")
+        if not usernames and userlists:
+            list_ids, missing = await api.accounts_on_lists(c, userlists)
+            if missing:
+                log.warning(
+                    f"Fansly list(s) not found: {', '.join(missing)}. Only lists you made "
+                    "are available (not VIP, Blocked, Muted or DM Allow)."
+                )
+            log.info(f"Fansly lists {', '.join(userlists)}: {len(list_ids)} accounts")
+            accounts = await api.accounts_by_id(c, [i for i in list_ids if i not in blocked])
+            return [normalize.model(a) for a in accounts if a.get("id") and a.get("username")]
         if usernames:
             accounts = list(await api.accounts_by_username(c, usernames))
             if ids:
@@ -117,4 +170,7 @@ async def get_models(usernames=None, c=None):
             ]
         else:
             accounts = await api.accounts_by_id(c, await api.following_ids(c, me_util.get_id()))
-    return [normalize.model(a) for a in accounts if a.get("id") and a.get("username")]
+    return [
+        normalize.model(a) for a in accounts
+        if a.get("id") and a.get("username") and str(a.get("id")) not in blocked
+    ]

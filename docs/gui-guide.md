@@ -35,7 +35,8 @@ The window has an **OnlyFans** tab and a **Fansly** tab (3.17.1). Each tab is it
 - Fansly videos (HLS/DASH) download without DRM keys. Some older videos have a separate audio track the CDN no longer serves: those download as the plain MP4 when the post has one, otherwise they fail at once instead of being retried
 - Post text has Fansly's style codes (`[s:lg]…[/s]`, `[c:blue]…[/c]`, `**bold**`, `*italic*`) removed, so they don't end up in file names or text files
 - [Check Mode](#check-mode) works on Fansly for posts, messages and purchased content
-- Not available on Fansly: User Lists, Story Check, Like / Unlike, Update metadata, Download all purchased content, scraping by post URL, and DRM Key Creation (Fansly videos aren't DRM-protected)
+- **User Lists** works with lists you made on fansly.com (VIP, Blocked, Muted and DM Allow can't be used); black lists (`-bl` / `--blacklist`) too
+- Not available on Fansly: Story Check, Like / Unlike, Update metadata, Download all purchased content, scraping by post URL, and DRM Key Creation (Fansly videos aren't DRM-protected)
 - **Plugins are OnlyFans only for now.** The Fansly tab's Plugins page says so at the top. Plugins load per site (`~/.config/ofscraper/plugins` for OnlyFans, `~/.config/ofscraper/fansly/plugins` for Fansly), but no Fansly plugins exist yet
 - The command line works the same way: `ofscraper --config ~/.config/ofscraper/fansly/config.json` runs Fansly with the GUI's Fansly settings
 
@@ -461,14 +462,14 @@ The usual flow is **Select Action → Select Content Areas & Filters → Select 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
 - **Download** — download media files from your subscribed creators
-  - **User Lists** — enter one or more OnlyFans list names (comma-separated) to load only the models on those lists. Leave blank to load all subscribed models. Equivalent to `--ul` / `--userlist` (also works for [CLI auto-start](#cli-auto-start)). OnlyFans only: the Fansly tab doesn't show it
+  - **User Lists** — enter one or more list names from your account (comma-separated) to load only the models on those lists. Leave blank to load all subscribed models. Equivalent to `--ul` / `--userlist` (also works for [CLI auto-start](#cli-auto-start)). On Fansly, use lists you made on fansly.com; the built-in VIP, Blocked, Muted and DM Allow lists can't be used
 - **Like/Unlike** — automate liking or unliking posts. Only posts inside the **Post Date Range** filter are liked or unliked. While it runs the button reads **Liking…** / **Unliking…**, and the **Liked** column updates as each post is done
 - **Update metadata** — bring your database up to date without downloading; see [below](#update-metadata-no-downloads)
 - **Download all purchased content (all creators)** — everything you've bought, from every creator; see [below](#download-all-purchased-content-all-creators)
 - **Check modes** (Post Check, Message Check, Paid Check, Story Check) — browse all content for a creator in a table and pick what to download; see [Check Mode](#check-mode)
 - **Scrape individual posts by URL or Post ID** — paste post URLs or IDs, skipping model and area selection; see [below](#scrape-individual-posts-by-url-or-post-id)
 
-On the Fansly tab, only **Download** and the check modes (without Story Check) are offered; see [Fansly differences](#onlyfans-and-fansly).
+On the Fansly tab, only **Download** (with User Lists) and the check modes (without Story Check) are offered; see [Fansly differences](#onlyfans-and-fansly).
 
 After selecting an action, click **Next** to move on. After models load, a **Reload Models** button in the navigation bar re-fetches them without going back to the start.
 
