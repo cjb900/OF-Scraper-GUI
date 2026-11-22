@@ -5,7 +5,7 @@
 <h1 align="center">OF-Scraper GUI</h1>
 
 <p align="center">
-  <b>A full desktop GUI for OF-Scraper: pick, browse and download from one window instead of the command line.</b>
+  <b>A full desktop GUI for OF-Scraper: pick, browse and download from OnlyFans and Fansly in one window instead of the command line.</b>
 </p>
 
 <p align="center">
@@ -52,12 +52,14 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 
 ## What it adds
 
-- **OnlyFans and Fansly in one window** (3.17.1): each site in its own tab, both able to scrape at the same time
+- **OnlyFans and Fansly in one window** (3.17.1): each site in its own tab with its own settings, login, databases and download folder, and both can scrape at the same time. Fansly covers Timeline, Messages, Purchased and Walls, and has its own check mode
 - **A step-by-step scrape wizard**: pick an action, content areas and filters, and models, then watch progress in a live table and log
 - **Check modes** to browse everything a creator posted (including locked items), spot files you've deleted from disk, and download only what you pick
-- **Authentication made easier**: import cookies from your browser, or log in through a browser window, instead of copying headers by hand
+- **Authentication made easier**: import cookies from your browser, or log in through a browser window, instead of copying headers by hand. For Fansly, **Import from browser** reads the sign-in from Firefox, Zen or Chrome on the same computer
 - **Every setting in one place**, with checks that stop bad paths and file names before a scrape starts
-- **DRM key creation**, profiles, database merging, daemon mode, Discord notifications, scrape history, CSV export and more
+- **Notifications**: a desktop notice when a run finishes, and Discord messages with one message per creator and a totals card
+- **Update from the GUI** (3.17.1): when a newer patch is out, **Update now** downloads it, closes the GUI and applies it. **About → Include testing builds** also offers test versions
+- **DRM key creation**, profiles, database merging, daemon mode, scrape history, CSV export and more
 - **Plugins** (experimental): AI image tagging, an AI assistant, live stream capture and trial-link scanning
 - **Docker** support: run the GUI on a server and open it in your browser
 
@@ -82,7 +84,7 @@ The [GUI guide](docs/gui-guide.md) walks through every page.
 
 ❌ = not tested. Windows is tested on Windows 11; Linux on Debian-based distributions (Ubuntu, Debian, Mint, KDE neon, Pop!_OS, …).
 
-- **Python:** 3.11 and 3.12 are supported, and newer versions also work (the patch installs OF-Scraper with Python 3.12 on 3.13+). **If you run into issues with a newer Python version, use Python [3.11.6](https://www.python.org/downloads/release/python-3116/)** (recommended).
+- **Python:** 3.11 and 3.12 are supported, and newer versions also work (the patch installs OF-Scraper with Python 3.12 on Python 3.15+ for the 3.17.1 patch, and on 3.13+ for the 3.14.7 patch). **If you run into issues with a newer Python version, use Python [3.11.6](https://www.python.org/downloads/release/python-3116/)** (recommended).
 - **FFmpeg** (needed for DRM videos): version 6 or newer works. **If you run into issues with a version above 7.1.1, use FFmpeg 7.1.1.**
 
 More detail: [Install](docs/install.md).
@@ -112,9 +114,11 @@ More detail: [Prerequisites](docs/install.md#prerequisites).
   <img src="https://github.com/user-attachments/assets/52d9067f-57e2-4d87-ada6-4b168e849b1c" width="600" alt="Start GUI">
   
 
-4. In the GUI: **Authentication** → log in or import cookies; **Configuration** → set your Save Location and FFmpeg path; then **Scraper** → pick an action and go.
+4. In the GUI, pick the **OnlyFans** or **Fansly** tab, then: **Authentication** → log in or import your sign-in; **Configuration** → set your Save Location and FFmpeg path; then **Scraper** → pick an action and go. Each tab has its own settings, so set up both if you use both sites.
 
-To update later, download the newer patch script and run it again. To undo the patch: `python patch_ofscraper_3.17.1_gui.py --restore /path/to/backup`. All options: [Install](docs/install.md).
+**Coming from the 3.14.7 patch?** Run the 3.17.1 patch script the same way. It upgrades OF-Scraper to 3.17.1 with the same method you installed it with (pip, pipx or uv) and keeps your settings, login and databases. The first time, the OnlyFans tab offers to move your downloads from the default folder into `OnlyFans/` next to Fansly's folder; a Save Location you set yourself is never changed.
+
+To update later, use **Update now** in the GUI (3.17.1) or download the newer patch script and run it again. To undo the patch: `python patch_ofscraper_3.17.1_gui.py --restore /path/to/backup`. All options: [Install](docs/install.md).
 
 ## Docker
 
@@ -154,5 +158,5 @@ The GUI also has a built-in **Help / README** page with the full reference; ever
 
 ## Disclaimer
 
-1. This tool is not affiliated, associated, or partnered with OnlyFans in any way. We are not authorized, endorsed, or sponsored by OnlyFans. All OnlyFans trademarks remain the property of Fenix International Limited.
+1. This tool is not affiliated, associated, or partnered with OnlyFans or Fansly in any way. We are not authorized, endorsed, or sponsored by OnlyFans or Fansly. All OnlyFans trademarks remain the property of Fenix International Limited; all Fansly trademarks remain the property of their owner.
 2. This is a theoretical program only and is for educational purposes. If you choose to use it then it may or may not work. You solely accept full responsibility and indemnify the creator, hosts, contributors and all other involved persons from any and all responsibility.

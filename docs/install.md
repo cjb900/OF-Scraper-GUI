@@ -33,7 +33,7 @@ Check this **before** installing or patching. Unsupported or untested platforms 
 ### Python version
 
 - Python **3.11** and **3.12** are supported
-- Newer versions (**3.13** and up) also work: on Python 3.13+ the patch script installs OF-Scraper with Python 3.12 through uv or pipx, which download it if it isn't installed
+- Newer versions also work. The patch script installs OF-Scraper with Python 3.12 (through uv or pipx, which download it if it isn't installed) on **Python 3.15+** with the 3.17.1 patch, and on **Python 3.13+** with the 3.14.7 patch
 - **If you run into issues with a newer Python version, use Python [3.11.6](https://www.python.org/downloads/release/python-3116/)** (recommended)
 - Python below 3.11 is **not supported**
 
@@ -48,43 +48,61 @@ FFmpeg is needed to merge DRM audio and video and to check downloaded files. Set
 
 ## Running the patch script
 
-Download the patch script for your OF-Scraper version from the repository root (e.g. `patch_ofscraper_3.14.7_gui.py`) and run it with Python. If OF-Scraper isn't installed yet, the script offers to install it ([see below](#if-of-scraper-is-not-detected)).
+Download the patch script for your OF-Scraper version from the repository root and run it with Python. Use `patch_ofscraper_3.17.1_gui.py` (recommended: OnlyFans and Fansly) unless you need to stay on OF-Scraper 3.14.7 (`patch_ofscraper_3.14.7_gui.py`, OnlyFans only). If OF-Scraper isn't installed yet, the script offers to install it ([see below](#if-of-scraper-is-not-detected)).
 
-**Updating:** to move to a newer GUI patch, download the new script and run it again. It replaces the patched files and makes a fresh backup first.
+**Updating:** to move to a newer GUI patch, download the new script and run it again. It replaces the patched files and makes a fresh backup first. With the 3.17.1 patch you can also update from inside the GUI ([see below](#updating-from-the-gui-update-now)).
 
 ```bash
 # Basic usage — auto-detect and patch (replace version number as needed)
-python patch_ofscraper_3.14.7_gui.py
+python patch_ofscraper_3.17.1_gui.py
 
 # Skip confirmation prompt
-python patch_ofscraper_3.14.7_gui.py -y
+python patch_ofscraper_3.17.1_gui.py -y
 
-# Force-reinstall ofscraper 3.14.7 and all GUI dependencies, then patch
-python patch_ofscraper_3.14.7_gui.py --force
+# Force-reinstall ofscraper 3.17.1 and all GUI dependencies, then patch
+python patch_ofscraper_3.17.1_gui.py --force
 
 # Force-reinstall ofscraper only (skip GUI dependency reinstall)
-python patch_ofscraper_3.14.7_gui.py --force --skip-deps
+python patch_ofscraper_3.17.1_gui.py --force --skip-deps
 
 # Dry run — see what would happen without making changes
-python patch_ofscraper_3.14.7_gui.py --dry-run
+python patch_ofscraper_3.17.1_gui.py --dry-run
 
 # Specify install path manually
-python patch_ofscraper_3.14.7_gui.py --target /path/to/site-packages/ofscraper
+python patch_ofscraper_3.17.1_gui.py --target /path/to/site-packages/ofscraper
 
 # Skip PyQt6 installation (if already installed)
-python patch_ofscraper_3.14.7_gui.py --skip-pyqt6
+python patch_ofscraper_3.17.1_gui.py --skip-pyqt6
 
 # Restore original files from backup
-python patch_ofscraper_3.14.7_gui.py --restore /path/to/backup
+python patch_ofscraper_3.17.1_gui.py --restore /path/to/backup
 ```
 
-The same flags apply to `patch_ofscraper_3.14.5_gui.py`, `patch_ofscraper_3.14.3_gui.py`, and `patch_ofscraper_3.12.9_gui.py`, except `--force`, which only the 3.14.7 patch has (from `v409`). Those three patches have not been updated and may not work properly; only the 3.14.7 patch is maintained (see [Versions](versions.md)).
+The same flags apply to `patch_ofscraper_3.14.7_gui.py`. The older `patch_ofscraper_3.14.5_gui.py`, `patch_ofscraper_3.14.3_gui.py` and `patch_ofscraper_3.12.9_gui.py` take them too, except `--force` (3.14.7 from `v409`, and 3.17.1). Those three patches have not been updated and may not work properly; only the 3.17.1 and 3.14.7 patches are maintained (see [Versions](versions.md)).
+
+### Upgrading from an older OF-Scraper (3.14.7 → 3.17.1)
+
+Run the 3.17.1 patch script the same way. When it finds an older OF-Scraper (3.14.7, or the `ofscraper-community` 3.16.x package) it asks:
+
+```
+Installed ofscraper version: 3.14.7
+This patch is designed for ofscraper 3.17.1.
+It can't be applied to 3.14.7: ofscraper would no longer start.
+
+Upgrade ofscraper to 3.17.1 now? (yes/no):
+```
+
+- **yes** upgrades OF-Scraper with the method it was installed with (pip, pipx or uv), then patches it. A pipx install is upgraded inside its existing venv, so the GUI packages stay. An `ofscraper-community` package is removed first, because 3.17.1 is published as `ofscraper`.
+- **no** stops without changing anything: a 3.17.1 patch on an older series would leave OF-Scraper unable to start.
+- Your config, login, profiles and databases are kept. If the upgrade fails, nothing is patched and your old version is left as it was.
+
+The first time the GUI starts after the upgrade, the **OnlyFans** tab may ask about your downloads. If your OnlyFans Save Location is still the default (`~/Data/ofscraper`) and creator folders are saved there, it offers to move them into `~/Data/ofscraper/OnlyFans` (next to Fansly's `Fansly` folder) and updates the download paths in the databases, or to keep them where they are. With nothing saved yet it switches quietly. A Save Location you set yourself is never changed.
 
 ### Repairing a broken install (`--force`)
 
 If OF-Scraper or the GUI won't start after an interrupted or failed install, or after patching, `--force` rebuilds it from scratch and then patches it:
 
-- **ofscraper 3.14.7** is reinstalled with all of its dependencies, using the same method it was installed with:
+- **ofscraper** (3.17.1 or 3.14.7, whichever the script is for) is reinstalled with all of its dependencies, using the same method it was installed with:
   - **uv:** `uv tool install --force --reinstall`, with the GUI packages listed so they are not dropped
   - **pipx:** `pipx uninstall ofscraper`, then a fresh `pipx install`, so the whole venv is new
   - **pip:** `pip install --upgrade --force-reinstall`
@@ -102,9 +120,20 @@ Launch the GUI with:
 ofscraper --gui
 ```
 
-The patch script will also offer to launch the GUI for you immediately after a successful patch.
+The patch script will also offer to launch the GUI for you immediately after a successful patch. The GUI it starts is its own window, so closing the console doesn't close it.
 
-> **Note:** If you run the patch script from inside a source directory (e.g. `OF-Scraper-3.14.7/`), use `python -m ofscraper --gui` from a different directory (e.g. your home directory) to ensure the installed version is used rather than the local source files.
+With the 3.17.1 patch the window has an **OnlyFans** tab and a **Fansly** tab. Each site keeps its own files: OnlyFans uses `~/.config/ofscraper/` as before, Fansly uses `~/.config/ofscraper/fansly/` (its own `config.json`, `fansly_auth.json`, profile, databases, logs, GUI settings and plugins). See [OnlyFans and Fansly](gui-guide.md#onlyfans-and-fansly).
+
+## Updating from the GUI (Update now)
+
+With the 3.17.1 patch the GUI checks this repository's GitHub releases for a newer patch (never a bare OF-Scraper upgrade from PyPI). The 3.14.7 patch uses the same check, but has no **Update now** button.
+
+- When a newer patch is out, the update prompt and **About** offer **Update now**. It downloads the patch script, checks it (it must compile and carry the announced patch id), closes the GUI and runs the script in a console window, so you can answer its prompts. The script can start the GUI again when it's done.
+- On Linux without a terminal program, the GUI shows the command to run instead.
+- **About → Include testing builds** (off by default) also offers builds from the `testing` branch. They're for trying fixes before a release and may have bugs.
+
+The downloaded script is kept in the `gui_updates` folder in your config folder.
+> **Note:** If you run the patch script from inside a source directory (e.g. `OF-Scraper-3.17.1/`), use `python -m ofscraper --gui` from a different directory (e.g. your home directory) to ensure the installed version is used rather than the local source files.
 
 ## How it detects your installation
 
@@ -119,7 +148,7 @@ The script automatically detects how OF-Scraper was installed by checking (in or
 
 The **3.12.9** patch script checks for broken ofscraper installations before patching, for example when a previous pip install was interrupted mid-way and left behind a corrupt `~fscraper` artifact in site-packages. When it finds one, it runs `pip install ofscraper==3.12.9 --force-reinstall` to repair it before applying the GUI patch.
 
-The **3.14.7** patch script doesn't detect broken installs on its own. Run it with `--force` to rebuild the install ([see above](#repairing-a-broken-install---force)).
+The **3.17.1** and **3.14.7** patch scripts don't detect broken installs on their own. Run it with `--force` to rebuild the install ([see above](#repairing-a-broken-install---force)).
 
 ## If OF-Scraper is not detected
 
@@ -158,7 +187,7 @@ python ofscraper_tools.py
 
 1. **Just uninstall ofscraper** — removes the package only; config and downloaded content are kept
 2. **Just remove the GUI patch** — uninstalls the patched version and reinstalls stock ofscraper from PyPI; your config is kept
-3. **Remove ofscraper + all config files** — uninstalls ofscraper and deletes `~/.config/ofscraper/` (includes settings, auth, logs, and databases — everything ofscraper stores outside your download folder)
+3. **Remove ofscraper + all config files** — uninstalls ofscraper and deletes `~/.config/ofscraper/` (includes settings, auth, logs, and databases — everything ofscraper stores outside your download folder; with 3.17.1 that includes the Fansly files in `fansly/`)
 4. **Purge everything** — uninstalls ofscraper, deletes config, and deletes your downloaded content. The download path is read from `file_options.save_location` in `config.json` **before** the config is deleted, so the correct path is always used regardless of where you saved content
 
 ### Data management options *(ofscraper stays installed)*
@@ -168,6 +197,8 @@ python ofscraper_tools.py
 7. **Delete SQL cache only** — deletes the `cache_sql/` folder(s) under each profile (`~/.config/ofscraper/<profile>/cache_sql/`). The cache holds API responses that speed up repeated runs; clearing it forces ofscraper to re-fetch everything from the API on the next run. Config, model DBs, and downloaded files are not affected
 
 All destructive options require explicit confirmation before proceeding. Options 4, 5, and 6 require two confirmations.
+
+> **Fansly (3.17.1):** options 4–7 only look at OnlyFans: the Save Location in `config.json` and the profiles directly under `~/.config/ofscraper/`. Fansly's downloads, databases and cache (in its own Save Location and `~/.config/ofscraper/fansly/`) aren't listed or deleted by them. Option 3 does delete `fansly/` along with the rest of the config folder.
 
 > **Note:** `uninstall_ofscraper.py` (the previous name for this script) is superseded by `ofscraper_tools.py`.
 

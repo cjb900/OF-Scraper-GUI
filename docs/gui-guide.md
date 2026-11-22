@@ -4,9 +4,42 @@
 
 # GUI guide
 
-This guide describes the **3.14.7** patch. Older patches have fewer features; see [Versions](versions.md) for what each one includes.
+This guide describes the **3.17.1** patch. The 3.14.7 patch has the same pages for OnlyFans, but no Fansly tab and no **Update now**; older patches have fewer features. See [Versions](versions.md) for what each one includes.
 
 Every **?** button in the app opens the matching part of the built-in **Help / README** page, which has the full field-by-field reference.
+
+## OnlyFans and Fansly
+
+The window has an **OnlyFans** tab and a **Fansly** tab (3.17.1). Each tab is its own copy of the GUI with its own settings, login and databases, so both sites can scrape at the same time without mixing anything. A tab whose site is downloading shows **●** before its name.
+
+- The window opens on the site you used last (or the one given with `--site onlyfans` / `--site fansly`). Click **Start Fansly** (or **Start OnlyFans**) in the other tab to run both
+- Closing the window stops both sites cleanly; if one is still downloading you're asked first
+- On macOS and on Linux sessions without X11 (XWayland works) the window can't hold the sites as tabs, so it lists them and each site opens in its own window
+- `OFSC_GUI_TABS=0` turns the tab window off: `ofscraper --gui` then opens a single OnlyFans GUI, as before
+
+**Where each site's files are**
+
+| | OnlyFans | Fansly |
+|---|---|---|
+| Settings | `~/.config/ofscraper/config.json` | `~/.config/ofscraper/fansly/config.json` |
+| Login | `~/.config/ofscraper/main_profile/auth.json` | `~/.config/ofscraper/fansly/main_profile/fansly_auth.json` |
+| Databases, logs, GUI settings | under `~/.config/ofscraper/` | under `~/.config/ofscraper/fansly/` |
+| Downloads (default Save Location) | `~/Data/ofscraper/OnlyFans` | `~/Data/ofscraper/Fansly` |
+
+- **Moving old OnlyFans downloads:** if OnlyFans creator folders were saved straight into `~/Data/ofscraper` (the old default), the OnlyFans tab asks once whether to move them into `OnlyFans/` (their download records in the databases follow) or keep them where they are. With nothing saved yet it switches quietly. A Save Location you set yourself is never changed
+- **Temp folder:** give each site its own **Temp Directory** if you set one. A run clears leftover temporary files in its temp folder when it starts, which would remove the other site's downloads in progress. Saving Configuration with the same temp folder as the other site shows a warning, and the GUI logs one at start-up
+
+**Fansly differences**
+
+- Content areas: **Timeline**, **Messages**, **Purchased** and **Walls** (Fansly's named profile tabs, like OnlyFans labels). All four start ticked. Walls hold timeline posts, so scanning them reads most of the timeline again, once per wall; untick Walls for a faster scan if you don't sort files by wall
+- Fansly videos (HLS/DASH) download without DRM keys. Some older videos have a separate audio track the CDN no longer serves: those download as the plain MP4 when the post has one, otherwise they fail at once instead of being retried
+- Post text has Fansly's style codes (`[s:lg]…[/s]`, `[c:blue]…[/c]`, `**bold**`, `*italic*`) removed, so they don't end up in file names or text files
+- [Check Mode](#check-mode) works on Fansly for posts, messages and purchased content
+- Not available on Fansly: Story Check, Like / Unlike, Update metadata, Download all purchased content, scraping by post URL, and DRM Key Creation (Fansly videos aren't DRM-protected)
+- **Plugins are OnlyFans only for now.** The Fansly tab's Plugins page says so at the top. Plugins load per site (`~/.config/ofscraper/plugins` for OnlyFans, `~/.config/ofscraper/fansly/plugins` for Fansly), but no Fansly plugins exist yet
+- The command line works the same way: `ofscraper --config ~/.config/ofscraper/fansly/config.json` runs Fansly with the GUI's Fansly settings
+
+Signing in to Fansly: see [Fansly authentication](#fansly-authentication).
 
 ## Getting around
 
@@ -30,7 +63,7 @@ Every **?** button in the app opens the matching part of the built-in **Help / R
 
 ### About & text size
 
-Click the sidebar version button (e.g. **`v3.14.7`**) — or **Help / README → About** — to open **About OF-Scraper**. Opening it again focuses the same window (it does not stack duplicates).
+Click the sidebar version button (e.g. **`v3.17.1`**) — or **Help / README → About** — to open **About OF-Scraper**. Opening it again focuses the same window (it does not stack duplicates).
 
 <details><summary>Screenshot</summary>
 
@@ -42,8 +75,11 @@ Click the sidebar version button (e.g. **`v3.14.7`**) — or **Help / README →
 - **App version** — installed OF-Scraper version
 - **GUI patch** — applied patch id (useful when reporting issues)
 - **Operating system**, **FFmpeg**, and **FFprobe** paths/status
-- **Updates** — status line after you run **Check for updates** (PyPI, same source as the CLI), plus **Open PyPI** when a newer release is available
-- On startup the GUI also quietly checks PyPI; if a newer release exists you get a one-time prompt (Open PyPI / Dismiss this version / Later)
+- **Updates** — status line after you run **Check for updates**, which looks for a new release of this GUI on GitHub, plus **Open GUI releases**
+- On startup the GUI also quietly checks GitHub; if a new GUI release exists you get a one-time prompt (Open release page / Dismiss this version / Later)
+- **Update now** (3.17.1; in the update prompt and in About when an update is found) — downloads the new patch script, checks it's the expected patch, closes OF-Scraper (asking first if a site is downloading) and runs the script in a console window. Answer its questions there; at the end it offers to start the GUI again. On Linux it needs a terminal program (gnome-terminal, konsole, xterm, …); without one you're shown the command to run. See [Install → Updating from the GUI](install.md#updating-from-the-gui-update-now)
+- **Include testing builds** (3.17.1, off by default) — also offers builds from the GUI's `testing` branch before they're released. For testers; testing builds can have bugs
+- Newer OF-Scraper versions on PyPI are never offered: a bare OF-Scraper upgrade can stop the GUI from starting. Update by running the new release's patch script (or **Update now**), which installs the OF-Scraper version the GUI was tested with
 
 **Text size (global GUI scaling)**
 - Controls live in **About** and on the **Help / README** toolbar: **A−**, size dropdown, **A+**, and **Reset**
@@ -77,6 +113,8 @@ Click the sidebar version button (e.g. **`v3.14.7`**) — or **Help / README →
 
 - Toggle **Privacy** in the bottom of the sidebar for safe screenshots / demos
 - Masks auth fields, Save Location / webhook / FFmpeg / CDM paths, model names, and table usernames
+- Masked Configuration fields can't be edited; an empty one shows *Hidden by Privacy mode — turn it off to edit*
+- Discord messages are not masked: they need the creator names
 - Extra redaction in the console log; preference saved in `gui_settings.json`
 
 ### Context-sensitive help
@@ -133,7 +171,7 @@ Built-in documentation available at any time without leaving the app:
 
 </details>
 
-Manage the credentials OF-Scraper uses to connect to OnlyFans. Each option has a **?** button that jumps to the matching Help section:
+Manage the credentials OF-Scraper uses to connect to OnlyFans (the Fansly tab has its own page: see [Fansly authentication](#fansly-authentication)). Each option has a **?** button that jumps to the matching Help section:
 
 - **Credentials** — paste `sess` / `auth_id` / `auth_uid` / user-agent / `x-bc` manually from DevTools
 - **Import Cookies** *(recommended when already logged in)* — read allowlisted cookies from the selected browser profile on disk (Zen/Firefox on Windows; any listed browser on Linux). Chrome-family **Import Cookies** is Linux-only on Windows builds
@@ -192,6 +230,21 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 > **KDE Plasma note:** On KDE Plasma / KDE neon the embedded App Browser view may briefly appear blank while the page loads. This is cosmetic — the page loads correctly regardless.
 
 > **Window flashing:** on Windows and Linux the GUI turns on Qt's newer widget renderer (`QT_WIDGETS_RHI=1`) so opening the App Browser doesn't make the whole window flash. If you see drawing problems, start the GUI with `QT_WIDGETS_RHI=0` to turn it off. Docker is not affected.
+
+### Fansly authentication
+
+The Fansly tab's **Authentication** page needs an authorization token and the user agent of the browser it came from. Three ways to fill them:
+
+- **Log in with browser** — log in to fansly.com in the built-in browser; the GUI reads the session token when you're signed in
+- **Import from browser** — pick a browser on this computer that is signed in to fansly.com (Firefox, Zen, LibreWolf, Floorp, Waterfox, Chrome, Edge, Brave, Opera, Vivaldi or Chromium) and click **Import from browser**. It reads the token from that browser's saved site data and checks it
+- **By hand** — in your browser's developer tools on fansly.com: **Application → Local Storage → `session_active_session` → `token`**, plus that browser's user agent
+
+Buttons:
+
+- **Save & Test** — saves and checks the login with Fansly. A failure is explained in plain words: the token is invalid, expired or signed out; the user agent doesn't match the browser the token came from; Fansly is limiting requests; or the network can't reach Fansly
+- **Save** — keeps your edits without checking
+- **Clear** — removes the saved token and user agent, and can sign the built-in browser out of Fansly
+- **Open fansly_auth.json** — opens the file (`~/.config/ofscraper/fansly/main_profile/fansly_auth.json`); **Open folder** opens the folder it's in; **Reload** reads it again
 
 ### Auth failure handling
 
@@ -281,8 +334,8 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 </details>
 
 - **CDM** — DRM key mode and key file paths (needed for protected content); new installs default to **manual**; remote modes warn and never send session cookies
-  - Prefer **manual** + local `client_id.bin` / `private_key.pem` (use **DRM Key Creation**). Remote modes (`cdrm` / `cdrm2` / `keydb`) are opt-in and may fail on OnlyFans licenses
-  - **KeyDB** is currently not working — avoid for now
+  - Prefer **manual** + local `client_id.bin` / `private_key.pem` (use **DRM Key Creation**). The Key Mode list marks **manual** as *(recommended)*
+  - The remote modes `cdrm` / `cdrm2` / `keydb` are marked *(currently not working)* in the list. They stay there in case they come back; use **manual**
   - In **manual** mode, if `client-id` or `private-key` is blank or the file is missing, the log shows **one** error saying so and DRM videos are skipped right away (no download, no retries). Videos whose key was saved by an earlier run still download. See [Troubleshooting](troubleshooting.md#drm-videos-are-skipped-or-fail)
   - Existing configs keep their saved key mode (new-install default does not rewrite `config.json`)
 
@@ -306,7 +359,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
   - **Download Bars / Append Log / Sanitize Text** — console bars (can slow high thread counts); daily vs per-run logs; clean text before DB insert
   - **Remove Hash Match** — skip hash / hash only / hash + **delete** duplicate files (deletion is permanent)
   - **Enable Auto After** — speeds rescrapes via cutoff; disable temporarily if older content seems missing
-  - **Temp Directory** — optional temp/`.part` root; empty = default
+  - **Temp Directory** — optional temp/`.part` root; empty = default. With both sites in tabs, give each its own: **Save** warns when OnlyFans and Fansly share one ([why](#onlyfans-and-fansly))
   - **Infinite Loop (Action Mode)** / **Default User & Black Lists** — mainly CLI/automation defaults (comma-separated list names)
 
 <details><summary>Screenshot</summary>
@@ -348,6 +401,9 @@ A built-in tool for generating the DRM decryption keys required to download prot
 - **Streams output** directly into the app so you can follow progress in real time — the Generate Keys button and live console are at the top of the page; Requirements & Information sits below the console
 - **Auto-configures** — once keys are generated, the CDM key paths in your config are updated automatically. No need to edit `config.json` manually
 - **Virtualization checks** — checks that CPU virtualization / Hyper-V is available before running the Android emulator used for key extraction
+- **Private key kept out of the log** — the device private key the tool prints is replaced with a "private key hidden" note in the page and the log file, so a log you share doesn't contain it. The key file itself is saved as normal
+- Starting the key tool no longer affects the site tab it was started from
+- OnlyFans only: the Fansly tab has no DRM Key Creation page (Fansly videos aren't DRM-protected)
 - Accessible from the sidebar or via the quick link in the startup notice if CDM keys are not yet configured
 
 > The key extraction process can take 10–90 minutes depending on your hardware. A progress log is shown throughout.
@@ -401,11 +457,13 @@ The starting point of every scrape. Choose what you want OF-Scraper to do:
 
 - **Download** — download media files from your subscribed creators
   - **User Lists** — enter one or more OnlyFans list names (comma-separated) to load only the models on those lists. Leave blank to load all subscribed models. Equivalent to `--ul` / `--userlist` (also works for [CLI auto-start](#cli-auto-start))
-- **Like/Unlike** — automate liking or unliking posts
+- **Like/Unlike** — automate liking or unliking posts. Only posts inside the **Post Date Range** filter are liked or unliked. While it runs the button reads **Liking…** / **Unliking…**, and the **Liked** column updates as each post is done
 - **Update metadata** — bring your database up to date without downloading; see [below](#update-metadata-no-downloads)
 - **Download all purchased content (all creators)** — everything you've bought, from every creator; see [below](#download-all-purchased-content-all-creators)
 - **Check modes** (Post Check, Message Check, Paid Check, Story Check) — browse all content for a creator in a table and pick what to download; see [Check Mode](#check-mode)
 - **Scrape individual posts by URL or Post ID** — paste post URLs or IDs, skipping model and area selection; see [below](#scrape-individual-posts-by-url-or-post-id)
+
+On the Fansly tab, only **Download** and the check modes (without Story Check) are offered; see [Fansly differences](#onlyfans-and-fansly).
 
 After selecting an action, click **Next** to move on. After models load, a **Reload Models** button in the navigation bar re-fetches them without going back to the start.
 
@@ -703,6 +761,10 @@ Check modes (**Post Check**, **Message Check**, **Paid Check**, **Story Check**)
 - **Filters** work the same as on the main table — narrow by media type, response type, date range, price, and more
 - **Progress bar** in the footer tracks each selected download individually: e.g. `3 / 10` as items complete
 - Items update in real time as they finish: `[downloaded]`, `[skipped]`, or `[failed]`
+- **Did I get everything?** Each check logs one line per creator, for example `Check for creator: 120 items, 110 downloaded, 6 not downloaded, 4 locked; images 70/70, videos 40/50 (4 locked)`. *Not downloaded* items can be added to the cart; *locked* ones haven't been bought. The site's own profile counts can be higher: Fansly, for one, counts reposts and media no longer on any post
+- Running a normal scrape after a check in the same window uses your normal settings again (it no longer inherits the check's options and re-downloads everything)
+
+**On Fansly** (3.17.1), Post Check scans the Timeline and, if ticked, Walls (Fansly has no separate pinned, archived or stream lists); Message Check scans the creator's conversation and your purchases from them; Paid Check scans your purchases. Story Check is OnlyFans only.
 
 #### Check options
 
@@ -738,9 +800,14 @@ When you pick a check mode on **Select Action**, a **Check options** box with tw
 - While waiting between runs, a **countdown timer** is shown in the table toolbar with wall-clock ETA
 - **Last-run chip** between cycles shows downloads / fails / size from the previous cycle
 - Optional **system tray notification** when each run starts (all platforms)
+- Daemon runs fill the table as they go, like a normal scrape (in Docker the table is filled when the run ends)
 - Optional **sound alert** when each run starts (Windows)
 - Optional **@here Discord mention** — when enabled, the Discord scrape summary is prefixed with `@here` only when new content was downloaded in that run. No ping is sent for runs that find nothing new. Requires a Discord webhook to be configured
 - A **Stop Daemon** button appears in the toolbar; clicking it gracefully stops the loop after the current run
+
+### Notification when a run finishes
+
+**System notification when a run finishes** (Areas page, on by default): one desktop notification when a scrape, like or unlike run ends, also when it's cancelled or stops with an error, e.g. *Fansly: Scrape finished / 644 downloaded, 2 failed*. With both sites in tabs, it starts with the site's name. Works with or without daemon mode (daemon runs report their start instead). Saved with the other Areas page settings.
 
 ### Stopping or waking from outside (Linux / macOS)
 - `kill <pid>` (SIGTERM) on the GUI cancels the current scrape and quits cleanly; `docker stop` does the same in Docker
@@ -767,6 +834,13 @@ The GUI includes a Discord webhook toggle that controls whether scraping activit
 - Choose **LOW** (warnings, errors, and run summary only) or **NORMAL** (all events). Defaults to **LOW**
 - On first enable, a one-time prompt asks if you want to save `LOW` as the permanent default in `gui_settings.json`
 - In 3.14.3 and 3.12.9, Discord always fires at the `NORMAL` level with no selector
+
+**How runs look in Discord** (3.17.1)
+- Messages post as **OF-Scraper · OnlyFans** or **OF-Scraper · Fansly**, and each run starts with *▶ Scrape started · <site> · N models*
+- Lines are sent together, one message per creator, instead of one message per line (this also keeps under Discord's rate limit)
+- The Final Stats Summary is in a code block so its columns line up; the run totals are a card, green when nothing failed and red when something did
+- **Show model avatars** (next to the level): off by default, so model avatar links are left out and Discord shows no link previews. Tick it to post each model's avatar picture. Saved as `discord_avatars` in `config.json`, so command-line runs use it too
+- Privacy mode doesn't mask Discord messages
 
 **Per-run scrape summary**
 
@@ -801,8 +875,8 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 
 - **DRM Duration Match %** (default 98%) — reject empty/tiny muxes and files whose playback duration is too short vs expected; failed checks delete the bad file for retry
 - Download stall watchdog and stricter `.part` finalize (Content-Range aware resume)
-- Media / DRM / license URLs must use allowlisted hosts (`onlyfans.com`, `cloudfront.net`; extend via Configuration → Advanced → **Media Host Suffixes** or `OFSC_MEDIA_HOST_SUFFIXES`)
+- Media / DRM / license URLs must use allowlisted hosts (`onlyfans.com`, `cloudfront.net`, and `fansly.com` on 3.17.1; extend via Configuration → Advanced → **Media Host Suffixes** or `OFSC_MEDIA_HOST_SUFFIXES`)
 - Download paths confined under Save Location (and temp root for `.part` files)
 - Remote Key Mode (`cdrm` / `cdrm2` / `keydb`) warnings; new installs default to **manual** CDM; remote helpers never send session cookies
-- About / sidebar version check against PyPI; first-run welcome for `--gui` and plugins
+- About / sidebar update check against this GUI's GitHub releases (never PyPI); first-run welcome for `--gui` and plugins
 - **API resilience** (Configuration → Advanced) — **API Path**, **Manual Dynamic Rules**, **Dynamic Rules URL**, **API Endpoint Overrides**, and **Media Host Suffixes** so many OnlyFans signing/path/CDN breaks can be handled from config without a code patch (see [Configuration](#configuration))
