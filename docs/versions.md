@@ -67,7 +67,7 @@ Each patch script works with exactly one OF-Scraper version. To see which patch 
 | OnlyFans and Fansly tabs in one window, both scraping at once | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Fansly: Timeline, Messages, Purchased and Walls; HLS/DASH videos | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Fansly check mode (compare with files on disk, cart) | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Fansly user lists and black lists (`-ul` / `-bl`, User Lists box) | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Fansly My lists and black lists (`-ul` / `-bl`, My Lists box) | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Docker: start both sites (`ONLYFANS_GUI_ARGS`, `FANSLY_GUI_ARGS`) | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Discord: site in the sender name, totals card, model avatars option | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Update now (download and apply a newer patch from the GUI) | ❌ | ❌ | ❌ | ❌ | ✅ |

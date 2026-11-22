@@ -123,7 +123,7 @@ def test_unknown_list_loads_nobody_and_warns(monkeypatch, caplog):
     with caplog.at_level("WARNING", logger="shared"):
         _, names = _run(monkeypatch, _route({}, following=[A]), userlists=["vip accounts"], blacklists=[])
     assert names == []
-    assert "not found: vip accounts" in caplog.text
+    assert "not found in My lists: vip accounts" in caplog.text
 
 
 def test_black_list_drops_its_members(monkeypatch):

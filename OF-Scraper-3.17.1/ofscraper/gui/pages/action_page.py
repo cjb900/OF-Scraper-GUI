@@ -280,6 +280,10 @@ class ActionPage(QWidget):
         from ofscraper.gui import site_context
 
         site = site_context.site_label()
+        fansly = site_context.is_fansly()
+        # each site's own name for these lists: OnlyFans "User Lists",
+        # Fansly "My lists"
+        self._userlist_title = "My Lists" if fansly else "User Lists"
         container = QWidget()
         container.setVisible(True)  # visible by default (Download is default)
 
@@ -287,22 +291,25 @@ class ActionPage(QWidget):
         inner.setContentsMargins(28, 0, 0, 4)
         inner.setSpacing(4)
 
-        hint = QLabel(
-            f"Load only the models on your {site} list(s).\n"
-            + (
-                "Use lists you made on Fansly (VIP, Blocked, Muted and DM Allow can't be used).\n"
-                if site_context.is_fansly()
-                else ""
+        if fansly:
+            hint_text = (
+                "Load only the creators on your Fansly My lists.\n"
+                "Use lists you made (VIP Accounts, Blocked, Muted and DM Allow can't be used).\n"
+                "Leave blank to load everyone you follow (default)."
             )
-            + "Leave blank to load all subscribed models (default)."
-        )
+        else:
+            hint_text = (
+                f"Load only the models on your {site} user list(s).\n"
+                "Leave blank to load all subscribed models (default)."
+            )
+        hint = QLabel(hint_text)
         apply_font(hint, "Segoe UI", 10)
         hint.setProperty("muted", True)
         hint.setWordWrap(True)
         inner.addWidget(hint)
 
         row = QHBoxLayout()
-        lbl = QLabel("User Lists:")
+        lbl = QLabel(f"{self._userlist_title}:")
         apply_font(lbl, "Segoe UI", 11)
         row.addWidget(lbl)
 
@@ -312,7 +319,11 @@ class ActionPage(QWidget):
             f"Enter one or more {site} list names separated by commas.\n"
             "Only models who are members of these lists will be loaded.\n"
             "List names are case-insensitive.\n"
-            "Leave blank to load all subscribed models."
+            + (
+                "Leave blank to load everyone you follow."
+                if fansly
+                else "Leave blank to load all subscribed models."
+            )
         )
         # Pre-populate from CLI args (e.g. --ul testing), stripping reserved names
         try:

@@ -367,7 +367,7 @@ When **Download content from a user** is selected, a **User Lists** field appear
 - Leave blank to load all subscribed models (default behavior).
 - Equivalent to the `--ul` / `--userlist` CLI flag.
 - Reserved internal names (`main`, `ofscraper.main`) are automatically ignored even if entered.
-- **Fansly:** use lists you made on fansly.com (Lists → **+**). Fansly's built-in lists (VIP Accounts, Blocked, Muted, DM Allow) can't be read, so they can't be used here. A name that matches none of your lists is logged as not found. Black lists (`-bl` / `--blacklist`) work the same way and leave their creators out.
+- **Fansly:** the field is called **My Lists**, after Fansly's *My lists* page. Use lists you made there (the **+** button). Fansly's built-in lists (VIP Accounts, Blocked, Muted, DM Allow) can't be read, so they can't be used here. Left blank, everyone you follow is loaded. A name that matches none of your lists is logged as not found. Black lists (`-bl` / `--blacklist`) work the same way and leave their creators out.
 
 After models load, a **Reload Models** button appears in the navigation bar — use it to re-fetch models without going all the way back to the Select Action page.
 

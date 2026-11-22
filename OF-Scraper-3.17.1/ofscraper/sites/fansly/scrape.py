@@ -152,8 +152,8 @@ async def get_models(usernames=None, c=None, userlists=None, blacklists=None):
             list_ids, missing = await api.accounts_on_lists(c, userlists)
             if missing:
                 log.warning(
-                    f"Fansly list(s) not found: {', '.join(missing)}. Only lists you made "
-                    "are available (not VIP, Blocked, Muted or DM Allow)."
+                    f"Fansly list(s) not found in My lists: {', '.join(missing)}. Only lists "
+                    "you made are available (not VIP Accounts, Blocked, Muted or DM Allow)."
                 )
             log.info(f"Fansly lists {', '.join(userlists)}: {len(list_ids)} accounts")
             accounts = await api.accounts_by_id(c, [i for i in list_ids if i not in blocked])

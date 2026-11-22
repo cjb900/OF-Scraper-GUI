@@ -49,8 +49,10 @@ def test_fansly_offers_user_lists(qapp, monkeypatch):
     page = _page(monkeypatch, site_context.FANSLY)
     assert not page._userlist_widget.isHidden()
     hint = _hint(page)
-    assert "Fansly list" in hint and "OnlyFans" not in hint
-    assert "VIP" in hint
+    assert "My lists" in hint and "OnlyFans" not in hint
+    assert "VIP Accounts" in hint and "everyone you follow" in hint
+    labels = [l.text() for l in page._userlist_widget.findChildren(QtWidgets.QLabel)]
+    assert "My Lists:" in labels and "User Lists:" not in labels
     assert "Fansly" in page._userlist_input.toolTip()
     page._userlist_input.setText("Test, vip")
     assert page.get_userlist() == ["test", "vip"]
@@ -63,7 +65,9 @@ def test_onlyfans_user_lists(qapp, monkeypatch):
     page = _page(monkeypatch, site_context.ONLYFANS)
     assert not page._userlist_widget.isHidden()
     hint = _hint(page)
-    assert "OnlyFans list" in hint and "VIP" not in hint
+    assert "OnlyFans user list" in hint and "VIP" not in hint
+    labels = [l.text() for l in page._userlist_widget.findChildren(QtWidgets.QLabel)]
+    assert "User Lists:" in labels and "My Lists:" not in labels
     page._userlist_input.setText("VIP, testing")
     assert page.get_userlist() == ["vip", "testing"]
     page._on_action_changed(0)
