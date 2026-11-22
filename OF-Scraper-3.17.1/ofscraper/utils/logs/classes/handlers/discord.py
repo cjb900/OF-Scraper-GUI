@@ -20,7 +20,6 @@ import asyncio
 import json
 import logging
 import time
-from urllib.parse import urlparse
 
 import httpx
 import queue
@@ -115,6 +114,21 @@ def image_headers(url) -> dict:
     return {}
 
 
+def image_type(content: bytes):
+    """(content type, extension) from the file's first bytes, or None. The
+    CDN's own label can't be trusted: Fansly's avatars come back as a
+    generic binary type, which is why Firefox wouldn't show them."""
+    if content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg", "jpg"
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png", "png"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return "image/webp", "webp"
+    if content[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif", "gif"
+    return None
+
+
 def fetch_image(url):
     """(content, content type, extension) of the picture at ``url``, or None."""
     try:
@@ -127,16 +141,13 @@ def fetch_image(url):
     except Exception as e:
         print(f"Could not download an avatar for Discord: {type(e).__name__}")
         return None
-    ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
-    if r.status_code != 200 or not r.content or not ctype.startswith("image/"):
+    found = image_type(r.content or b"") if r.status_code == 200 else None
+    if not found:
         print(f"Could not download an avatar for Discord: status {r.status_code}")
         return None
     if len(r.content) > MAX_IMAGE_BYTES:
         return None
-    ext = urlparse(url).path.rsplit(".", 1)[-1].lower() if "." in urlparse(url).path else ""
-    if not ext.isalnum() or len(ext) > 5:
-        ext = ctype.split("/", 1)[1].split("+")[0] or "jpg"
-    return r.content, ctype, ext
+    return (r.content, *found)
 
 
 def post_with_files(url, payload, files):

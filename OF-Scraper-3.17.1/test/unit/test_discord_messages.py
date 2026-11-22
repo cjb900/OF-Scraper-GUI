@@ -168,18 +168,38 @@ def test_signed_avatar_left_out_when_avatars_are_off(posts, uploads):
     assert "Avatar" not in posts[0]["content"]
 
 
-def test_fetch_image_needs_an_image(monkeypatch):
+JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 16
+
+
+def test_fetch_image_goes_by_the_bytes_not_the_label(monkeypatch):
+    # Fansly labels avatars as a generic binary file; Firefox then won't show
+    # them, and a check on the label would throw them away
     class R:
         def __init__(self, status, ctype, content):
             self.status_code, self.headers, self.content = status, {"content-type": ctype}, content
 
     monkeypatch.setattr(discord, "image_headers", lambda url: {})
-    monkeypatch.setattr(discord.httpx, "get", lambda *a, **k: R(200, "image/jpeg", b"x"))
-    assert discord.fetch_image(SIGNED) == (b"x", "image/jpeg", "jpeg")
-    monkeypatch.setattr(discord.httpx, "get", lambda *a, **k: R(403, "text/xml", b"denied"))
+    monkeypatch.setattr(discord.httpx, "get", lambda *a, **k: R(200, "binary/octet-stream", JPEG))
+    assert discord.fetch_image(SIGNED) == (JPEG, "image/jpeg", "jpg")
+    monkeypatch.setattr(discord.httpx, "get", lambda *a, **k: R(403, "image/jpeg", JPEG))
     assert discord.fetch_image(SIGNED) is None
-    monkeypatch.setattr(discord.httpx, "get", lambda *a, **k: R(200, "text/html", b"<html>"))
+    monkeypatch.setattr(discord.httpx, "get", lambda *a, **k: R(200, "image/jpeg", b"<html>denied"))
     assert discord.fetch_image(SIGNED) is None
+
+
+@pytest.mark.parametrize(
+    "content, expected",
+    [
+        (JPEG, ("image/jpeg", "jpg")),
+        (b"\x89PNG\r\n\x1a\n" + b"\x00" * 8, ("image/png", "png")),
+        (b"RIFF\x00\x00\x00\x00WEBPVP8 ", ("image/webp", "webp")),
+        (b"GIF89a" + b"\x00" * 8, ("image/gif", "gif")),
+        (b"<?xml", None),
+        (b"", None),
+    ],
+)
+def test_image_type(content, expected):
+    assert discord.image_type(content) == expected
 
 
 def test_plain_avatar_link_stays_a_link(posts, uploads, monkeypatch):
