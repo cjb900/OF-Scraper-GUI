@@ -775,7 +775,12 @@ Related prompts on the same page: **disk space** check against Save Location bef
 
 <details><summary>Screenshot</summary>
 
-<img src="https://github.com/user-attachments/assets/9f50a722-4f76-40cb-8367-ab5f2dbe1b1d" width="600" alt="Check Mode table">
+<table>
+  <tr>
+    <td align="center"><img src="images/Check-Mode-Table-Locked-OnlyFans.png" width="100%" alt="Post Check on the OnlyFans tab (Privacy mode on): Cart: 3 items with Select All, Deselect All, Add Selected, Remove Selected and Send Downloads in the toolbar; rows marked [downloaded], three marked [added], and paid media not bought shown greyed as Locked with Downloaded N/A; the check totals line in the log; post IDs blurred"><br><em>OnlyFans tab</em></td>
+    <td align="center"><img src="images/Check-Mode-Table-Locked-Fansly.png" width="100%" alt="Post Check on the Fansly tab: the same toolbar and cart, with Locked, [added] and [downloaded] rows and the check totals line; post IDs blurred"><br><em>Fansly tab</em></td>
+  </tr>
+</table>
 
 </details>
 
