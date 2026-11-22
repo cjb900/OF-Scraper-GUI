@@ -170,7 +170,7 @@ def test_shared_temp_folder_from_the_config_just_saved(monkeypatch, tmp_path, fa
 # --- what Fansly offers --------------------------------------------------------------------------
 
 def test_fansly_areas_and_walls(fansly):
-    assert site_context.site_areas() == ("Timeline", "Messages", "Purchased", "Labels")
+    assert site_context.site_areas() == ("Profile", "Timeline", "Messages", "Purchased", "Labels")
     assert site_context.area_label("Labels") == "Walls"
     assert site_context.area_label("Timeline") == "Timeline"
 
@@ -257,7 +257,7 @@ def test_area_page_offers_fansly_areas(qapp, fansly, monkeypatch):
     page._current_actions = {"download"}
     page._update_available_areas()
     visible = {a for a, cb in page._area_checks.items() if not cb.isHidden()}
-    assert visible == {"Timeline", "Messages", "Purchased", "Labels"}
+    assert visible == {"Profile", "Timeline", "Messages", "Purchased", "Labels"}
     assert page._area_checks["Labels"].text() == "Walls"
 
 
@@ -280,7 +280,8 @@ def test_fansly_areas_are_packed_without_gaps(qapp, fansly, monkeypatch):
     page._current_actions = {"download"}
     page._update_available_areas()
     assert _grid_cells(page) == {
-        "Timeline": (0, 0), "Messages": (0, 1), "Purchased": (0, 2), "Labels": (1, 0),
+        "Profile": (0, 0), "Timeline": (0, 1), "Messages": (0, 2), "Purchased": (1, 0),
+        "Labels": (1, 1),
     }
 
 
@@ -364,7 +365,7 @@ def test_table_opens_the_fansly_post(qapp, fansly, monkeypatch):
 
 def test_every_area_starts_ticked_on_both_sites():
     for site in ("fansly", "onlyfans"):
-        for area in ("Timeline", "Messages", "Purchased", "Labels"):
+        for area in ("Profile", "Timeline", "Messages", "Purchased", "Labels"):
             assert site_context.area_default(area, site=site)
 
 

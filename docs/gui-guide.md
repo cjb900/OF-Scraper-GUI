@@ -31,7 +31,7 @@ The window has an **OnlyFans** tab and a **Fansly** tab (3.17.1). Each tab is it
 
 **Fansly differences**
 
-- Content areas: **Timeline**, **Messages**, **Purchased** and **Walls** (Fansly's named profile tabs, like OnlyFans labels). All four start ticked. Walls hold timeline posts, so scanning them reads most of the timeline again, once per wall; untick Walls for a faster scan if you don't sort files by wall
+- Content areas: **Profile** (the creator's avatar and banner), **Timeline**, **Messages**, **Purchased** and **Walls** (Fansly's named profile tabs, like OnlyFans labels). All five start ticked. A new avatar or banner is saved as a new file; the old one is kept. Walls hold timeline posts, so scanning them reads most of the timeline again, once per wall; untick Walls for a faster scan if you don't sort files by wall
 - Fansly videos (HLS/DASH) download without DRM keys. Some older videos have a separate audio track the CDN no longer serves: those download as the plain MP4 when the post has one, otherwise they fail at once instead of being retried
 - Post text has Fansly's style codes (`[s:lg]…[/s]`, `[c:blue]…[/c]`, `**bold**`, `*italic*`) removed, so they don't end up in file names or text files
 - [Check Mode](#check-mode) works on Fansly for posts, messages and purchased content

@@ -309,12 +309,20 @@ async def process_pinned_posts(model_id, username, c):
 
 
 @free.space_checker
-async def process_profile(username) -> list:
+async def process_profile(username, model_id=None, c=None) -> list:
     """
     Handles the unique 'singleton' nature of profile media by relying
     on the standardized parse_profile output.
     """
     try:
+        if sites.is_fansly():
+            items = await fansly_scrape.get_profile(model_id, username, c=c)
+            return [
+                posts_.Post(
+                    data, model_id=model_id, username=username, responsetype=profile.API
+                )
+                for data in items
+            ], profile.API
         user_profile = profile.scrape_profile(username)
         if not user_profile:
             return [], profile.API
@@ -562,7 +570,7 @@ async def process_tasks(model_id, username, ele, c=None):
             tasks.append(
                 stop.create_fetch_task(
                     process_single_task(
-                        partial(process_profile, username), username, "Profile"
+                        partial(process_profile, username, model_id, c), username, "Profile"
                     )(sem=sem)
                 )
             )

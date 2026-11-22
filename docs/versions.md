@@ -65,7 +65,7 @@ Each patch script works with exactly one OF-Scraper version. To see which patch 
 | Non-blocking startup dependency popup | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Plugin system (JoyCaption, LLM, Live Monitor, Trial Links) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | OnlyFans and Fansly tabs in one window, both scraping at once | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Fansly: Timeline, Messages, Purchased and Walls; HLS/DASH videos | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Fansly: Profile (avatar and banner), Timeline, Messages, Purchased and Walls; HLS/DASH videos | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Fansly check mode (compare with files on disk, cart) | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Fansly My lists and black lists (`-ul` or `-ml` / `--ml`, `-bl`; My Lists box) | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Docker: start both sites (`ONLYFANS_GUI_ARGS`, `FANSLY_GUI_ARGS`) | ❌ | ❌ | ❌ | ❌ | ✅ |

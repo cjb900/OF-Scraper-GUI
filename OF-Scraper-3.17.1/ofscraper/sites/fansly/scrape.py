@@ -14,7 +14,7 @@ from ofscraper.sites.fansly import api, normalize
 log = logging.getLogger("shared")
 
 # the post areas Fansly supports; others are skipped for Fansly profiles
-AREAS = ("Timeline", "Messages", "Purchased", "Labels")
+AREAS = ("Profile", "Timeline", "Messages", "Purchased", "Labels")
 
 
 @contextlib.asynccontextmanager
@@ -83,6 +83,22 @@ async def label_pages(c, label, model_id):
         ) as pages:
             async for page in pages:
                 yield page
+
+
+async def get_profile(model_id, username, c=None):
+    """The creator's avatar and banner as "Profile" items (read fresh, as
+    their links are signed and expire)."""
+    async with _session(c) as c:
+        accounts = await api.accounts_by_id(c, [model_id])
+    account = next(
+        (a for a in accounts or [] if str(a.get("id")) == str(model_id)), None
+    )
+    if not account:
+        log.info(f"No Fansly account for {username}: no avatar or banner to download")
+        return []
+    found = normalize.profile_items(account)
+    log.debug(f"Fansly profile: {len(found)} pictures for {username}")
+    return found
 
 
 async def get_paid_posts(model_id, username, c=None):

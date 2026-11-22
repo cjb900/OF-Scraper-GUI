@@ -506,6 +506,48 @@ def labels(walls, has_main_wall=None):
     return out
 
 
+# a creator's profile pictures, in the order OnlyFans lists them
+PROFILE_MEDIA = ("avatar", "banner")
+
+
+def profile_items(account):
+    """The creator's avatar and banner as OnlyFans-shaped "Profile" items.
+
+    Each picture is its own item, as on OnlyFans. Its id is the Fansly media
+    id, which stays the same while the picture does: the link is signed and
+    changes on every request, so it can't name the file (OnlyFans names
+    profile items after a hash of the link). A new avatar or banner has a new
+    id, so it's downloaded as a new file and the old one is kept.
+    """
+    out = []
+    seen = set()
+    text = plain_text(account.get("about"))
+    for key in PROFILE_MEDIA:
+        media = account.get(key)
+        if not isinstance(media, dict) or media.get("id") is None:
+            continue
+        if str(media["id"]) in seen:
+            continue
+        seen.add(str(media["id"]))
+        found = media_dict(media, media, False, True)
+        if not found or not found["files"]["full"]["url"]:
+            continue
+        created = found["createdAt"]
+        out.append(
+            {
+                "id": int(media["id"]),
+                "text": text,
+                "createdAt": created,
+                "postedAt": created,
+                "price": 0,
+                "isOpened": True,
+                "responseType": "Profile",
+                "media": [found],
+            }
+        )
+    return out
+
+
 def model(account):
     """An OnlyFans-shaped model dict (what ``Model`` reads) from a Fansly account."""
     subscription = account.get("subscription") or {}

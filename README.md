@@ -52,7 +52,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 
 ## What it adds
 
-- **OnlyFans and Fansly in one window** (3.17.1): each site in its own tab with its own settings, login, databases and download folder, and both can scrape at the same time. Fansly covers Timeline, Messages, Purchased and Walls, and has its own check mode
+- **OnlyFans and Fansly in one window** (3.17.1): each site in its own tab with its own settings, login, databases and download folder, and both can scrape at the same time. Fansly covers Profile (avatar and banner), Timeline, Messages, Purchased and Walls, and has its own check mode
 - **A step-by-step scrape wizard**: pick an action, content areas and filters, and models, then watch progress in a live table and log
 - **Check modes** to browse everything a creator posted (including locked items), spot files you've deleted from disk, and download only what you pick
 - **Authentication made easier**: import cookies from your browser, or log in through a browser window, instead of copying headers by hand. For Fansly, **Import from browser** reads the sign-in from Firefox, Zen or Chrome on the same computer
