@@ -392,8 +392,7 @@ Deep field docs, placeholders, and DRM Match % details: in-app **Help / README �
 
 <details><summary>Screenshots</summary>
 
-<img src="https://github.com/user-attachments/assets/cedb95a7-0aa7-4f1b-97cb-17e71cc3175b" width="600" alt="DRM Key Creation">
-<img src="https://github.com/user-attachments/assets/71750dba-0777-4c4a-b5c6-3228caea5bdf" width="600" alt="DRM Key Created">
+<img src="images/DRM-Key-Creation.png" width="700" alt="DRM Key Creation on 3.17.1 after a successful run: the log shows the device info, the exported client_id.bin and private_key.pem files (not their contents), Key extraction completed successfully, and the Update Configuration dialog asks whether to save the two key paths to config.json and set Key Mode to manual; paths show {home} and the script path is hidden by Privacy mode">
 <img src="https://github.com/user-attachments/assets/f862e757-df08-444a-95de-65010bfe6def" width="600" alt="DRM Key Creation Clean up">
 
 </details>
@@ -404,7 +403,7 @@ A built-in tool for generating the DRM decryption keys required to download prot
 
 - **Fully automated** — downloads the Android SDK, sets up an emulator, and extracts the keys without any manual steps
 - **Streams output** directly into the app so you can follow progress in real time — the Generate Keys button and live console are at the top of the page; Requirements & Information sits below the console
-- **Auto-configures** — once keys are generated, the CDM key paths in your config are updated automatically. No need to edit `config.json` manually
+- **Auto-configures** — once keys are generated, it offers to save the two key paths to `config.json` and set Key Mode to `manual` (**Yes** / **No**). No need to edit `config.json` by hand
 - **Virtualization checks** — checks that CPU virtualization / Hyper-V is available before running the Android emulator used for key extraction
 - **Private key kept out of the log** — the device private key the tool prints is replaced with a "private key hidden" note in the page and the log file, so a log you share doesn't contain it. The key file itself is saved as normal
 - Starting the key tool no longer affects the site tab it was started from
