@@ -888,7 +888,7 @@ When using daemon mode, an optional **@here Discord mention when new content is 
 
 <details><summary>Screenshot</summary>
 
-<img src="https://github.com/user-attachments/assets/85312a79-061b-4ee6-8520-1439ebd39cc6" width="600" alt="Discord @here">
+<img src="images/Discord.png" width="700" alt="A 3.17.1 run in Discord: messages from OF-Scraper · OnlyFans start with ▶ Scrape started · OnlyFans · 1 model, the progress lines for the creator are sent together, the Final Stats Summary is in a code block, a green Run finished · OnlyFans card shows downloads, data, skipped and failed, and the @here Scrape Results summary follows; the creator name is blurred">
 
 </details>
 
