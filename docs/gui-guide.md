@@ -35,7 +35,7 @@ The window has an **OnlyFans** tab and a **Fansly** tab (3.17.1). Each tab is it
 - Fansly videos (HLS/DASH) download without DRM keys. Some older videos have a separate audio track the CDN no longer serves: those download as the plain MP4 when the post has one, otherwise they fail at once instead of being retried
 - Post text has Fansly's style codes (`[s:lg]…[/s]`, `[c:blue]…[/c]`, `**bold**`, `*italic*`) removed, so they don't end up in file names or text files
 - [Check Mode](#check-mode) works on Fansly for posts, messages and purchased content
-- Not available on Fansly: Story Check, Like / Unlike, Update metadata, Download all purchased content, scraping by post URL, and DRM Key Creation (Fansly videos aren't DRM-protected)
+- Not available on Fansly: User Lists, Story Check, Like / Unlike, Update metadata, Download all purchased content, scraping by post URL, and DRM Key Creation (Fansly videos aren't DRM-protected)
 - **Plugins are OnlyFans only for now.** The Fansly tab's Plugins page says so at the top. Plugins load per site (`~/.config/ofscraper/plugins` for OnlyFans, `~/.config/ofscraper/fansly/plugins` for Fansly), but no Fansly plugins exist yet
 - The command line works the same way: `ofscraper --config ~/.config/ofscraper/fansly/config.json` runs Fansly with the GUI's Fansly settings
 
@@ -461,7 +461,7 @@ The usual flow is **Select Action → Select Content Areas & Filters → Select 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
 - **Download** — download media files from your subscribed creators
-  - **User Lists** — enter one or more OnlyFans list names (comma-separated) to load only the models on those lists. Leave blank to load all subscribed models. Equivalent to `--ul` / `--userlist` (also works for [CLI auto-start](#cli-auto-start))
+  - **User Lists** — enter one or more OnlyFans list names (comma-separated) to load only the models on those lists. Leave blank to load all subscribed models. Equivalent to `--ul` / `--userlist` (also works for [CLI auto-start](#cli-auto-start)). OnlyFans only: the Fansly tab doesn't show it
 - **Like/Unlike** — automate liking or unliking posts. Only posts inside the **Post Date Range** filter are liked or unliked. While it runs the button reads **Liking…** / **Unliking…**, and the **Liked** column updates as each post is done
 - **Update metadata** — bring your database up to date without downloading; see [below](#update-metadata-no-downloads)
 - **Download all purchased content (all creators)** — everything you've bought, from every creator; see [below](#download-all-purchased-content-all-creators)

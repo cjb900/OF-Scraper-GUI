@@ -98,6 +98,29 @@ _CHECK_TIPS = {
         "and builds a browsable table. Select items to download.",
 }
 
+# Fansly has no pinned, archived or stream lists: the posts check reads the
+# timeline and the walls (labels).
+_FANSLY_CHECK_LABELS = {
+    "Check posts: build table of timeline/pinned/archived media":
+        "Check posts: build table of timeline/walls media",
+}
+_FANSLY_CHECK_TIPS = {
+    "Check posts: build table of timeline/pinned/archived media":
+        "Fetches timeline posts, and wall posts when Walls is ticked, for the selected models\n"
+        "and builds an interactive table showing downloaded/unlocked status.\n"
+        "Select items in the table then click 'Send Downloads' to download them.",
+}
+
+
+def _check_choice_text(label, site_is_fansly):
+    """(shown label, tooltip) of a check choice on this site."""
+    if site_is_fansly:
+        return (
+            _FANSLY_CHECK_LABELS.get(label, label),
+            _FANSLY_CHECK_TIPS.get(label, _CHECK_TIPS.get(label, "")),
+        )
+    return label, _CHECK_TIPS.get(label, "")
+
 ALL_CHOICES = ACTION_CHOICES + CHECK_CHOICES
 
 CHECK_ACTIONS = {"post_check", "msg_check", "paid_check", "story_check"}
@@ -194,12 +217,14 @@ class ActionPage(QWidget):
         # Build the message filter sub-widget (hidden until msg_check is selected)
         self._msg_filter_widget = self._build_msg_filter_widget()
 
+        _site_is_fansly = site_context.is_fansly()
         for i, (label, actions) in enumerate(CHECK_CHOICES):
-            radio = QRadioButton(label.replace("&", "&&"))
+            shown, tip = _check_choice_text(label, _site_is_fansly)
+            radio = QRadioButton(shown.replace("&", "&&"))
             apply_font(radio, "Segoe UI", 13)
             radio.setStyleSheet("QRadioButton { padding: 8px 4px; }")
             radio.setProperty("actions", actions)
-            radio.setToolTip(_CHECK_TIPS.get(label, ""))
+            radio.setToolTip(tip)
             self._button_group.addButton(radio, len(ACTION_CHOICES) + i)
             layout.addWidget(radio)
 
@@ -252,8 +277,13 @@ class ActionPage(QWidget):
 
     def _build_userlist_widget(self):
         """Build the User List Filter sub-widget shown under Download."""
+        from ofscraper.gui import site_context
+
+        # Fansly has no user lists: the box is never shown there
+        self._userlist_supported = site_context.userlists_supported()
         container = QWidget()
-        container.setVisible(True)  # visible by default (Download is default)
+        # visible by default (Download is default)
+        container.setVisible(self._userlist_supported)
 
         inner = QVBoxLayout(container)
         inner.setContentsMargins(28, 0, 0, 4)
@@ -311,7 +341,7 @@ class ActionPage(QWidget):
     def get_userlist(self):
         """Return the current userlist as a list of lowercase strings (empty = no filter)."""
         text = self._userlist_input.text().strip()
-        if not text:
+        if not text or not self._userlist_supported:
             return []
         raw = [u.strip().lower() for u in text.split(",") if u.strip()]
         return self._strip_reserved_lists(raw)
@@ -735,7 +765,7 @@ class ActionPage(QWidget):
         self._check_fresh_check.setChecked(False)
         self._check_disk_check.setChecked(False)
         self._userlist_input.clear()
-        self._userlist_widget.setVisible(True)
+        self._userlist_widget.setVisible(self._userlist_supported)
         self._metadata_widget.setVisible(False)
         self._metadata_mode_radios["update"].setChecked(True)
         self._metadata_mark_stray_check.setChecked(False)
@@ -752,7 +782,7 @@ class ActionPage(QWidget):
         self._metadata_widget.setVisible("metadata" in self._selected_actions)
         self._paid_all_widget.setVisible("paid_all" in self._selected_actions)
         # Show userlist widget only for "Download content from a user" (btn_id 0)
-        self._userlist_widget.setVisible(btn_id == 0)
+        self._userlist_widget.setVisible(btn_id == 0 and self._userlist_supported)
 
     def _on_msg_filter_changed(self, btn_id):
         checked = self._msg_filter_group.checkedButton()
