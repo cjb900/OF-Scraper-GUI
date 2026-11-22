@@ -172,7 +172,7 @@ Built-in documentation available at any time without leaving the app:
 
 <details><summary>Screenshot</summary>
 
-<img src="https://github.com/user-attachments/assets/4213c577-1064-4f38-860a-43c6dbfc80bc" width="600" alt="Authentication">
+<img src="images/OnlyFans-Auth.png" width="700" alt="Authentication on the OnlyFans tab (Privacy mode on, every credential masked): Credentials (sess, auth_id, auth_uid, user agent, x-bc), Import Cookies from Local Browser with Select Browser and Import Cookies, Login in Browser with Login in System Browser and Login in App Browser, Still having issues?, and Open auth.json / Reload / Test Credentials / Save">
 
 </details>
 
@@ -237,6 +237,12 @@ Two ways to capture credentials by logging in (plus Import Cookies / manual past
 > **Window flashing:** on Windows and Linux the GUI turns on Qt's newer widget renderer (`QT_WIDGETS_RHI=1`) so opening the App Browser doesn't make the whole window flash. If you see drawing problems, start the GUI with `QT_WIDGETS_RHI=0` to turn it off. Docker is not affected.
 
 ### Fansly authentication
+
+<details><summary>Screenshot</summary>
+
+<img src="images/Fansly-Auth.png" width="700" alt="Fansly Authentication (Privacy mode on, token masked): Authorization token, User agent and optional Check key; Log in with browser, Save &amp; Test, Save, Reload, Clear, Open fansly_auth.json and Open folder; Import from a browser on this computer with a browser list (Zen Browser) and Import from browser; Credentials saved">
+
+</details>
 
 The Fansly tab's **Authentication** page needs an authorization token and the user agent of the browser it came from. Three ways to fill them:
 
