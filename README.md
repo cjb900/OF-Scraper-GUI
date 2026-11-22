@@ -111,7 +111,7 @@ More detail: [Prerequisites](docs/install.md#prerequisites).
    ```bash
    ofscraper --gui
    ```
-  <img src="https://github.com/user-attachments/assets/52d9067f-57e2-4d87-ada6-4b168e849b1c" width="600" alt="Start GUI">
+  <img src="docs/images/Start-GUI.png" width="600" alt="ofscraper --gui in PowerShell: the OF-Scraper window opens with OnlyFans and Fansly tabs and shows Starting OnlyFans… while the console logs the OnlyFans tab starting">
   
 
 4. In the GUI, pick the **OnlyFans** or **Fansly** tab, then: **Authentication** → log in or import your sign-in; **Configuration** → set your Save Location and FFmpeg path; then **Scraper** → pick an action and go. Each tab has its own settings, so set up both if you use both sites.
