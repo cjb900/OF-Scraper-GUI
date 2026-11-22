@@ -1184,8 +1184,6 @@ class TablePage(QWidget):
         # Always emit current state (not just when checked) so workflow._scrape_paid
         # resets to False when the checkbox is unchecked between runs.
         app_signals.scrape_paid_toggled.emit(area_page.scrape_paid_check.isChecked())
-        if area_page.scrape_labels_check.isChecked():
-            app_signals.scrape_labels_toggled.emit(True)
         # Discord webhook updates (only if configured + user enabled)
         try:
             discord_active = bool(

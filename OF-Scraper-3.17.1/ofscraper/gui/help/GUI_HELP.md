@@ -27,7 +27,6 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
   - [Media Types to Download](#sca-media-types)
   - [Additional Options](#sca-additional-options)
     - [Scrape entire paid page](#sca-scrape-paid)
-    - [Scrape labels](#sca-scrape-labels)
     - [Include Post Text](#sca-include-post-text)
     - [Name text files from post text](#sca-name-text-from-post)
     - [Send updates to Discord](#sca-discord-updates)
@@ -460,13 +459,6 @@ When to use:
 - If you suspect paid/PPV items aren’t being discovered.
 
 To download purchases from **every** creator (including expired and deleted accounts), with an exclude list, use the **[Download all purchased content](#action-paid-all)** action instead.
-
-<a id="sca-scrape-labels"></a>
-#### Scrape labels
-Pulls content via labels when available.
-
-When to use:
-- If you organize creators by labels and want label-based coverage.
 
 <a id="sca-include-post-text"></a>
 #### Include Post Text

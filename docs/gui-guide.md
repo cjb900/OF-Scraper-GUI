@@ -727,7 +727,7 @@ The summary includes:
 - **Options** — high-impact flags when enabled, for example:
   - Allow duplicates
   - **Rescrape everything** (emphasized)
-  - Scrape entire paid page / Scrape labels
+  - Scrape entire paid page
   - Daemon interval
   - Date filter range
   - Manual URL/ID count (manual scrape)

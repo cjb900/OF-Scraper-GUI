@@ -282,16 +282,6 @@ class AreaSelectorPage(QWidget):
         row.addStretch()
         extras_layout.addLayout(row)
 
-        self.scrape_labels_check = QCheckBox("Scrape labels")
-        apply_font(self.scrape_labels_check, "Segoe UI", 11)
-        self.scrape_labels_check.setToolTip(
-            "Pull content organized by the model's custom labels/categories when available."
-        )
-        row = QHBoxLayout()
-        row.addWidget(self.scrape_labels_check)
-        row.addWidget(_make_help_btn("sca-scrape-labels"))
-        row.addStretch()
-        extras_layout.addLayout(row)
 
         # Discord webhook option (enabled only if config has a webhook URL)
         self.discord_updates_check = QCheckBox(
@@ -666,8 +656,6 @@ class AreaSelectorPage(QWidget):
             self._sync_text_filename_option()
             if "scrape_paid" in gs:
                 self.scrape_paid_check.setChecked(bool(gs["scrape_paid"]))
-            if "scrape_labels" in gs:
-                self.scrape_labels_check.setChecked(bool(gs["scrape_labels"]))
 
             # Advanced options — rescrape_all must be set first so delete_db/delete_downloads become enabled
             if "rescrape_all" in gs:
@@ -756,7 +744,6 @@ class AreaSelectorPage(QWidget):
             gs["include_text"] = self.include_text_check.isChecked()
             gs["text_filename_from_post"] = self.text_filename_from_post_check.isChecked()
             gs["scrape_paid"] = self.scrape_paid_check.isChecked()
-            gs["scrape_labels"] = self.scrape_labels_check.isChecked()
             gs["allow_dupes"] = self.allow_dupes_check.isChecked()
             gs["keep_msg_purchased_dupes"] = (
                 self.allow_dupes_check.isChecked()
@@ -789,7 +776,7 @@ class AreaSelectorPage(QWidget):
     # Area-settings keys that are owned by this page (exclude theme etc.)
     _AREA_SETTINGS_KEYS = (
         "area_checks", "media_types", "include_text", "text_filename_from_post",
-        "scrape_paid", "scrape_labels",
+        "scrape_paid",
         "allow_dupes", "keep_msg_purchased_dupes", "rescrape_all",
         "delete_db", "delete_downloads", "quality",
         "daemon_enabled", "daemon_interval", "daemon_notify", "daemon_sound",
@@ -844,7 +831,6 @@ class AreaSelectorPage(QWidget):
             self.text_filename_from_post_check.setChecked(False)
             self._sync_text_filename_option()
             self.scrape_paid_check.setChecked(False)
-            self.scrape_labels_check.setChecked(False)
             # Advanced options
             self.allow_dupes_check.setChecked(False)
             self.keep_msg_purchased_dupes_check.setChecked(False)
@@ -892,7 +878,6 @@ class AreaSelectorPage(QWidget):
         self.include_text_check.toggled.connect(self._save_area_settings)
         self.text_filename_from_post_check.toggled.connect(self._save_area_settings)
         self.scrape_paid_check.toggled.connect(self._save_area_settings)
-        self.scrape_labels_check.toggled.connect(self._save_area_settings)
         self.allow_dupes_check.toggled.connect(self._save_area_settings)
         self.keep_msg_purchased_dupes_check.toggled.connect(self._save_area_settings)
         self.rescrape_all_check.toggled.connect(self._save_area_settings)
@@ -1053,7 +1038,6 @@ class AreaSelectorPage(QWidget):
             cb.setChecked(True)
         # Reset extra options
         self.scrape_paid_check.setChecked(False)
-        self.scrape_labels_check.setChecked(False)
         self.discord_updates_check.setChecked(False)
         self.discord_level_combo.setCurrentText("LOW")
         self.discord_level_combo.setEnabled(False)
@@ -1623,6 +1607,24 @@ class AreaSelectorPage(QWidget):
                 cb.hide()
                 cb.setEnabled(False)
                 cb.setChecked(False)
+        self._relayout_area_checks()
+
+    def _relayout_area_checks(self, columns=3):
+        """Pack the shown area boxes into the grid in order, so hidden ones
+        (Fansly's missing areas, the areas Like/Unlike can't use) leave no
+        gaps."""
+        grid = getattr(self, "areas_grid", None)
+        if grid is None:
+            return
+        shown = [cb for cb in self._area_checks.values() if not cb.isHidden()]
+        for cb in self._area_checks.values():
+            grid.removeWidget(cb)
+        for i, cb in enumerate(shown):
+            grid.addWidget(cb, i // columns, i % columns)
+        hidden = [cb for cb in self._area_checks.values() if cb.isHidden()]
+        # hidden boxes stay owned by the grid, after the shown ones
+        for j, cb in enumerate(hidden, start=len(shown)):
+            grid.addWidget(cb, j // columns, j % columns)
 
     def _show_download_only_options(self, show):
         """Hide the post-text, Discord, advanced and daemon options for the
@@ -1821,8 +1823,6 @@ class AreaSelectorPage(QWidget):
                 }
             )
             app_signals.scrape_paid_toggled.emit(self.scrape_paid_check.isChecked())
-            if self.scrape_labels_check.isChecked():
-                app_signals.scrape_labels_toggled.emit(True)
         except Exception:
             pass
 

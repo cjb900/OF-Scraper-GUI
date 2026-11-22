@@ -261,6 +261,39 @@ def test_area_page_offers_fansly_areas(qapp, fansly, monkeypatch):
     assert page._area_checks["Labels"].text() == "Walls"
 
 
+
+def _grid_cells(page):
+    grid = page.areas_grid
+    out = {}
+    for area, cb in page._area_checks.items():
+        if not cb.isHidden():
+            r, c, _, _ = grid.getItemPosition(grid.indexOf(cb))
+            out[area] = (r, c)
+    return out
+
+
+def test_fansly_areas_are_packed_without_gaps(qapp, fansly, monkeypatch):
+    # hidden OnlyFans areas left holes in the 3-column grid
+    from ofscraper.gui.pages.area_selector_page import AreaSelectorPage
+
+    page = AreaSelectorPage()
+    page._current_actions = {"download"}
+    page._update_available_areas()
+    assert _grid_cells(page) == {
+        "Timeline": (0, 0), "Messages": (0, 1), "Purchased": (0, 2), "Labels": (1, 0),
+    }
+
+
+def test_no_scrape_labels_box(qapp, fansly, monkeypatch):
+    # the box sent a signal nothing used; the Labels / Walls area is the switch
+    from ofscraper.gui.pages.area_selector_page import AreaSelectorPage
+    from PyQt6.QtWidgets import QCheckBox
+
+    page = AreaSelectorPage()
+    assert not hasattr(page, "scrape_labels_check")
+    assert "Scrape labels" not in [cb.text() for cb in page.findChildren(QCheckBox)]
+
+
 # --- the tab window -------------------------------------------------------------------------------
 
 def test_tab_shows_busy_and_forwards_notices(qapp, monkeypatch):

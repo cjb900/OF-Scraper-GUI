@@ -162,8 +162,6 @@ def format_summary_html(summary: ScrapeJobSummary) -> str:
     flags = []
     if summary.scrape_paid:
         flags.append("Scrape entire paid page")
-    if summary.scrape_labels:
-        flags.append("Scrape labels")
     if summary.allow_dupes:
         flags.append("Allow duplicates")
     if summary.rescrape_all:
@@ -260,10 +258,6 @@ def build_summary_from_table_start(table_page, area_page) -> ScrapeJobSummary:
         summary.scrape_paid = bool(
             getattr(area_page, "scrape_paid_check", None)
             and area_page.scrape_paid_check.isChecked()
-        )
-        summary.scrape_labels = bool(
-            getattr(area_page, "scrape_labels_check", None)
-            and area_page.scrape_labels_check.isChecked()
         )
     except Exception:
         pass
