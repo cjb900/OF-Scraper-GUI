@@ -811,7 +811,7 @@ When you pick a check mode on **Select Action**, a **Check options** box with tw
 
 ### Daemon mode (auto-repeat scraping)
 
-<img src="images/daemon-options.png" width="500" alt="Daemon Mode options on the Areas page: enable daemon mode, interval in minutes, system notification and sound alert when scraping starts, @here Discord mention when new content is found">
+<img src="images/daemon-options.png" width="500" alt="Daemon Mode options on the Areas page: enable daemon mode, interval in minutes, system notification when a run finishes, system notification and sound alert when scraping starts, @here Discord mention when new content is found">
 
 <img src="images/daemon-toolbar.png" width="700" alt="Between daemon runs: Start shows Daemon waiting…, a Stop Daemon button and Next run in 00:26 (≈ 2:17 PM) in the toolbar; the footer shows the Daemon phase badge, the Last run #1: 195 dl · 267.0 MB chip and the Next run countdown">
 
