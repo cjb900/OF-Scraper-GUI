@@ -129,7 +129,7 @@ Run the GUI on a machine without a desktop and open it at `http://<host>:6699/` 
 docker compose build ofscraper-gui
 docker compose up -d ofscraper-gui
 ```
-<img src="https://github.com/user-attachments/assets/92188357-6881-4879-8d4b-a264c9de7b39" width="700" alt="OF-Scraper GUI running in Docker, open in a web browser through noVNC on port 6699 (Select Action page)">
+<img src="docs/images/docker-novnc.png" width="700" alt="OF-Scraper GUI in Docker, open in a web browser through noVNC on port 6699: both the OnlyFans and Fansly tabs show a dot because both sites are scraping in one container (daemon mode, Privacy mode on); the host address is blurred">
 
 The desktop resizes to fit your browser window, and the GUI stays maximized in it: resize the window or go full screen and the GUI follows. `SCREEN_WIDTH` / `SCREEN_HEIGHT` in `docker-compose.yml` are only the starting size.
 

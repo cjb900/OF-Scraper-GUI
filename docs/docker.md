@@ -112,7 +112,7 @@ Config and auth are stored on the config volume, so they survive rebuilds and re
 
 ## Accessing the GUI
 
-<img src="images/docker-novnc.png" width="700" alt="OF-Scraper GUI running in Docker, open in a web browser through noVNC on port 6699 (Select Action page)">
+<img src="images/docker-novnc.png" width="700" alt="OF-Scraper GUI in Docker, open in a web browser through noVNC on port 6699: both the OnlyFans and Fansly tabs show a dot because both sites are scraping in one container (daemon mode, Privacy mode on); the host address is blurred">
 
 | Method | Address | Notes |
 |---|---|---|
