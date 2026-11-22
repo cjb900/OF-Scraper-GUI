@@ -185,10 +185,17 @@ def get_request_auth():
 
     # Fallbacks in case selected provider failed, returned 404, or returned invalid/obsolete rules
     if auth is None or (isinstance(auth, (tuple, list)) and len(auth) > 1 and "26974" in str(auth[1])):
+        # tried in order; all three gave a rule OnlyFans accepted in a live
+        # check on 2026-11-19 (OF-Scraper-Community's FALLBACK_SOURCES).
+        # riley is left out: upstream dropped it. The source already tried
+        # is skipped.
         for name, fallback_fn in [
             ("digitalcriminals", get_request_auth_digitalcriminals),
-            ("riley", get_request_auth_riley),
+            ("rafa", get_request_auth_rafa),
+            ("xagler", get_request_auth_xagler),
         ]:
+            if name == dynamic:
+                continue
             try:
                 cand = fallback_fn()
                 if cand and isinstance(cand, (tuple, list)) and len(cand) > 1 and "26974" not in str(cand[1]):

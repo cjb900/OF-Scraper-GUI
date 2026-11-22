@@ -639,4 +639,16 @@ class FanslyStreamDownloadManager(DownloadManager):
         ele.add_filepath(path_to_file)
         ele.add_size(total)
         await self._after_download_script(path_to_file)
+        # plugins hear about stream videos too, as main_download tells them
+        # about normal files and alt_download about DRM ones
+        try:
+            from ofscraper.plugins.manager import plugin_manager
+
+            self.ctx.log.info(
+                f"[PluginManager] on_item_downloaded stream "
+                f"({len(plugin_manager.plugins)} plugin(s)) -> {pathlib.Path(str(path_to_file)).name}"
+            )
+            plugin_manager.dispatch_event("on_item_downloaded", ele, str(path_to_file))
+        except Exception as e:
+            self.ctx.log.warning(f"[PluginManager] on_item_downloaded (stream) failed: {e}")
         return ele.mediatype, total

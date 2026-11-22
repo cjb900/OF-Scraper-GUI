@@ -91,6 +91,8 @@ class Offline:
                 ("DATAWHORES_URL", "datawhores"),
                 ("DIGITALCRIMINALS", "digitalcriminals"),
                 ("RILEY_URL", "riley"),
+                ("RAFA_URL", "rafa"),
+                ("XAGLER_URL", "xagler"),
             ]
         }
         self.rule_requests = []
@@ -208,7 +210,9 @@ def test_rule_hosts_down_is_not_bad_auth(offline, caplog, gui):
     assert (
         "datawhores: couldn't reach raw.githubusercontent.com (timed out)" in message
     )
-    assert "digitalcriminals:" in message and "riley:" in message
+    assert "digitalcriminals:" in message
+    assert "rafa:" in message and "xagler:" in message
+    assert "riley:" not in message
     assert offline.prompts == []
 
 
@@ -217,14 +221,15 @@ def test_failed_rule_fetch_is_not_repeated_by_me_retries(offline, caplog):
 
     run_check(caplog)
 
-    # the selected rule host and the two fallbacks, 3 tries each (GIT_NUM_TRIES),
-    # once for the whole check rather than once per /me try
+    # the selected rule host and the three fallbacks, 3 tries each
+    # (GIT_NUM_TRIES), once for the whole check rather than once per /me try
     assert sorted(set(offline.rule_requests)) == [
         "datawhores",
         "digitalcriminals",
-        "riley",
+        "rafa",
+        "xagler",
     ]
-    assert len(offline.rule_requests) == 9
+    assert len(offline.rule_requests) == 12
     assert offline.me_requests == 0
 
 
@@ -370,7 +375,7 @@ def test_credentials_with_rule_hosts_down_are_not_reported_invalid(gui_auth):
     assert "network or server problem, not a problem with your auth" in text
     assert "Couldn't get a usable dynamic rule" in text
     # the rule is fetched once for the test, not once per /me try
-    assert len(gui_auth.rule_requests) == 9
+    assert len(gui_auth.rule_requests) == 12
     assert gui_auth.me_requests == 0
 
 
