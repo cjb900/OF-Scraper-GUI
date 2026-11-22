@@ -142,6 +142,7 @@ Click the sidebar version button (e.g. **`v3.17.1`**) — or **Help / README →
 - If either is missing, a notice appears from **Configuration** (and related entry points). On the Areas page, missing paths are shown as a status tip so you can keep configuring while models load
 - **Open Config → Download (FFmpeg)** and **Open Config → CDM (Manual keys)** navigate the main window to the relevant config tab
 - **Generate DRM Keys** closes the dialog and navigates to the DRM Key Creation page
+- On the **Fansly** tab only FFmpeg is checked: Fansly videos aren't DRM-protected, so no CDM keys are needed. FFmpeg is still used to join Fansly's video and audio streams
 
 <details><summary>Screenshot</summary>
 
