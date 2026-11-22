@@ -36,7 +36,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 > New features go into the **3.17.1** patch; fixes that apply are also made in **3.14.7**. The patches for **3.12.9**, **3.14.3** and **3.14.5** are still in the repository but have not been updated and may not work properly. See [Versions](docs/versions.md).
 
 <p align="center">
-  <img src="docs/images/select-action.png" width="600" alt="Select Action: Download content from a user (with the User Lists box), like/unlike, download + like/unlike, scrape by URL, Update metadata, Download all purchased content, and the Check Modes">
+  <img src="docs/images/Select-Action-OnlyFans.png" width="600" alt="Select Action on the OnlyFans tab (3.17.1): Download content from a user (with the User Lists box), like/unlike, download + like/unlike, scrape by URL, Update metadata, Download all purchased content, and the Check Modes">
   <img src="https://github.com/user-attachments/assets/52530179-6a13-43f6-a8ec-34220c184942" width="600" alt="Scraping page — media table">
 </p>
 

@@ -449,7 +449,12 @@ The usual flow is **Select Action → Select Content Areas & Filters → Select 
 
 <details><summary>Screenshots</summary>
 
-<img src="images/select-action.png" width="600" alt="Select Action: Download content from a user (with the User Lists box), like/unlike, download + like/unlike, scrape by URL, Update metadata, Download all purchased content, and the Check Modes">
+<table>
+  <tr>
+    <td align="center"><img src="images/Select-Action-OnlyFans.png" width="100%" alt="Select Action on the OnlyFans tab (3.17.1): Download content from a user (with the User Lists box), like/unlike, download + like/unlike, scrape by URL, Update metadata, Download all purchased content, and the Check Modes"><br><em>OnlyFans tab</em></td>
+    <td align="center"><img src="images/Select-Action-Fansly.png" width="100%" alt="Select Action on the Fansly tab: Download content from a user and the Check Modes for posts, messages and paid content; the OnlyFans-only actions are hidden"><br><em>Fansly tab</em></td>
+  </tr>
+</table>
 
 </details>
 
