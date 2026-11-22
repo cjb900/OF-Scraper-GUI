@@ -10,13 +10,19 @@ block. Messages post as "OF-Scraper · OnlyFans" or "OF-Scraper · Fansly".
 
 Creator avatars ("Avatar : https://...") are left out, and Discord makes no
 link previews, unless ``discord_avatars`` is true in config.json. A signed
-avatar link (Fansly) has its signature hidden in the text, so Discord can't
-load it; the line is dropped and the picture is sent as an image embed from
-the real link (logged with ``extra={"discord_avatar": url}``) instead.
+avatar link (Fansly) has its signature hidden in the text, and Fansly's CDN
+won't serve Discord's image fetcher anyway, so the line is dropped: the
+picture is downloaded here from the real link (logged with
+``extra={"discord_avatar": url}``) and uploaded with the message.
 """
 
 import asyncio
+import json
 import logging
+import time
+from urllib.parse import urlparse
+
+import httpx
 import queue
 import re
 import threading
@@ -37,6 +43,9 @@ AVATAR_LINE = re.compile(r"^\s*Avatar\s*:\s*\S*\s*$")
 CREATOR_START = re.compile(r"^\s*Progress \d+/\d+\b")
 TOTALS_TITLE = "📊 GLOBAL RUN TOTALS"
 MAX_EMBEDS = 10
+# Discord's upload limit for a webhook without boosts is 10 MB
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+IMAGE_TIMEOUT = 30
 SUMMARY_MARKERS = ("--- Final Stats Summary", "--- Scrape Results ---", TOTALS_TITLE)
 MENTIONS = ("@here", "@everyone")
 
@@ -91,6 +100,64 @@ def avatar_image(text: str, url) -> str:
     if not url or not AVATAR_LINE.match(text) or url in text:
         return ""
     return url
+
+
+def image_headers(url) -> dict:
+    """Browser-like headers for a CDN file (Fansly's CDN refuses requests
+    without them); never the API token."""
+    try:
+        from ofscraper.sites.fansly import headers as fansly_headers
+
+        if not fansly_headers.is_api_url(url):
+            return fansly_headers.cdn_headers(fansly_headers.fansly_auth.read_auth())
+    except Exception:
+        pass
+    return {}
+
+
+def fetch_image(url):
+    """(content, content type, extension) of the picture at ``url``, or None."""
+    try:
+        r = httpx.get(
+            url,
+            headers=image_headers(url),
+            timeout=IMAGE_TIMEOUT,
+            follow_redirects=True,
+        )
+    except Exception as e:
+        print(f"Could not download an avatar for Discord: {type(e).__name__}")
+        return None
+    ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
+    if r.status_code != 200 or not r.content or not ctype.startswith("image/"):
+        print(f"Could not download an avatar for Discord: status {r.status_code}")
+        return None
+    if len(r.content) > MAX_IMAGE_BYTES:
+        return None
+    ext = urlparse(url).path.rsplit(".", 1)[-1].lower() if "." in urlparse(url).path else ""
+    if not ext.isalnum() or len(ext) > 5:
+        ext = ctype.split("/", 1)[1].split("+")[0] or "jpg"
+    return r.content, ctype, ext
+
+
+def post_with_files(url, payload, files):
+    """Post ``payload`` with ``files`` [(name, content, type)] as multipart;
+    the status code, or None when it could not be sent."""
+    body = {"payload_json": json.dumps(payload)}
+    parts = [(f"files[{i}]", (name, content, ctype)) for i, (name, content, ctype) in enumerate(files)]
+    for _ in range(3):
+        try:
+            r = httpx.post(url, data=body, files=parts, timeout=IMAGE_TIMEOUT)
+        except Exception as e:
+            print(f"Error sending a Discord message: {e}")
+            return None
+        if r.status_code != 429:
+            return r.status_code
+        try:
+            wait = float(r.json().get("retry_after", 1))
+        except Exception:
+            wait = 1.0
+        time.sleep(min(max(wait, 0.5), 30))
+    return r.status_code
 
 
 def is_summary(text: str) -> bool:
@@ -215,14 +282,20 @@ class DiscordHandler(logging.Handler):
         if not avatars:
             text = without_avatars(text)
             found = []
+        files = []
+        for url in found:
+            image = fetch_image(url)
+            if image:
+                content, ctype, ext = image
+                files.append((f"avatar{len(files)}.{ext}", content, ctype))
         pieces = split_lines(text)
         for i, piece in enumerate(pieces):
-            payload = {"content": piece}
-            if found and i == len(pieces) - 1:
-                payload["embeds"] = [{"image": {"url": url}} for url in found]
-            self._post(payload, previews=avatars)
-        if found and not pieces:
-            self._post({"embeds": [{"image": {"url": url}} for url in found]}, previews=avatars)
+            if files and i == len(pieces) - 1:
+                self._post_files({"content": piece}, files)
+            else:
+                self._post({"content": piece}, previews=avatars)
+        if files and not pieces:
+            self._post_files({}, files)
 
     def _send_summary(self, text, embed=None):
         mention, text = take_mention(text)
@@ -240,6 +313,21 @@ class DiscordHandler(logging.Handler):
             self._post(payload)
         elif mention and not sent:
             self._post({"content": mention})
+
+    def _post_files(self, payload, files):
+        """``payload`` with the pictures uploaded and shown as image embeds."""
+        if not self._url:
+            return
+        payload = dict(payload)
+        payload.setdefault("username", webhook_name())
+        payload["embeds"] = [{"image": {"url": f"attachment://{name}"}} for name, _, _ in files]
+        payload["attachments"] = [{"id": i, "filename": name} for i, (name, _, _) in enumerate(files)]
+        status = post_with_files(self._url, payload, files)
+        if status is not None and status not in {200, 204}:
+            print(f"Discord message not sent: status {status}")
+            if payload.get("content"):
+                # still send the text
+                self._post({"content": payload["content"]})
 
     def _post(self, payload, previews=False):
         if not self._url:

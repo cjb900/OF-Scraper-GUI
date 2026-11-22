@@ -490,7 +490,7 @@ How runs look in Discord:
 - Messages post as **OF-Scraper · OnlyFans** or **OF-Scraper · Fansly**, and each run starts with *▶ Scrape started · <site> · N models*.
 - Lines are sent together, one message per model, instead of one message per line (this also keeps under Discord's rate limit).
 - The Final Stats Summary is in a code block so its columns line up; the run totals are a card, green when nothing failed and red when something did.
-- **Show model avatars** (next to the level): off by default, so the avatar link of each model is left out and Discord shows no link previews. Tick it to post each model's avatar picture. It's saved as `discord_avatars` in `config.json`, so command-line runs use it too. Fansly's avatar links are signed, so their picture is posted as an image under the message instead of as a link.
+- **Show model avatars** (next to the level): off by default, so the avatar link of each model is left out and Discord shows no link previews. Tick it to post each model's avatar picture. It's saved as `discord_avatars` in `config.json`, so command-line runs use it too. Fansly's avatar links are signed and Discord can't load them, so OF-Scraper downloads each Fansly avatar and uploads it with the message.
 
 <a id="sca-discord-level"></a>
 #### Discord notification level

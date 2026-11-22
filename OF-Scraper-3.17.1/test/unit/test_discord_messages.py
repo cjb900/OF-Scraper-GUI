@@ -110,28 +110,84 @@ def log_avatar(url):
     logger.handlers = []
 
 
-def test_signed_avatar_sent_as_an_image_embed(posts, monkeypatch):
-    # the text's signature is hidden, so Discord can't load that link
+@pytest.fixture
+def uploads(monkeypatch):
+    sent, fetched = [], []
+
+    def fetch(url):
+        fetched.append(url)
+        return b"\xff\xd8jpeg", "image/jpeg", "jpeg"
+
+    def post(url, payload, files):
+        sent.append((payload, files))
+        return 200
+
+    monkeypatch.setattr(discord, "fetch_image", fetch)
+    monkeypatch.setattr(discord, "post_with_files", post)
+    return sent, fetched
+
+
+def test_signed_avatar_uploaded_with_the_message(posts, uploads, monkeypatch):
+    # the text's signature is hidden, and Fansly's CDN won't serve Discord
+    # itself, so the picture is downloaded and uploaded
     monkeypatch.setattr(discord, "show_avatars", lambda: True)
+    sent, fetched = uploads
     log_avatar(SIGNED)
-    assert len(posts) == 1
-    assert "Avatar" not in posts[0]["content"]
-    assert "Signature" not in posts[0]["content"]
-    assert "creator_one" in posts[0]["content"] and "Subscription" in posts[0]["content"]
-    assert posts[0]["embeds"] == [{"image": {"url": SIGNED}}]
+    assert fetched == [SIGNED]
+    assert posts == []
+    ((payload, files),) = sent
+    assert "Avatar" not in payload["content"] and "Signature" not in payload["content"]
+    assert "creator_one" in payload["content"] and "Subscription" in payload["content"]
+    assert files == [("avatar0.jpeg", b"\xff\xd8jpeg", "image/jpeg")]
+    assert payload["embeds"] == [{"image": {"url": "attachment://avatar0.jpeg"}}]
+    assert payload["attachments"] == [{"id": 0, "filename": "avatar0.jpeg"}]
+    assert payload["username"] == "OF-Scraper · OnlyFans"
 
 
-def test_signed_avatar_left_out_when_avatars_are_off(posts):
+def test_avatar_that_cannot_be_downloaded_is_left_out(posts, uploads, monkeypatch):
+    monkeypatch.setattr(discord, "show_avatars", lambda: True)
+    monkeypatch.setattr(discord, "fetch_image", lambda url: None)
+    sent, _ = uploads
     log_avatar(SIGNED)
+    assert sent == []
+    assert "Avatar" not in posts[0]["content"] and "embeds" not in posts[0]
+
+
+def test_text_still_sent_when_the_upload_is_refused(posts, uploads, monkeypatch):
+    monkeypatch.setattr(discord, "show_avatars", lambda: True)
+    monkeypatch.setattr(discord, "post_with_files", lambda url, payload, files: 400)
+    log_avatar(SIGNED)
+    assert "creator_one" in posts[0]["content"]
+
+
+def test_signed_avatar_left_out_when_avatars_are_off(posts, uploads):
+    sent, fetched = uploads
+    log_avatar(SIGNED)
+    assert sent == [] and fetched == []
     assert "embeds" not in posts[0]
     assert "Avatar" not in posts[0]["content"]
 
 
-def test_plain_avatar_link_stays_a_link(posts, monkeypatch):
+def test_fetch_image_needs_an_image(monkeypatch):
+    class R:
+        def __init__(self, status, ctype, content):
+            self.status_code, self.headers, self.content = status, {"content-type": ctype}, content
+
+    monkeypatch.setattr(discord, "image_headers", lambda url: {})
+    monkeypatch.setattr(discord.httpx, "get", lambda *a, **k: R(200, "image/jpeg", b"x"))
+    assert discord.fetch_image(SIGNED) == (b"x", "image/jpeg", "jpeg")
+    monkeypatch.setattr(discord.httpx, "get", lambda *a, **k: R(403, "text/xml", b"denied"))
+    assert discord.fetch_image(SIGNED) is None
+    monkeypatch.setattr(discord.httpx, "get", lambda *a, **k: R(200, "text/html", b"<html>"))
+    assert discord.fetch_image(SIGNED) is None
+
+
+def test_plain_avatar_link_stays_a_link(posts, uploads, monkeypatch):
     monkeypatch.setattr(discord, "show_avatars", lambda: True)
     url = "https://public.onlyfans.com/files/a/avatar.jpg"
     log_avatar(url)
     assert f"Avatar : {url}" in posts[0]["content"]
+    assert uploads == ([], [])
     assert "embeds" not in posts[0]
 
 
