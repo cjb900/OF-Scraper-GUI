@@ -346,7 +346,7 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 
 <details><summary>Screenshot</summary>
 
-<img src="https://github.com/user-attachments/assets/1745e364-f032-4760-9a1a-c6a0e3b40c3b" width="600" alt="CDM">
+<img src="images/CDM.png" width="700" alt="Configuration → CDM with the Key Mode list open: manual (recommended) first, then cdrm, cdrm2 and keydb marked (currently not working); Client ID File and Private Key File show [Hidden for Privacy]">
 
 </details>
 
