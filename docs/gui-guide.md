@@ -605,7 +605,12 @@ Click **Next >>** when you have selected the creators you want to process. That 
 
 <details><summary>Screenshot</summary>
 
-<img src="https://github.com/user-attachments/assets/0d04b396-9ae2-40db-a29e-c40bf6f55f7a" width="600" alt="Scraping page — media table">
+<table>
+  <tr>
+    <td align="center"><img src="images/Scraping-Page-OnlyFans.png" width="100%" alt="Scraping page on the OnlyFans tab during a daemon run (Privacy mode on): Cancel and Stop Daemon in the toolbar, the filter sidebar, the media table with Download Cart, Downloaded, Duplicate and Unlocked columns, the log below, and the status strip with Running, Auth, Config and Key chips and the download progress bar; post IDs and the log are blurred"><br><em>OnlyFans tab</em></td>
+    <td align="center"><img src="images/Scraping-Page-Fansly.png" width="100%" alt="Scraping page on the Fansly tab during a daemon run (Privacy mode on), with a dot on the Fansly tab while it downloads: the same toolbar, filters, media table, log and status strip; post IDs and the log are blurred"><br><em>Fansly tab</em></td>
+  </tr>
+</table>
 
 </details>
 

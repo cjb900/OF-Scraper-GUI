@@ -37,7 +37,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 
 <p align="center">
   <img src="docs/images/Select-Action-OnlyFans.png" width="600" alt="Select Action on the OnlyFans tab (3.17.1): Download content from a user (with the User Lists box), like/unlike, download + like/unlike, scrape by URL, Update metadata, Download all purchased content, and the Check Modes">
-  <img src="https://github.com/user-attachments/assets/52530179-6a13-43f6-a8ec-34220c184942" width="600" alt="Scraping page — media table">
+  <img src="docs/images/Scraping-Page-OnlyFans.png" width="600" alt="Scraping page on the OnlyFans tab during a daemon run (Privacy mode on): Cancel and Stop Daemon in the toolbar, the filter sidebar, the media table with Download Cart, Downloaded, Duplicate and Unlocked columns, the log below, and the status strip with Running, Auth, Config and Key chips and the download progress bar; post IDs and the log are blurred">
 </p>
 
 ## Contents
