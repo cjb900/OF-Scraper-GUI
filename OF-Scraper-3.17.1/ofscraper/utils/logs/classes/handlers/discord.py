@@ -9,7 +9,10 @@ columns stay lined up, and a record logged with ``extra={"discord_embed":
 block. Messages post as "OF-Scraper · OnlyFans" or "OF-Scraper · Fansly".
 
 Creator avatars ("Avatar : https://...") are left out, and Discord makes no
-link previews, unless ``discord_avatars`` is true in config.json.
+link previews, unless ``discord_avatars`` is true in config.json. A signed
+avatar link (Fansly) has its signature hidden in the text, so Discord can't
+load it; the line is dropped and the picture is sent as an image embed from
+the real link (logged with ``extra={"discord_avatar": url}``) instead.
 """
 
 import asyncio
@@ -33,6 +36,7 @@ SUPPRESS_EMBEDS = 1 << 2
 AVATAR_LINE = re.compile(r"^\s*Avatar\s*:\s*\S*\s*$")
 CREATOR_START = re.compile(r"^\s*Progress \d+/\d+\b")
 TOTALS_TITLE = "📊 GLOBAL RUN TOTALS"
+MAX_EMBEDS = 10
 SUMMARY_MARKERS = ("--- Final Stats Summary", "--- Scrape Results ---", TOTALS_TITLE)
 MENTIONS = ("@here", "@everyone")
 
@@ -79,6 +83,14 @@ def split_lines(text: str, limit: int = MAX_MESSAGE) -> list:
 
 def without_avatars(text: str) -> str:
     return "\n".join(line for line in text.split("\n") if not AVATAR_LINE.match(line))
+
+
+def avatar_image(text: str, url) -> str:
+    """The link to show as an image embed for an avatar line, or "" when the
+    line's own link works (it was not redacted)."""
+    if not url or not AVATAR_LINE.match(text) or url in text:
+        return ""
+    return url
 
 
 def is_summary(text: str) -> bool:
@@ -146,31 +158,36 @@ class DiscordHandler(logging.Handler):
         embed = getattr(record, "discord_embed", None)
         if (not text or not text.strip()) and not embed:
             return
-        self.queue.put((text or "", embed))
+        image = avatar_image((text or "").strip(), getattr(record, "discord_avatar", None))
+        self.queue.put((text or "", embed, image))
 
     def _worker(self):
-        pending = []
+        pending, images = [], []
         while True:
             try:
-                item = self.queue.get(timeout=FLUSH_SECONDS if pending else None)
+                item = self.queue.get(timeout=FLUSH_SECONDS if pending or images else None)
             except queue.Empty:
-                self._flush(pending)
+                self._flush(pending, images)
                 continue
             if item is None:
-                self._flush(pending)
+                self._flush(pending, images)
                 self.queue.task_done()
                 break
             try:
-                text, embed = item
+                text, embed, image = item
                 if embed or is_summary(text):
-                    self._flush(pending)
+                    self._flush(pending, images)
                     self._send_summary(text, embed)
                 else:
-                    if CREATOR_START.match(text) and pending:
-                        self._flush(pending)
-                    pending.append(text.strip("\n"))
+                    if CREATOR_START.match(text) and (pending or images):
+                        self._flush(pending, images)
+                    if image:
+                        # the line's link doesn't work; the picture goes as an embed
+                        images.append(image)
+                    else:
+                        pending.append(text.strip("\n"))
                     if len("\n".join(pending)) >= MAX_MESSAGE:
-                        self._flush(pending)
+                        self._flush(pending, images)
             except Exception as e:
                 print(f"Error preparing a Discord message: {e}")
             finally:
@@ -186,16 +203,26 @@ class DiscordHandler(logging.Handler):
 
     # --- sending ------------------------------------------------------------
 
-    def _flush(self, pending):
-        if not pending:
+    def _flush(self, pending, images=None):
+        images = images if images is not None else []
+        if not pending and not images:
             return
         text = "\n".join(pending)
         pending.clear()
+        found = list(dict.fromkeys(images))[:MAX_EMBEDS]
+        images.clear()
         avatars = show_avatars()
         if not avatars:
             text = without_avatars(text)
-        for piece in split_lines(text):
-            self._post({"content": piece}, previews=avatars)
+            found = []
+        pieces = split_lines(text)
+        for i, piece in enumerate(pieces):
+            payload = {"content": piece}
+            if found and i == len(pieces) - 1:
+                payload["embeds"] = [{"image": {"url": url}} for url in found]
+            self._post(payload, previews=avatars)
+        if found and not pieces:
+            self._post({"embeds": [{"image": {"url": url}} for url in found]}, previews=avatars)
 
     def _send_summary(self, text, embed=None):
         mention, text = take_mention(text)

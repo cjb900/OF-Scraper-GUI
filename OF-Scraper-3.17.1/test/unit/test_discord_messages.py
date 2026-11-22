@@ -88,6 +88,53 @@ def test_avatars_kept_with_previews_when_turned_on(posts, monkeypatch):
     assert "flags" not in posts[0]
 
 
+SIGNED = (
+    "https://cdn3.fansly.com/1000/2000.jpeg?ngsw-bypass=true&Expires=1796010609"
+    "&Key-Pair-Id=KEYPAIRID123&Signature=SIGNATUREVALUE123"
+)
+
+
+def log_avatar(url):
+    """Log an avatar line the way the scraper does, the real link as extra."""
+    handler = discord.DiscordHandler()
+    handler.setFormatter(DiscordFormatter("%(message)s"))
+    logger = logging.getLogger("test_discord_messages")
+    logger.handlers = [handler]
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)
+    logger.warning("Progress 1/1")
+    logger.warning("Data Retrival on creator_one")
+    logger.warning(f"Avatar : {url}", extra={"discord_avatar": url})
+    logger.warning("Subscription: Active")
+    handler.close()
+    logger.handlers = []
+
+
+def test_signed_avatar_sent_as_an_image_embed(posts, monkeypatch):
+    # the text's signature is hidden, so Discord can't load that link
+    monkeypatch.setattr(discord, "show_avatars", lambda: True)
+    log_avatar(SIGNED)
+    assert len(posts) == 1
+    assert "Avatar" not in posts[0]["content"]
+    assert "Signature" not in posts[0]["content"]
+    assert "creator_one" in posts[0]["content"] and "Subscription" in posts[0]["content"]
+    assert posts[0]["embeds"] == [{"image": {"url": SIGNED}}]
+
+
+def test_signed_avatar_left_out_when_avatars_are_off(posts):
+    log_avatar(SIGNED)
+    assert "embeds" not in posts[0]
+    assert "Avatar" not in posts[0]["content"]
+
+
+def test_plain_avatar_link_stays_a_link(posts, monkeypatch):
+    monkeypatch.setattr(discord, "show_avatars", lambda: True)
+    url = "https://public.onlyfans.com/files/a/avatar.jpg"
+    log_avatar(url)
+    assert f"Avatar : {url}" in posts[0]["content"]
+    assert "embeds" not in posts[0]
+
+
 def test_each_creator_gets_its_own_message(posts):
     second = ["Progress 2/2", "Data Retrival on creator_two"]
     run(CREATOR + second)
