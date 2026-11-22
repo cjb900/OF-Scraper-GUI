@@ -53,6 +53,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # against host libraries that don't exist inside the container, causing DRM
     # decryption to silently fail and leaving every video stuck as a .part file.
     ffmpeg \
+    # Playwright's bundled node needs libatomic.so.1; without it every
+    # "playwright install" fails with exit 127 (Live Stream Monitor's
+    # Install Chromium button, browser logins).
+    libatomic1 \
     # Utilities
     curl wget ca-certificates git xdotool wmctrl \
     && rm -rf /var/lib/apt/lists/*
@@ -65,6 +69,15 @@ ENV PATH="/opt/venv/bin:$PATH"
 # ── Install ofscraper inside the venv ─────────────────────────────────────────
 # PyQt6 is provided by the system package above — skip it here
 RUN pip install --no-cache-dir ofscraper==${GUI_PATCH_VERSION}
+
+# ── Playwright + Chromium's system libraries ──────────────────────────────────
+# For plugins that drive Chromium (Live Stream Monitor). Both are in the image
+# so they survive the container being recreated: a pip or apt install inside a
+# running container is lost then, while the browser the plugin downloads stays
+# in /root/.config/ofscraper/playwright_browsers on the config volume.
+RUN pip install --no-cache-dir "playwright>=1.40.0" \
+    && python -m playwright install-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 # ── Copy the selected GUI patch and apply it ──────────────────────────────────
 WORKDIR /opt/ofscraper-gui
