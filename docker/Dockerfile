@@ -6,16 +6,22 @@ ARG GUI_PATCH_VERSION=3.17.1
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DISPLAY=:1 \
-    SCREEN_WIDTH=2048 \
-    SCREEN_HEIGHT=1536 \
+    SCREEN_WIDTH=1920 \
+    SCREEN_HEIGHT=1080 \
     SCREEN_DEPTH=24 \
     VNC_PORT=5900 \
     NOVNC_PORT=6699 \
-    GUI_RESTART_DELAY=5
-# CLI args appended to "ofscraper --gui" at startup.
-# Leave blank to open the GUI without auto-starting a scrape.
-# Example: --daemon 120 --username ALL --sub-status active --posts all --discord low
-ENV GUI_ARGS=""
+    GUI_RESTART_DELAY=5 \
+    MODE=gui
+# Start-up options; see docker-compose.yml and docs/docker.md.
+# GUI_ARGS: appended to "ofscraper --gui" (one site). ONLYFANS_GUI_ARGS /
+# FANSLY_GUI_ARGS: each starts that site. CLI_ARGS: for MODE=cli.
+# VNC_PASSWORD (set it in docker-compose.yml, not here): when set, noVNC and
+# VNC ask for it (VNC uses the first 8 characters).
+ENV GUI_ARGS="" \
+    ONLYFANS_GUI_ARGS="" \
+    FANSLY_GUI_ARGS="" \
+    CLI_ARGS=""
 
 # ── System packages ──────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -27,6 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # it accepts screen-size requests from the viewer, so noVNC's resize=remote
     # makes the desktop match the browser window. Also syncs the clipboard.
     tigervnc-standalone-server \
+    # vncpasswd, for the optional VNC_PASSWORD
+    tigervnc-tools \
     # Minimal window manager so Qt windows don't get orphaned
     fluxbox \
     # noVNC dependencies
@@ -58,11 +66,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 # PyQt6 is provided by the system package above — skip it here
 RUN pip install --no-cache-dir ofscraper==${GUI_PATCH_VERSION}
 
-# ── Copy all available GUI patches and apply the selected one ─────────────────
+# ── Copy the selected GUI patch and apply it ──────────────────────────────────
 WORKDIR /opt/ofscraper-gui
-# The patches live at the repo root; 3.14.7, 3.16.14 and 3.17.1 also have a copy in
-# their OF-Scraper-X.X.X folder.
-COPY patch_ofscraper_*_gui.py ./
+# The patches live at the repo root (3.14.7 and 3.17.1 also have a copy
+# in their OF-Scraper-X.X.X folder). Only the one being built is copied, so a
+# change to another patch doesn't invalidate this layer.
+COPY patch_ofscraper_${GUI_PATCH_VERSION}_gui.py ./
 
 RUN python patch_ofscraper_${GUI_PATCH_VERSION}_gui.py -y --skip-pyqt6 \
     && python -c "from ofscraper.gui.patch_version import PATCH_ID; print(f'Applied GUI patch: {PATCH_ID}')"
@@ -73,9 +82,17 @@ RUN python patch_ofscraper_${GUI_PATCH_VERSION}_gui.py -y --skip-pyqt6 \
 RUN printf '<!DOCTYPE html>\n<html><head>\n<meta http-equiv="refresh" content="0;url=vnc.html?autoconnect=true&resize=remote">\n</head></html>\n' \
     > /usr/share/novnc/index.html
 
-# ── Entrypoint script ─────────────────────────────────────────────────────────
+# ── Entrypoint and health check ───────────────────────────────────────────────
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY docker/healthcheck.sh /healthcheck.sh
+# Strip Windows line endings: a script copied from a Windows checkout with CRLF
+# fails to start ("exec /entrypoint.sh: no such file or directory").
+RUN sed -i 's/\r$//' /entrypoint.sh /healthcheck.sh \
+    && chmod +x /entrypoint.sh /healthcheck.sh
+
+# GUI mode: healthy while the display and noVNC answer. CLI mode: always healthy.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=3 \
+    CMD /healthcheck.sh
 
 EXPOSE 6699
 

@@ -1,0 +1,7 @@
+# The GUI image only needs the patch scripts and the files under docker/.
+# Everything else (source trees, images, plugin zips, .git) stays out of the
+# build context, which keeps builds fast.
+*
+!patch_ofscraper_*_gui.py
+!docker/entrypoint.sh
+!docker/healthcheck.sh

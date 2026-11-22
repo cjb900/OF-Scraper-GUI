@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="OF-Scraper 3.14.7" src="https://img.shields.io/badge/OF--Scraper-3.14.7-3b82f6">
+  <img alt="OF-Scraper 3.17.1" src="https://img.shields.io/badge/OF--Scraper-3.17.1-3b82f6">
   <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776ab?logo=python&logoColor=white">
   <img alt="PyQt6" src="https://img.shields.io/badge/GUI-PyQt6-41cd52?logo=qt&logoColor=white">
   <img alt="Windows, Linux, Docker" src="https://img.shields.io/badge/runs%20on-Windows%20%7C%20Linux%20%7C%20Docker-6b7280">
@@ -30,10 +30,10 @@
 
 A self-contained Python script that patches an installed (non-binary) copy of [OF-Scraper](https://github.com/datawhores/OF-Scraper) to add a full **PyQt6 GUI**, opened with `ofscraper --gui`.
 
-**Supported OF-Scraper version:** `3.14.7` (`patch_ofscraper_3.14.7_gui.py`).
+**Supported OF-Scraper versions:** `3.17.1` (`patch_ofscraper_3.17.1_gui.py`, recommended: OnlyFans and Fansly) and `3.14.7` (`patch_ofscraper_3.14.7_gui.py`, OnlyFans only).
 
 > [!WARNING]
-> Only the **3.14.7** patch is being updated. The patches for **3.12.9**, **3.14.3** and **3.14.5** are still in the repository but have not been updated and may not work properly. Use OF-Scraper 3.14.7 with the 3.14.7 patch. See [Versions](docs/versions.md).
+> New features go into the **3.17.1** patch; fixes that apply are also made in **3.14.7**. The patches for **3.12.9**, **3.14.3** and **3.14.5** are still in the repository but have not been updated and may not work properly. See [Versions](docs/versions.md).
 
 <p align="center">
   <img src="docs/images/select-action.png" width="600" alt="Select Action: Download content from a user (with the User Lists box), like/unlike, download + like/unlike, scrape by URL, Update metadata, Download all purchased content, and the Check Modes">
@@ -52,6 +52,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
 
 ## What it adds
 
+- **OnlyFans and Fansly in one window** (3.17.1): each site in its own tab, both able to scrape at the same time
 - **A step-by-step scrape wizard**: pick an action, content areas and filters, and models, then watch progress in a live table and log
 - **Check modes** to browse everything a creator posted (including locked items), spot files you've deleted from disk, and download only what you pick
 - **Authentication made easier**: import cookies from your browser, or log in through a browser window, instead of copying headers by hand
@@ -95,11 +96,11 @@ More detail: [Install](docs/install.md).
 
 More detail: [Prerequisites](docs/install.md#prerequisites).
 
-1. Download the patch script for your OF-Scraper version from this repository, e.g. `patch_ofscraper_3.14.7_gui.py`.
+1. Download the patch script for your OF-Scraper version from this repository, e.g. `patch_ofscraper_3.17.1_gui.py`.
 2. Run it. It finds your OF-Scraper install (or offers to install it), backs up the files it changes, installs PyQt6, and applies the patch:
 
    ```bash
-   python patch_ofscraper_3.14.7_gui.py
+   python patch_ofscraper_3.17.1_gui.py
    ```
   <img src="docs/images/patch-success.png" width="700" alt="Patch script on Windows (pipx install): ofscraper 3.14.7 found, GUI dependencies already installed, &quot;Patch applied successfully.&quot; and the offer to launch the GUI">
 
@@ -113,7 +114,7 @@ More detail: [Prerequisites](docs/install.md#prerequisites).
 
 4. In the GUI: **Authentication** → log in or import cookies; **Configuration** → set your Save Location and FFmpeg path; then **Scraper** → pick an action and go.
 
-To update later, download the newer patch script and run it again. To undo the patch: `python patch_ofscraper_3.14.7_gui.py --restore /path/to/backup`. All options: [Install](docs/install.md).
+To update later, download the newer patch script and run it again. To undo the patch: `python patch_ofscraper_3.17.1_gui.py --restore /path/to/backup`. All options: [Install](docs/install.md).
 
 ## Docker
 
@@ -128,9 +129,9 @@ docker compose up -d ofscraper-gui
 
 The desktop resizes to fit your browser window, and the GUI stays maximized in it: resize the window or go full screen and the GUI follows. `SCREEN_WIDTH` / `SCREEN_HEIGHT` in `docker-compose.yml` are only the starting size.
 
-If the container keeps restarting with `exec /entrypoint.sh: no such file or directory`, `docker/entrypoint.sh` has Windows line endings (this happens when it was copied or edited on Windows). Fix it with `sed -i 's/\r$//' docker/entrypoint.sh`, then rebuild.
+One container can scrape both sites at once: set `ONLYFANS_GUI_ARGS` and `FANSLY_GUI_ARGS` in `docker-compose.yml`. Set `VNC_PASSWORD` too if the host can be reached from other computers: without it, anyone who can open port 6699 controls the GUI.
 
-`docker-compose.yml` uses host networking, which only works on Linux. **On Docker Desktop (Windows / macOS) you must change it first.** Setup, volumes, CDM keys, `GUI_ARGS`, `MODE=cli` and troubleshooting: [Docker](docs/docker.md).
+`docker-compose.yml` uses host networking, which only works on Linux. **On Docker Desktop (Windows / macOS) you must change it first.** Setup, volumes, CDM keys, start-up options, `MODE=cli` and troubleshooting: [Docker](docs/docker.md).
 
 ## Documentation
 

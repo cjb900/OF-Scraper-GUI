@@ -17,10 +17,12 @@ Run the **patched GUI** on a machine without a desktop. You open the GUI from an
 - OF-Scraper installed and patched with the GUI (default **3.17.1**, with OnlyFans and Fansly tabs)
 - A virtual display with a built-in VNC server (TigerVNC) and a small window manager
 - **The desktop resizes to fit your browser window**, and the GUI stays maximized in it
-- **noVNC** on port **6699** (browser) and raw **VNC** on port **5900**, no password
+- **noVNC** on port **6699** (browser) and raw **VNC** on port **5900**, with an optional password (`VNC_PASSWORD`)
 - **FFmpeg inside the image** (needed for DRM merges; don't mount a host copy)
 - If the GUI exits or crashes, it is started again after `GUI_RESTART_DELAY` seconds (default 5)
 - `docker stop` asks OF-Scraper to cancel the current scrape and exit cleanly (within `stop_grace_period: 30s`)
+- A health check: `docker ps` shows the container as `healthy` while the display and noVNC answer
+- A start-up warning in the log when a site's Save Location isn't on a mounted volume
 
 ## Files you need
 
@@ -115,9 +117,21 @@ Config and auth are stored on the config volume, so they survive rebuilds and re
 | Method | Address | Notes |
 |---|---|---|
 | **Browser (noVNC)** | `http://localhost:6699/` | Easiest. From another computer: `http://<host-ip>:6699/` (check your firewall) |
-| **VNC client** | `localhost:5900` | Any VNC viewer; no password |
+| **VNC client** | `localhost:5900` | Any VNC viewer |
 
-There is no password on VNC or noVNC. Don't expose these ports to the internet.
+### Password (`VNC_PASSWORD`)
+
+With `network_mode: host`, ports 6699 and 5900 listen on **every network interface** of the host. Without a password, anyone who can reach them controls the GUI: your OnlyFans and Fansly logins, CDM keys, and the mounted folders through its file dialogs.
+
+```yaml
+environment:
+  - VNC_PASSWORD=choose-one
+```
+
+- When it's set, noVNC asks for it in the browser and VNC clients ask when they connect. Blank means no password.
+- VNC uses only the **first 8 characters**.
+- It's not encryption: noVNC over plain `http://` sends the session unencrypted. For access from outside your home network, use a VPN (or an HTTPS reverse proxy with its own login) instead of opening the ports.
+- After changing it: `docker compose up -d --force-recreate ofscraper-gui` (no rebuild).
 
 The desktop follows the size of your browser window: resize the window or go full screen and the GUI grows or shrinks with it. `SCREEN_WIDTH` / `SCREEN_HEIGHT` are only the starting size. In a VNC client, turn on its "resize remote session" option (TigerVNC viewer, Remmina and RealVNC have one) to get the same behavior. If you'd rather have a fixed size scaled to fit, open `http://<host>:6699/vnc.html?autoconnect=true&resize=scale`.
 
@@ -226,11 +240,11 @@ docker compose run --rm -e MODE=cli ofscraper-gui
 Set `GUI_PATCH_VERSION` under `build.args` in `docker-compose.yml`, or pass it when building:
 
 ```bash
-docker compose build --build-arg GUI_PATCH_VERSION=3.14.3 ofscraper-gui
+docker compose build --build-arg GUI_PATCH_VERSION=3.14.7 ofscraper-gui
 docker compose up -d --force-recreate ofscraper-gui
 ```
 
-Supported values: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.7`. The build prints `Applied GUI patch: <id>` so you can confirm which patch went in.
+Supported values: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.7`, `3.17.1` (default and recommended: OnlyFans and Fansly tabs). The build prints `Applied GUI patch: <id>` so you can confirm which patch went in.
 
 ## Updating
 
@@ -255,6 +269,16 @@ docker compose exec ofscraper-gui bash          # shell inside the running conta
 
 In GUI mode, the GUI's own output goes to `logging/gui-docker.log` in the config folder, not to `docker compose logs`.
 
+`docker ps` shows the health check: `healthy` while the virtual display and noVNC answer, `unhealthy` if either has stopped (restart the container). In `MODE=cli` it always reports healthy.
+
+### Quoting in `GUI_ARGS` and `CLI_ARGS`
+
+All the start-up variables are read like a shell command line: quote a value that contains spaces (`--username "some name"`), and `*` is passed as is, not expanded. They're printed in the log, so don't put passwords or tokens in them.
+
+### File ownership
+
+The container runs as `root`, so the files it creates in your mounted folders (downloads, databases, logs) are owned by `root` on the host. To take them over: `sudo chown -R $USER: /home/YOU/Photos/OnlyFans` (and the same for your other mounted folders).
+
 ## Limitations
 
 - **DRM key creation doesn't work in Docker.** Create keys on a desktop, then copy them in
@@ -268,10 +292,12 @@ In GUI mode, the GUI's own output goes to `logging/gui-docker.log` in the config
 | Symptom | What to try |
 |---|---|
 | `docker compose`: no configuration file | Run commands from the repo root (where `docker-compose.yml` is) |
-| Build fails at `COPY patch_ofscraper_…_gui.py` | The patch for `GUI_PATCH_VERSION` must be at the **repo root** (e.g. `patch_ofscraper_3.14.7_gui.py` next to `docker-compose.yml`) |
+| Build fails at `COPY patch_ofscraper_…_gui.py` | The patch for `GUI_PATCH_VERSION` must be at the **repo root** (e.g. `patch_ofscraper_3.17.1_gui.py` next to `docker-compose.yml`) |
 | Docker Desktop: can't open noVNC | Remove `network_mode: host` and restore the `ports:` block (see [Networking](#2-networking-docker-desktop-users-must-change-this)) |
 | Linux: can't open noVNC | Check that nothing else uses port 6699 and your firewall allows it; try `http://127.0.0.1:6699/` |
-| Container keeps restarting with `exec /entrypoint.sh: no such file or directory` | `docker/entrypoint.sh` has Windows line endings (copied or edited on Windows). Run `sed -i 's/\r$//' docker/entrypoint.sh`, then `docker compose build ofscraper-gui` and `docker compose up -d --force-recreate ofscraper-gui` |
+| Container keeps restarting with `exec /entrypoint.sh: no such file or directory` | `docker/entrypoint.sh` has Windows line endings (copied or edited on Windows). Current images strip them during the build, and the repo's `.gitattributes` keeps git checkouts LF. With an older Dockerfile, run `sed -i 's/\r$//' docker/entrypoint.sh`, then `docker compose build ofscraper-gui` and `docker compose up -d --force-recreate ofscraper-gui` |
+| Log says `WARNING: OnlyFans saves to …` (or Fansly) `which is not on a mounted volume` | That site's downloads are inside the container and are lost when it's recreated. Mount the folder (see [Volumes](#1-volumes-required)) or change that site's Save Location to a mounted folder |
+| noVNC asks for a password | `VNC_PASSWORD` is set in `docker-compose.yml`; enter it (first 8 characters) |
 | GUI doesn't fill the browser; black space around it | The image predates the TigerVNC change: copy the new `docker/Dockerfile` and `docker/entrypoint.sh`, rebuild and recreate the container, then reload the noVNC tab. Use the default address (`http://<host>:6699/`), which includes `resize=remote` |
 | Plugins page is empty and shows `Plugins folder: /root/.config/ofscraper/plugins`, but the file browser shows your plugins under `/home/YOU/.config/ofscraper/plugins` | Your config folder isn't mounted at `/root/.config/ofscraper`. Add `- /home/YOU/.config/ofscraper:/root/.config/ofscraper` to `volumes:` (see [Volumes](#1-volumes-required)), then `docker compose up -d --force-recreate ofscraper-gui`. No rebuild needed |
 | Settings or auth gone after recreating the container | Same cause: without the `/root/.config/ofscraper` mount the GUI saves inside the container, and that is thrown away on recreate |
@@ -279,7 +305,7 @@ In GUI mode, the GUI's own output goes to `logging/gui-docker.log` in the config
 | Emoji show as empty boxes (sidebar, Live Monitor, buttons) | The image predates the emoji font: copy the new `docker/Dockerfile` and rebuild (`docker compose build ofscraper-gui`, then `docker compose up -d --force-recreate ofscraper-gui`) |
 | Black or empty noVNC screen | Wait a few seconds for the display and GUI to start; check `logging/gui-docker.log` |
 | GUI keeps restarting | It crashed; see `logging/gui-docker.log` and `gui_crash_logs/` in the config folder |
-| Patch older than v410: **Login in App Browser** says "Not Supported in Docker" | Update the patch (`GUI_PATCH_VERSION` / the root `patch_ofscraper_3.14.7_gui.py`) and rebuild the image |
+| Patch older than v410: **Login in App Browser** says "Not Supported in Docker" | Update the patch (`GUI_PATCH_VERSION` / the root `patch_ofscraper_3.17.1_gui.py`) and rebuild the image |
 | Auth works on the desktop but not in Docker | Copy the desktop `auth.json` into the config folder; Dynamic Mode / SSL Verify must match |
 | Videos stuck as `.part` | Use the image's FFmpeg (remove any host ffmpeg mount); check the CDM key paths are valid **inside** the container |
 | DRM videos skipped with "CDM files can't be used" | The key paths in Configuration → CDM don't exist inside the container; see [CDM keys](#cdm-keys-and-ffmpeg) |

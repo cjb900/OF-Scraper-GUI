@@ -10,6 +10,7 @@ Optional args:
                     (the repo-root copy).
 """
 import argparse
+import ast
 import base64
 import io
 import os
@@ -36,7 +37,7 @@ if not m:
     raise RuntimeError("Could not find FILES = [...] in patch script")
 
 files_raw = m.group(1)
-files: list = eval(files_raw)
+files: list = ast.literal_eval(files_raw)
 print(f"Found {len(files)} files in FILES list")
 
 patch_text, _n = re.subn(

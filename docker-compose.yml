@@ -6,7 +6,7 @@ services:
       args:
         # Which GUI patch version to use at build time.
         # Must match one of the patch_ofscraper_X.X.X_gui.py files in the repo root.
-        # Available: 3.12.9, 3.14.3, 3.14.5, 3.14.7, 3.16.14, 3.17.1
+        # Available: 3.12.9, 3.14.3, 3.14.5, 3.14.7, 3.17.1 (3.17.1 has the Fansly tab)
         GUI_PATCH_VERSION: "3.17.1"
     container_name: ofscraper-gui
     environment:
@@ -17,6 +17,11 @@ services:
       - SCREEN_HEIGHT=1080
       - NOVNC_PORT=6699
       - VNC_PORT=5900
+      # Password for noVNC (browser) and VNC. Blank = no password, as before.
+      # With host networking both ports listen on every interface of the host,
+      # so set one unless the host is only reachable from a trusted network.
+      # VNC uses only the first 8 characters.
+      - VNC_PASSWORD=
       # Seconds to wait before relaunching the GUI if it exits/crashes.
       - GUI_RESTART_DELAY=5
       # CLI args appended to "ofscraper --gui" at startup. They go to ONE site:
@@ -109,7 +114,8 @@ services:
       nofile:
         soft: 65536
         hard: 65536
-    # Unrestricted memory — no mem_limit, no memswap_limit, no shm_size cap
+    # 2 GB of shared memory for Qt and the in-app browser (Chromium).
     shm_size: "2g"
+    # No memory limit (0 = unlimited). To cap it, set e.g. mem_limit: 8g.
     mem_limit: 0
     memswap_limit: 0
