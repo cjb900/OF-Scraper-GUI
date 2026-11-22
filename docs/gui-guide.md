@@ -375,7 +375,14 @@ Edit all OF-Scraper settings without touching `config.json` directly. Settings a
 
 <details><summary>Screenshot</summary>
 
-<img src="https://github.com/user-attachments/assets/e6d7c171-79e9-404d-8ae6-2cc7ce81d4e2" width="600" alt="Advanced">
+<table>
+  <tr>
+    <td align="center"><img src="https://github.com/user-attachments/assets/e6d7c171-79e9-404d-8ae6-2cc7ce81d4e2" width="100%" alt="Configuration → Advanced on the OnlyFans tab: Dynamic Mode, API Path, Manual Dynamic Rules, Dynamic Rules URL, API Endpoint Overrides, Media Host Suffixes and the general options"><br><em>OnlyFans tab</em></td>
+    <td align="center"><img src="images/Fansly-Config-Advanced.png" width="100%" alt="Configuration → Advanced on the Fansly tab: the OnlyFans-only request-signing rows are hidden, leaving Media Host Suffixes, Cache Mode, Download Bars, Sanitize Text, hash handling, Incremental Downloads, Temp Directory (hidden by Privacy mode), Infinite Loop, Default User List, Default Black List, Skip Unavailable Content, SSL Verify and Env Files"><br><em>Fansly tab</em></td>
+  </tr>
+</table>
+
+On the Fansly tab, the OnlyFans-only rows (Dynamic Mode, API Path, Manual Dynamic Rules, Dynamic Rules URL, API Endpoint Overrides) are hidden.
 
 </details>
 

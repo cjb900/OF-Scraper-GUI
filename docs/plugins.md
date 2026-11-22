@@ -39,6 +39,12 @@ To install one, unzip it (or copy the folder) into your plugin directory, so you
       <img src="https://github.com/user-attachments/assets/e491ed59-cd6b-46f9-96d4-b16ad3b3d6a9" width="100%" alt="Plugin Loaded">
     </td>
   </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <img src="images/Fansly-Plugins.png" width="70%" alt="The Plugins page on the Fansly tab: a banner says plugins are OnlyFans only and aren't supported on Fansly yet; the list is empty and reads No Fansly plugins found">
+      <br><em>Fansly tab: plugins are OnlyFans only for now</em>
+    </td>
+  </tr>
 </table>
 
 </details>
