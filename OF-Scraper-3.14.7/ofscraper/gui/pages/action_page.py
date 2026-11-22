@@ -266,7 +266,7 @@ class ActionPage(QWidget):
             "List names are case-insensitive.\n"
             "Leave blank to load all subscribed models."
         )
-        # Pre-populate from CLI args (e.g. --ul testing), stripping reserved names
+        # Pre-populate from CLI args (e.g. -ul testing), stripping reserved names
         try:
             import ofscraper.utils.settings as _s_init
             _ul_init = getattr(_s_init.get_settings(), "userlist", None) or []

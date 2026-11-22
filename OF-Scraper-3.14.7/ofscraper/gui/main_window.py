@@ -186,7 +186,7 @@ class MainWindow(QMainWindow):
         has_areas = has_download_areas or has_like_areas
 
         # Need either usernames or a userlist (and areas) to auto-start.
-        # --ul without -u means "all models from that list".
+        # -ul without -u means "all models from that list".
         if (not usernames and not active_userlist) or not has_areas:
             return
         if not usernames and active_userlist:

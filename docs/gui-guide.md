@@ -462,7 +462,7 @@ The usual flow is **Select Action → Select Content Areas & Filters → Select 
 The starting point of every scrape. Choose what you want OF-Scraper to do:
 
 - **Download** — download media files from your subscribed creators
-  - **User Lists** — enter one or more list names from your account (comma-separated) to load only the models on those lists. Leave blank to load all subscribed models. Equivalent to `--ul` / `--userlist` (also works for [CLI auto-start](#cli-auto-start)). On the Fansly tab the field is called **My Lists** and takes lists you made on fansly.com; the built-in VIP Accounts, Blocked, Muted and DM Allow lists can't be used
+  - **User Lists** — enter one or more list names from your account (comma-separated) to load only the models on those lists. Leave blank to load all subscribed models. Equivalent to `-ul` / `--userlist` (also works for [CLI auto-start](#cli-auto-start)); `-ml` / `--ml` / `--my-list` is the same option under Fansly's name. On the Fansly tab the field is called **My Lists** and takes lists you made on fansly.com; the built-in VIP Accounts, Blocked, Muted and DM Allow lists can't be used
 - **Like/Unlike** — automate liking or unliking posts. Only posts inside the **Post Date Range** filter are liked or unliked. While it runs the button reads **Liking…** / **Unliking…**, and the **Liked** column updates as each post is done
 - **Update metadata** — bring your database up to date without downloading; see [below](#update-metadata-no-downloads)
 - **Download all purchased content (all creators)** — everything you've bought, from every creator; see [below](#download-all-purchased-content-all-creators)
@@ -823,7 +823,8 @@ When you pick a check mode on **Select Action**, a **Check options** box with tw
 
 ### CLI auto-start
 - If launched with `ofscraper --gui` together with action, area, and username flags, the GUI wizard is skipped and scraping begins automatically — matching the TUI behavior for scripted/automated workflows
-- `--ul` user list auto-start: `ofscraper --gui --ul testing -a download -o all`
+- User list auto-start: `ofscraper --gui -ul testing -a download -o all` (the option is `-ul` or `--userlist`; `--ul` with two dashes doesn't exist)
+- Fansly My lists auto-start: `ofscraper --gui --site fansly --ml testing -a download -o all` (`--ml` is the same option as `-ul`)
 - Unattended CLI / Docker `GUI_ARGS` auto-start skips interactive scrape-confirm / disk / remote-key dialogs so a container can start without a click
 - This is also how the Docker container starts a scrape automatically via the `GUI_ARGS` environment variable (see [Docker](docker.md))
 

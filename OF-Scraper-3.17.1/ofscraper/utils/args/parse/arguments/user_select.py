@@ -33,8 +33,15 @@ user_list_option = click.option(
     "--userlist",
     "--userlists",
     "--user-lists",
+    # Fansly calls these lists "My lists"
+    "-ml",
+    "--ml",
+    "--my-list",
+    "--my-lists",
+    "--mylist",
+    "--mylists",
     "userlist",
-    help="Filter by userlist. Note: the lists 'ofscraper.main', 'ofscraper.expired', and 'ofscraper.active' are reserved and should not be the name of any list you have on OF",
+    help="Filter by userlist (Fansly: your My lists; -ml / --ml is the same option). Note: the lists 'ofscraper.main', 'ofscraper.expired', and 'ofscraper.active' are reserved and should not be the name of any list you have on OF",
     default=None,
     multiple=True,
     callback=lambda ctx, param, value: list(

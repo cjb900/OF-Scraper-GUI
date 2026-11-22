@@ -30,11 +30,11 @@ Each patch script works with exactly one OF-Scraper version. To see which patch 
 | CLI auto-start (`--username`, `-a`, `-o`) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Check modes (Post / Message / Paid / Story Check) | ❌ | ✅ | ✅ | ✅ | ✅ |
 | Include Post Text | ❌ | ✅ | ✅ | ✅ | ✅ |
-| User Lists (`--ul`) + Reload Models | ❌ | ❌ | ✅ | ✅ | ✅ |
+| User Lists (`-ul` / `--userlist`) + Reload Models | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Discord notification level selector (LOW / NORMAL) | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Per-run Discord scrape summary | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Scrape by URL / Post ID | ❌ | ❌ | ✅ | ✅ | ✅ |
-| CLI auto-start with `--ul` | ❌ | ❌ | ✅ | ✅ | ✅ |
+| CLI auto-start with `-ul` | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Video quality selector (`-q` / `--quality`) | ❌ | ❌ | ❌ | ✅ | ✅ |
 | Login in Browser (embedded auth) | ❌ | ❌ | ❌ | ✅ | ✅ |
 | Confirm scrape (pre-start review + ETA) | ❌ | ❌ | ❌ | ✅ | ✅ |
@@ -67,7 +67,7 @@ Each patch script works with exactly one OF-Scraper version. To see which patch 
 | OnlyFans and Fansly tabs in one window, both scraping at once | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Fansly: Timeline, Messages, Purchased and Walls; HLS/DASH videos | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Fansly check mode (compare with files on disk, cart) | ❌ | ❌ | ❌ | ❌ | ✅ |
-| Fansly My lists and black lists (`-ul` / `-bl`, My Lists box) | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Fansly My lists and black lists (`-ul` or `-ml` / `--ml`, `-bl`; My Lists box) | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Docker: start both sites (`ONLYFANS_GUI_ARGS`, `FANSLY_GUI_ARGS`) | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Discord: site in the sender name, totals card, model avatars option | ❌ | ❌ | ❌ | ❌ | ✅ |
 | Update now (download and apply a newer patch from the GUI) | ❌ | ❌ | ❌ | ❌ | ✅ |

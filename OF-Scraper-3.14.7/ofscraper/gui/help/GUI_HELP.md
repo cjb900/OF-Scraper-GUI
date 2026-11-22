@@ -327,7 +327,7 @@ When **Download content from a user** is selected, a **User Lists** field appear
 - Enter one or more OnlyFans list name(s), comma-separated (e.g. `testing, vip`).
 - Only models who are members of those lists will be loaded — the full subscription list is not fetched.
 - Leave blank to load all subscribed models (default behavior).
-- Equivalent to the `--ul` / `--userlist` CLI flag.
+- Equivalent to the `-ul` / `--userlist` CLI flag (one dash for `-ul`).
 - Reserved internal names (`main`, `ofscraper.main`) are automatically ignored even if entered.
 
 After models load, a **Reload Models** button appears in the navigation bar — use it to re-fetch models without going all the way back to the Select Action page.
