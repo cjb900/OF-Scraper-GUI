@@ -112,7 +112,7 @@ If OF-Scraper or the GUI won't start after an interrupted or failed install, or 
 With `--skip-deps`, only ofscraper is reinstalled and the GUI packages you already have are kept (pipx: reinstalled inside the existing venv). `--force --dry-run` only prints what it would reinstall. Your config, auth and downloads are not touched.
 
 ## After patching
-<img src="images/patch-success.png" width="700" alt="Patch script on Windows (pipx install): ofscraper 3.14.7 found, GUI dependencies already installed, &quot;Patch applied successfully.&quot; and the offer to launch the GUI">
+<img src="images/patch-success.png" width="700" alt="patch_ofscraper_3.17.1_gui.py on Windows (pipx install): ofscraper 3.17.1 found, GUI dependencies already installed, patch v482 applied to 156 files with a backup, &quot;Patch applied successfully.&quot; and the offer to launch the GUI">
 
 Launch the GUI with:
 

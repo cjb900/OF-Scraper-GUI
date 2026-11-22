@@ -104,7 +104,7 @@ More detail: [Prerequisites](docs/install.md#prerequisites).
    ```bash
    python patch_ofscraper_3.17.1_gui.py
    ```
-  <img src="docs/images/patch-success.png" width="700" alt="Patch script on Windows (pipx install): ofscraper 3.14.7 found, GUI dependencies already installed, &quot;Patch applied successfully.&quot; and the offer to launch the GUI">
+  <img src="docs/images/patch-success.png" width="700" alt="patch_ofscraper_3.17.1_gui.py on Windows (pipx install): ofscraper 3.17.1 found, GUI dependencies already installed, patch v482 applied to 156 files with a backup, &quot;Patch applied successfully.&quot; and the offer to launch the GUI">
 
 3. Start the GUI:
 
