@@ -145,7 +145,12 @@ Click the sidebar version button (e.g. **`v3.17.1`**) — or **Help / README →
 
 <details><summary>Screenshot</summary>
 
-<img src="https://github.com/user-attachments/assets/3ad709d5-6bbd-429c-b772-1f75c2217172" width="600" alt="Missing Configuration Paths">
+<table>
+  <tr>
+    <td align="center"><img src="images/FFmpeg-OnlyFans.png" width="100%" alt="Missing configuration paths dialog on the OnlyFans tab over the Areas page: FFmpeg path missing, with the FFmpeg 7.1.1 download link, Open Config → Download (FFmpeg) and Close"><br><em>OnlyFans tab</em></td>
+    <td align="center"><img src="images/FFmpeg-Fansly.png" width="100%" alt="The same dialog on the Fansly tab; Fansly only checks FFmpeg (no CDM keys)"><br><em>Fansly tab</em></td>
+  </tr>
+</table>
 
 </details>
 
