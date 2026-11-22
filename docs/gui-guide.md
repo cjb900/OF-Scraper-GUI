@@ -52,8 +52,12 @@ Signing in to Fansly: see [Fansly authentication](#fansly-authentication).
 
 <table>
   <tr>
-    <td align="center"><img src="images/theme-dark.png" width="100%" alt="Select Content Areas & Filters in Dark mode; the sidebar button reads Light Mode"><br><em>Dark</em></td>
-    <td align="center"><img src="images/theme-light.png" width="100%" alt="The same page in Light mode; the sidebar button reads Dark Mode"><br><em>Light</em></td>
+    <td align="center"><img src="images/Theme-Dark-OnlyFans.png" width="100%" alt="Select Content Areas &amp; Filters on the OnlyFans tab in Dark mode; the sidebar button reads Light Mode"><br><em>Dark</em></td>
+    <td align="center"><img src="images/Theme-Light-OnlyFans.png" width="100%" alt="The same page in Light mode; the sidebar button reads Dark Mode"><br><em>Light</em></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="images/Theme-Dark-Fansly.png" width="100%" alt="Select Content Areas &amp; Filters on the Fansly tab in Dark mode: Timeline, Messages, Purchased and Walls"><br><em>Fansly tab, dark</em></td>
+    <td align="center"><img src="images/Theme-Light-Fansly.png" width="100%" alt="The Fansly tab in Light mode"><br><em>Fansly tab, light</em></td>
   </tr>
 </table>
 
@@ -546,7 +550,12 @@ A dedicated action for downloading specific posts without going through model or
 
 <details><summary>Screenshot</summary>
 
-<img src="images/theme-dark.png" width="600" alt="Select Content Areas & Filters: content areas, media types, post text, additional and advanced options; Next: Select Models in the bottom-right corner">
+<table>
+  <tr>
+    <td align="center"><img src="images/Theme-Dark-OnlyFans.png" width="100%" alt="Select Content Areas &amp; Filters on the OnlyFans tab: content areas (Profile, Timeline, Pinned, Archived, Highlights, Stories, Messages, Purchased, Streams, Labels), media types, post text, additional, advanced and daemon options; Next: Select Models in the bottom-right corner"><br><em>OnlyFans tab</em></td>
+    <td align="center"><img src="images/Theme-Dark-Fansly.png" width="100%" alt="The same page on the Fansly tab: content areas Timeline, Messages, Purchased and Walls"><br><em>Fansly tab</em></td>
+  </tr>
+</table>
 
 </details>
 

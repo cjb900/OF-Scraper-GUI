@@ -67,7 +67,7 @@ A self-contained Python script that patches an installed (non-binary) copy of [O
   <tr>
     <td align="center" width="33%"><img src="docs/images/confirm-downloads.png" width="100%" alt="Check mode: a creator's posts in a table with a download cart"><br><em>Check mode</em></td>
     <td align="center" width="33%"><img src="docs/images/live-stream-monitor.png" width="100%" alt="Live Stream Monitor plugin recording a live stream"><br><em>Live Stream Monitor plugin</em></td>
-    <td align="center" width="33%"><img src="docs/images/theme-light.png" width="100%" alt="Content Areas and Filters page in light mode"><br><em>Light and dark themes</em></td>
+    <td align="center" width="33%"><img src="docs/images/Theme-Light-OnlyFans.png" width="100%" alt="Select Content Areas &amp; Filters on the OnlyFans tab in light mode"><br><em>Light and dark themes</em></td>
   </tr>
 </table>
 
