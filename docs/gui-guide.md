@@ -72,7 +72,7 @@ Click the sidebar version button (e.g. **`v3.17.1`**) — or **Help / README →
 
 <details><summary>Screenshot</summary>
 
-<img src="https://github.com/user-attachments/assets/ba6fbb2e-1638-481d-9d6e-6e2159ee1bde" width="600" alt="About">
+<img src="images/About.png" width="500" alt="About OF-Scraper: app version 3.17.1, GUI patch 20261116_gui_3_17_1_v482, operating system, FFmpeg and FFprobe versions, Updates status, Text size controls, Include testing builds ticked, Check for updates and Open testing branch buttons, and Open Help / Discord / Close">
 
 </details>
 
