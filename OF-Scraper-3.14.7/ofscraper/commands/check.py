@@ -974,6 +974,13 @@ def _normalize_rows_for_gui(rows):
         normalized["number"] = str(row.get("number", i + 1))
         if "index" not in normalized:
             normalized["index"] = i
+        if normalized.get("download_cart") == "Not Unlocked":
+            # Media you haven't bought: show it the way a normal scrape does
+            # (grey "Locked", can't be added to the cart, Downloaded N/A).
+            # The TUI keeps its own "Not Unlocked" label.
+            normalized["download_cart"] = "Locked"
+            normalized["downloaded"] = "N/A"
+            normalized["unlocked"] = "Locked"
         result.append(normalized)
     return result
 
