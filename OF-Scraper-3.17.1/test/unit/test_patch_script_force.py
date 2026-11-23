@@ -231,6 +231,8 @@ def main_env(patch_mod, monkeypatch):
     monkeypatch.setattr(patch_mod, "_install_gui_deps",
                         lambda method, **kw: log.append(("deps", method, kw)) or True)
     monkeypatch.setattr(patch_mod, "apply", lambda **kw: log.append(("apply", kw)) or 0)
+    # never look for or install system libraries from a test
+    monkeypatch.setattr(patch_mod, "_check_x11_libs", lambda **kw: True)
 
     def run(method, *argv):
         monkeypatch.setattr(patch_mod, "_detect_install_method", lambda: method)
