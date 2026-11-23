@@ -46,6 +46,33 @@ FFmpeg is needed to merge DRM audio and video and to check downloaded files. Set
 - Windows builds: [gyan.dev](https://www.gyan.dev/ffmpeg/builds/). Linux: your package manager (`sudo apt install ffmpeg`)
 - The Docker image includes its own FFmpeg; don't mount a host copy into it
 
+### Linux system libraries
+
+The GUI's Qt needs some system libraries that a desktop install may not have (Ubuntu 26.04 lacks several). The GUI runs on X11, and on a Wayland desktop it goes through XWayland, so a Wayland desktop needs the same libraries.
+
+**The 3.17.1 patch script installs them for you** (from `v490`). On a Linux desktop it shows whether you're on Wayland or X11, lists any that are missing and offers to install them:
+
+```
+Desktop session:  Wayland (the GUI runs on XWayland, which needs the X11 libraries)
+Missing system libraries for the GUI: libGL.so.1, libxcb-cursor.so.0
+Install them now with 'sudo apt-get install -y libgl1 libxcb-cursor0'? (yes/no):
+```
+
+- It uses `apt-get`, `dnf`, `pacman` or `zypper`, whichever is installed, and `sudo` asks for your password
+- With `-y` it installs them without asking. With `--skip-deps` or `--dry-run` it only prints the command
+- If you answer no or the install fails, it prints the command to run yourself and still patches
+- Without a desktop (a server, or the Docker build) it skips the check
+
+To install them yourself on Ubuntu or Debian:
+
+```bash
+sudo apt install libgl1 libegl1 libfontconfig1 libdbus-1-3 libxkbcommon0 \
+  libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+  libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxcb-shape0 libxkbcommon-x11-0
+```
+
+The Docker image already includes them. The 3.14.7 patch script doesn't check them, so install them with the command above.
+
 ## Running the patch script
 
 Download the patch script for your OF-Scraper version from the repository root and run it with Python. Use `patch_ofscraper_3.17.1_gui.py` (recommended: OnlyFans and Fansly) unless you need to stay on OF-Scraper 3.14.7 (`patch_ofscraper_3.14.7_gui.py`, OnlyFans only). If OF-Scraper isn't installed yet, the script offers to install it ([see below](#if-of-scraper-is-not-detected)).

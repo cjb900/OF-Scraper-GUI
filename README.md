@@ -99,7 +99,7 @@ More detail: [Install](docs/install.md).
 More detail: [Prerequisites](docs/install.md#prerequisites).
 
 1. Download the patch script for your OF-Scraper version from this repository, e.g. `patch_ofscraper_3.17.1_gui.py`.
-2. Run it. It finds your OF-Scraper install (or offers to install it), backs up the files it changes, installs PyQt6, and applies the patch:
+2. Run it. It finds your OF-Scraper install (or offers to install it), backs up the files it changes, installs PyQt6 (and on Linux the [system libraries](docs/install.md#linux-system-libraries) Qt needs), and applies the patch:
 
    ```bash
    python patch_ofscraper_3.17.1_gui.py
