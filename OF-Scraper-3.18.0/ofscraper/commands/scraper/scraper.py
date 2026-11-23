@@ -1,0 +1,367 @@
+import logging
+from ofscraper.prompts.cancel import cancel_scope
+import traceback
+import threading
+import schedule
+from ofscraper.commands.scraper.actions.download import stop
+import ofscraper.utils.context.exit as exit
+import ofscraper.utils.live.screens as progress_utils
+from ofscraper.commands.utils.scrape_context import scrape_context_manager
+from ofscraper.utils.checkers import check_auth
+from ofscraper.main.close.final.final import final_action
+from ofscraper.data.posts.scrape_paid import scrape_paid_all
+from ofscraper.commands.scraper.actions.download.download import downloader
+import ofscraper.commands.scraper.actions.like.like as like_action
+import ofscraper.utils.live.updater as progress_updater
+import ofscraper.db.operations as operations
+from ofscraper.utils.context.run_async import run as run_async
+from ofscraper.data.posts.post import post_media_process
+import ofscraper.prompts.prompts as prompts
+import ofscraper.prompts.prompt_groups.actions as action_prompts
+import ofscraper.utils.paths.paths as paths
+import ofscraper.utils.system.network as network
+from ofscraper.commands.scraper.utils.prepare import prepare
+import ofscraper.utils.console as console
+from ofscraper.commands.utils.command import CommandManager, log_user_failure
+import ofscraper.utils.actions as actions
+import ofscraper.utils.checkers as checkers
+import ofscraper.managers.manager as manager
+import ofscraper.utils.interactive as interactive
+from ofscraper.commands.scraper.utils.schedule import DaemonWakeup, set_schedule
+import ofscraper.utils.config.data as data
+import ofscraper.utils.menu as menu
+from ofscraper.commands.scraper.utils.jobqueue import jobqueue
+from ofscraper.__version__ import __version__
+import ofscraper.utils.settings as settings
+from ofscraper.scripts.after_download_action_script import after_download_action_script
+from ofscraper.scripts.after_like_action_script import after_like_action_script
+from ofscraper.managers.postcollection import PostCollection
+import ofscraper.sites.fansly.live as live
+import ofscraper.sites.fansly.pipeline as fansly_pipeline
+import ofscraper.sites as sites
+
+log = logging.getLogger("shared")
+
+ACTION_SCRIPTS = {
+    "like": after_like_action_script,
+    "unlike": after_like_action_script,
+    "download": after_download_action_script,
+}
+
+
+class scraperManager(CommandManager):
+    def __init__(self):
+        super().__init__()
+
+    def runner(self, menu=False):
+        with stop.interrupt_handler():
+            try:
+                self._runner(menu=menu)
+            except stop.DownloadsStopped:
+                final_action()
+                if not menu:
+                    raise SystemExit(130)
+
+    def _runner(self, menu=False):
+        check_auth(include_main_menu=menu)
+        if live.once_enabled():
+            # Fansly --live: record who is live now, then do the other actions
+            if live.run_blocking(watch=False, menu=menu):
+                final_action()
+                return
+        with scrape_context_manager():
+            with progress_utils.stop_live_screen(clear="all"):
+                with progress_utils.setup_live("main_activity"):
+                    if settings.get_settings().scrape_paid:
+                        scrape_paid_all()
+
+                    if not self.run_action:
+                        pass
+
+                    elif settings.get_settings().users_first:
+                        userdata, session = prepare(menu=menu)
+                        self._process_users_actions_user_first(userdata, session)
+                    else:
+
+                        userdata, session = prepare(menu=menu)
+                        self._process_users_actions_normal(userdata, session)
+
+                final_action()
+
+    async def _process_user(self, ele, c, action_func):
+        # Fansly downloads each page as it is scanned (sites/fansly/pipeline.py)
+        if fansly_pipeline.applies():
+            self._data_helper(ele)
+            collection = None
+            if fansly_pipeline.ordered():
+                # the whole list first; links are fetched again per chunk
+                collection = await post_media_process(ele, c=c)
+                if collection is None:
+                    return
+            await fansly_pipeline.run(ele, c, collection)
+            return
+        await super()._process_user(ele, c, action_func)
+
+    @run_async
+    async def _process_users_actions_user_first(self, userdata, session):
+        data = await self._gather_user_first_data(
+            userdata, session, self._get_users_data_user_first
+        )
+        await self._execute_user_first_actions(data, self._execute_user_action)
+        progress_updater.activity.update_task(description="Finished Action Mode")
+
+    async def _get_users_data_user_first(self, session, ele):
+        return await self._process_ele_user_first_data_retriver(ele, session)
+
+    async def _process_ele_user_first_data_retriver(self, ele, session):
+        model_id = ele.id
+        username = ele.name
+        avatar = ele.avatar
+        await operations.table_init_create(model_id=model_id, username=username)
+        postcollection = await post_media_process(ele, session)
+        return {
+            model_id: {
+                "username": username,
+                "postcollection": postcollection,
+                "avatar": avatar,
+                "ele": ele,
+            }
+        }
+
+    async def _execute_user_action(self, ele, postcollection: PostCollection):
+        with progress_utils.setup_live("main_activity", clear=False):
+            progress_updater.activity.update_task(
+                description=f"Performing Actions on {ele.name}",
+                total=manager.Manager.current_model_manager.get_num_scrape_selected_models(),
+                visible=True,
+            )
+            actions = settings.get_settings().actions
+            username = ele.name
+            model_id = ele.id
+            media = postcollection.get_media_for_processing()
+            like_posts = postcollection.get_posts_to_like()
+            posts = postcollection.get_posts_for_text_download()
+            for action in actions:
+                try:
+                    if action == "download":
+                        await downloader(
+                            posts=posts,
+                            media=media,
+                            model_id=model_id,
+                            username=username,
+                            # Fansly: silent videos to check again (silent.py)
+                            all_media=(
+                                postcollection.all_media if sites.is_fansly() else None
+                            ),
+                        )
+                        manager.Manager.stats_manager.update_and_print_stats(
+                            username, "download", media
+                        )
+                        if stop.requested.is_set():
+                            raise stop.DownloadsStopped
+                    elif action == "like":
+                        like_action.process_like(
+                            ele=ele,
+                            posts=like_posts,
+                            media=media,
+                            model_id=model_id,
+                            username=username,
+                        )
+                        manager.Manager.stats_manager.update_and_print_stats(
+                            username, "like", like_posts
+                        )
+                    elif action == "unlike":
+                        like_action.process_unlike(
+                            ele=ele,
+                            posts=like_posts,
+                            media=media,
+                            model_id=model_id,
+                            username=username,
+                        )
+                        manager.Manager.stats_manager.update_and_print_stats(
+                            username, "unlike", like_posts
+                        )
+                    manager.Manager.current_model_manager.mark_as_processed(
+                        username, activity=action
+                    )
+                    ACTION_SCRIPTS.get(action)(username, media, posts, action=action)
+
+                except Exception as E:
+                    log_user_failure(username, E, what=action)
+                    log.traceback_(E)
+                    log.traceback_(traceback.format_exc())
+
+    @run_async
+    async def _process_users_actions_normal(self, userdata=None, session=None):
+        progress_updater.activity.update_user(
+            description="Users with Actions Completed",
+            total=manager.Manager.current_model_manager.get_num_scrape_selected_models(),
+            visible=True,
+            completed=0,
+        )
+        await self._process_users_normal(userdata, session, self._execute_user_action)
+
+
+def main():
+    with progress_utils.stop_live_screen(clear="all"):
+        try:
+            print_start()
+            paths.temp_cleanup()
+            paths.cleanDB()
+            network.check_cdm()
+
+            scrapper()
+            paths.temp_cleanup()
+            paths.cleanDB()
+        except KeyboardInterrupt:
+            with exit.DelayedKeyboardInterrupt():
+                paths.temp_cleanup()
+                paths.cleanDB()
+            raise
+        except Exception as E:
+            try:
+                with exit.DelayedKeyboardInterrupt():
+                    paths.temp_cleanup()
+                    paths.cleanDB()
+                    log.traceback_(E)
+                    log.traceback_(traceback.format_exc())
+            except KeyboardInterrupt:
+                pass  # report the error, not the Ctrl+C during its cleanup
+            raise
+
+
+# commands/scraper/scraper.py
+
+
+def daemon_process():
+    exit.sigterm_as_keyboard_interrupt()
+    checkers.check_auth()
+    worker_thread = None
+    scrapingManager = scraperManager()
+
+    def next_pass():
+        # a Yes to the redownload question was for the first pass only (#433)
+        action_prompts.restore_session_args()
+        scrapingManager.runner()
+
+    jobqueue.put(scrapingManager.runner)
+    if settings.get_settings().output_level == "PROMPT":
+        log.info("[bold]silent-mode on[/bold]")
+    log.info("[bold]Daemon mode on[/bold]")
+    manager.Manager.current_model_manager.sync_models()
+    actions.select_areas()
+    wakeup = DaemonWakeup()
+    wakeup.install()
+    live_thread = live.start_watch_thread() if live.watch_enabled() else None
+    try:
+        # The scheduler only queues jobs; the main thread runs them. As a
+        # non-daemon thread it sat in jobqueue.join() forever and kept the
+        # process alive after Ctrl+C/SIGTERM.
+        worker_thread = threading.Thread(
+            target=set_schedule, args=[next_pass],
+            kwargs={"wakeup": wakeup}, daemon=True
+        )
+        worker_thread.start()
+        while True:
+            # outside the try: a signal while idle here has no job to mark done
+            job_func = jobqueue.get()
+            try:
+                job_func()
+            except interactive.NoConsoleError:
+                # a prompt no one can answer won't be answered next pass,
+                # so end the daemon with the error instead (#286)
+                raise
+            except Exception as E:
+                # the daemon carries on with the next pass (#379)
+                log.warning(f"Daemon pass failed: {type(E).__name__}: {E}")
+                log.traceback_(E)
+                log.traceback_(traceback.format_exc())
+            finally:
+                jobqueue.task_done()
+    except (KeyboardInterrupt, Exception, SystemExit) as exc:
+        wakeup.stopped = True
+        live_interrupted = live_thread is not None and isinstance(exc, KeyboardInterrupt)
+        if live_thread:
+            thread, live_thread = live_thread, None
+            if live_interrupted and stop.requested.is_set():
+                thread.force_stop()
+                raise
+            thread.stop()
+        try:
+            with exit.DelayedKeyboardInterrupt():
+                schedule.clear()
+                if worker_thread:
+                    worker_thread.join(timeout=5)
+        except KeyboardInterrupt:
+            if live_interrupted:
+                raise
+            pass  # stop with the original error, not the Ctrl+C during cleanup
+        if live_interrupted:
+            raise SystemExit(130)
+        raise
+    finally:
+        if live_thread:
+            live_thread.stop()
+        wakeup.restore()
+
+
+def process_prompts():
+    while True:
+        if menu.main_menu_action():
+            break
+        elif prompts.continue_prompt() == "No":
+            break
+
+
+def process_selected_areas():
+    log.debug("[bold deep_sky_blue2] Running Action Mode [/bold deep_sky_blue2]")
+    scrapingManager = scraperManager()
+    scrapingManager.runner()
+    while True:
+        if not data.get_InfiniteLoop() or prompts.continue_prompt() == "No":
+            break
+        saved_args = settings.get_args(copy=True)
+        action = prompts.action_prompt()
+        with cancel_scope(restore_args=True, saved_args=saved_args):
+            if action == "main":
+                process_prompts()
+                break
+            elif action == "quit":
+                break
+            elif action == prompts.CHECK_TABLE:
+                menu.run_check_table()
+            else:
+                menu.get_count() > 0 and menu.reset_menu_helper()
+                scrapingManager.runner()
+                menu.update_count()
+
+
+def process_live_only():
+    """Fansly --live / --live-watch with no other action: only record livestreams."""
+    check_auth()
+    if live.once_enabled():
+        live.run_blocking(watch=False)
+    if live.watch_enabled():
+        live.run_blocking(watch=True)
+
+
+def scrapper():
+    args = settings.get_args()
+    if args.daemon:
+        if len(args.actions) == 0 and not args.scrape_paid and not live.enabled():
+            prompts.action_prompt()
+        daemon_process()
+    elif len(args.actions) > 0 or args.scrape_paid:
+        process_selected_areas()
+        if live.watch_enabled():
+            live.run_blocking(watch=True)
+    elif live.enabled():
+        process_live_only()
+    elif len(args.actions) == 0:
+        process_prompts()
+
+
+def print_start():
+    console.get_shared_console().print(
+        f"[bold green]Version {__version__}[/bold green]"
+    )

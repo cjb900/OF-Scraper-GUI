@@ -1,0 +1,168 @@
+from ofscraper.prompts.cancel import back_to_menu, cancel_scope
+
+import logging
+import traceback
+
+import ofscraper.prompts.prompts as prompts
+import ofscraper.utils.actions as actions
+import ofscraper.utils.auth.file as auth_file
+import ofscraper.utils.config.menu as config_menu
+import ofscraper.utils.interactive as interactive
+import ofscraper.utils.merge as merge
+import ofscraper.utils.of_env.of_env as of_env
+import ofscraper.utils.settings as settings
+import ofscraper.utils.profiles.manage as profiles_manage
+import ofscraper.utils.profiles.tools as profile_tools
+import ofscraper.managers.manager as manager
+from ofscraper.utils.markup import escape_text
+
+log = logging.getLogger("shared")
+count = 0
+
+
+def update_count():
+    global count
+    count = count + 1
+
+
+def get_count():
+    global count
+    return count
+
+
+def main_menu_action():
+    from ofscraper.commands.scraper.scraper import scraperManager
+
+    global count
+    log.debug("[bold deep_sky_blue2] Running Prompt Menu Mode[/bold deep_sky_blue2]")
+    scapingManager = scraperManager()
+    while True:
+        result_main_prompt = None
+        try:
+            result_main_prompt = prompts.main_prompt()
+            with cancel_scope():
+                if result_main_prompt == "action":
+                    while True:
+                        saved_args = settings.get_args(copy=True)
+                        action_result_prompt = prompts.action_prompt()
+                        if action_result_prompt == "quit":
+                            return True
+                        elif action_result_prompt == "main":
+                            break
+                        with cancel_scope(restore_args=True, saved_args=saved_args):
+                            if action_result_prompt == prompts.CHECK_TABLE:
+                                run_check_table()
+                            else:
+                                scapingManager.runner(menu=True)
+                            break
+
+                elif result_main_prompt == "auth":
+                    # Edit `auth.json` file
+                    auth_result_prompt = auth_file.edit_auth()
+                    if auth_result_prompt == "quit":
+                        return True
+                elif result_main_prompt == "config":
+                    # Edit `data.json` file
+                    while True:
+                        config_result_prompt = prompts.config_prompt()
+                        if config_result_prompt == "quit":
+                            return True
+                        elif config_result_prompt == "main":
+                            break
+                        else:
+                            config_menu_helper(config_result_prompt)
+
+                elif result_main_prompt == "profile":
+                    # Display  `Profiles` menu
+                    while True:
+                        result_profiles_prompt = prompts.profiles_prompt()
+                        if result_profiles_prompt == "quit":
+                            return True
+                        elif result_profiles_prompt == "main":
+                            break
+                        else:
+                            profile_menu_helper(result_profiles_prompt)
+                elif result_main_prompt == "merge":
+                    merge.merge_runner()
+                elif result_main_prompt == "quit":
+                    return True
+        except interactive.NoConsoleError:
+            raise  # asking again can't work either
+        except Exception as E:
+            # say on screen that it failed; the traceback stays in the debug log
+            log.error(escape_text(f"{_action_name(result_main_prompt)} failed: {type(E).__name__}: {E}"))
+            log.debug(traceback.format_exc())
+
+
+def run_check_table():
+    from ofscraper.commands.check_menu import run_check_table
+
+    run_check_table()
+
+
+def _action_name(choice):
+    names = {value: name for name, value in of_env.getattr("mainPromptChoices").items()}
+    return names.get(choice, "Main Menu")
+
+
+@back_to_menu
+def profile_menu_helper(result_profiles_prompt):
+    if result_profiles_prompt == "default":
+        # Change profiles
+        profiles_manage.change_default_profile()
+    elif result_profiles_prompt == "active":
+        # Change profiles
+        profiles_manage.change_active_profile()
+    elif result_profiles_prompt == "name":
+        # Edit a profile
+        profiles_manage.edit_profile_name()
+
+    elif result_profiles_prompt == "create":
+        # Create a new profile
+
+        profiles_manage.create_profile()
+
+    elif result_profiles_prompt == "delete":
+        # Delete a profile
+        profiles_manage.delete_profile()
+
+    elif result_profiles_prompt == "view":
+        # View profiles
+        profile_tools.print_profiles()
+        prompts.press_enter_to_continue()
+
+
+@back_to_menu
+def config_menu_helper(result_config_prompt):
+    if result_config_prompt == "download":
+        config_menu.download_config()
+    elif result_config_prompt == "file":
+        config_menu.file_config()
+    elif result_config_prompt == "general":
+        config_menu.general_config()
+    elif result_config_prompt == "binary":
+        config_menu.binary_config()
+    elif result_config_prompt == "cdm":
+        config_menu.cdm_config()
+    elif result_config_prompt == "performance":
+        config_menu.performance_config()
+    elif result_config_prompt == "advanced":
+        config_menu.advanced_config()
+    elif result_config_prompt == "response":
+        config_menu.response_type()
+    elif result_config_prompt == "content":
+        config_menu.content_config()
+    elif result_config_prompt == "script":
+        config_menu.script_config()
+
+
+def reset_menu_helper():
+    reset = prompts.reset_areas_prompt()
+    if reset == "Both":
+        actions.remove_download_area()
+        actions.remove_like_area()
+    elif reset == "Download":
+        actions.remove_download_area()
+    elif reset == "Like":
+        actions.remove_like_area()
+    manager.Manager.current_model_manager.prepare_scraper_activity()
