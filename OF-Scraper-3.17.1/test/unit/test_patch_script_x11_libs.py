@@ -117,7 +117,8 @@ def test_not_linux_is_skipped(patch_mod, linux, monkeypatch):
 
 def test_root_does_not_use_sudo(patch_mod, linux, monkeypatch):
     monkeypatch.setattr(patch_mod.os, "geteuid", lambda: 0, raising=False)
-    cmd = patch_mod._x11_install_command([patch_mod._X11_LIBS[0]])
+    row = next(r for r in patch_mod._X11_LIBS if r[0] == "libxcb-cursor.so.0")
+    cmd = patch_mod._x11_install_command([row])
     assert cmd == ["apt-get", "install", "-y", "libxcb-cursor0"]
 
 
@@ -138,3 +139,18 @@ def test_unknown_package_manager_lists_the_files(patch_mod, linux, monkeypatch, 
 
 def test_library_loads_uses_the_dynamic_loader(patch_mod):
     assert patch_mod._library_loads("libdefinitely-not-here.so.9") is False
+
+
+def test_libgl_is_checked_with_the_right_package_per_manager(patch_mod, monkeypatch):
+    # pip's PyQt6 won't import without libGL.so.1 (Ubuntu 26.04 lacks libgl1)
+    monkeypatch.setattr(patch_mod.os, "geteuid", lambda: 0, raising=False)
+    row = next(r for r in patch_mod._X11_LIBS if r[0] == "libGL.so.1")
+    for exe, package in [("apt-get", "libgl1"), ("dnf", "libglvnd-glx"), ("pacman", "libglvnd"),
+                         ("zypper", "libGL1")]:
+        monkeypatch.setattr(patch_mod.shutil, "which", lambda e, exe=exe: f"/usr/bin/{e}" if e == exe else None)
+        assert patch_mod._x11_install_command([row])[-1] == package
+
+
+def test_every_row_names_a_package_for_each_manager(patch_mod):
+    for row in patch_mod._X11_LIBS:
+        assert len(row) == 5 and all(row), row
