@@ -50,7 +50,7 @@ FFmpeg is needed to merge DRM audio and video and to check downloaded files. Set
 
 The GUI's Qt needs some system libraries that a desktop install may not have (Ubuntu 26.04 lacks several). The GUI runs on X11, and on a Wayland desktop it goes through XWayland, so a Wayland desktop needs the same libraries.
 
-**The 3.17.1 patch script installs them for you** (from `v490`). On a Linux desktop it shows whether you're on Wayland or X11, lists any that are missing and offers to install them:
+**The patch script installs them for you** (3.17.1 from `v490`, 3.14.7 from `v491`). On a Linux desktop it shows whether you're on Wayland or X11, lists any that are missing and offers to install them:
 
 ```
 Desktop session:  Wayland (the GUI runs on XWayland, which needs the X11 libraries)
@@ -71,7 +71,7 @@ sudo apt install libgl1 libegl1 libfontconfig1 libdbus-1-3 libxkbcommon0 \
   libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxcb-shape0 libxkbcommon-x11-0
 ```
 
-The Docker image already includes them. The 3.14.7 patch script doesn't check them, so install them with the command above.
+The Docker image already includes them.
 
 ## Running the patch script
 
