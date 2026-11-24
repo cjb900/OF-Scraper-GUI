@@ -22,7 +22,9 @@ def nostdout():
     # prompt); yielding a second time from an except block turned that into
     # "generator didn't stop after throw()" and left stdout at devnull
     save_stdout = sys.stdout
-    with open(os.devnull, "w") as devnull:
+    # utf-8: the locale default (cp1252 on Windows) can't take emoji, and
+    # discarded output shouldn't be able to crash
+    with open(os.devnull, "w", encoding="utf-8") as devnull:
         sys.stdout = devnull
         try:
             yield

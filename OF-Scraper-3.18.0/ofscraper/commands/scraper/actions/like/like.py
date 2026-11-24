@@ -24,6 +24,25 @@ from ofscraper.classes.of.posts import Post
 
 log = logging.getLogger("shared")
 warning_str = "\n[red]Current Like rate can eat through the ~1000 like limit in ~1 hour\nIncreasing the rate could lead to getting logged out[/red]"
+
+# Set to a dict by the GUI before a like/unlike run to capture per-post results.
+# Keys are post IDs; values are "Liked", "Unliked", or "Failed".
+_GUI_LIKE_TRACKER = None
+
+
+def _gui_result(post_id, status):
+    """Record a like/unlike result for the GUI and show it in the table now."""
+    if _GUI_LIKE_TRACKER is None:
+        return
+    _GUI_LIKE_TRACKER[post_id] = status
+    try:
+        from ofscraper.gui.signals import app_signals
+
+        app_signals.posts_liked_updated.emit({post_id: status})
+    except Exception:
+        pass
+
+
 like_str = "Performing Like Action on {name}" + warning_str
 unlike_str = "Performing Unlike Action on {name}" + warning_str
 
@@ -122,10 +141,12 @@ def _toggle_like_requests(c, post: Post, model_id):
     favorited, id = _like_request(c, post.id, model_id)
     if favorited is None:
         post.mark_post_liked(success=False)
+        _gui_result(id, "Failed")
         return 3
     elif favorited:
         log.debug(f"ID: {id} changed to liked")
         post.mark_post_liked()
+        _gui_result(id, "Liked")
         return 1
     else:
         log.debug(f"ID: {id} was already liked; liking it again")
@@ -133,9 +154,11 @@ def _toggle_like_requests(c, post: Post, model_id):
         favorited, _ = _like_request(c, id, model_id)
         if not favorited:
             post.mark_post_liked(success=False)
+            _gui_result(id, "Failed")
             return 3
         log.debug(f"ID: {id} restored to liked")
         post.mark_post_liked()
+        _gui_result(id, "Liked")
         return 2
 
 
@@ -146,10 +169,12 @@ def _toggle_unlike_requests(c, post: Post, model_id):
     favorited, id = _like_request(c, post.id, model_id)
     if favorited is None:
         post.mark_post_unliked(success=False)
+        _gui_result(id, "Failed")
         return 3
     elif favorited is False:
         log.debug(f"ID: {id} changed to unliked")
         post.mark_post_unliked()
+        _gui_result(id, "Unliked")
         return 1
     else:
         log.debug(f"ID: {id} was already unliked; unliking it again")
@@ -157,9 +182,11 @@ def _toggle_unlike_requests(c, post: Post, model_id):
         favorited, _ = _like_request(c, id, model_id)
         if favorited is not False:
             post.mark_post_unliked(success=False)
+            _gui_result(id, "Failed")
             return 3
         log.debug(f"ID: {id} restored to unlike")
         post.mark_post_unliked()
+        _gui_result(id, "Unliked")
         return 2
 
 

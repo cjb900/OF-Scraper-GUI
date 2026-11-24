@@ -21,6 +21,29 @@ def main():
         readConfig()
         setLogger()
         make_folder()
+
+        if _is_gui_tab_window():
+            # the tab window only starts the sites' GUI processes, which load
+            # the plugins themselves
+            run.main()
+            return
+
+        # Initialize plugins for headless/scrape execution
+        from ofscraper.plugins.manager import plugin_manager
+        # On Windows, pre-load plugin DLLs (e.g. torch/c10.dll) BEFORE
+        # discover_and_load(), which imports plugin GUI modules (ai_tagger/gui.py
+        # → PyQt6).  Once PyQt6.QtCore's SIP layer initializes, torch's c10.dll
+        # DllMain fails with WinError 1114.  Pre-loading the DLLs first prevents
+        # this because Windows returns the existing handle on subsequent
+        # LoadLibrary calls without re-running DllMain.
+        import sys as _sys
+        if _sys.platform == "win32":
+            try:
+                plugin_manager.preload_for_windows_gui()
+            except Exception:
+                pass
+        plugin_manager.discover_and_load()
+
         run.main()
     except Exception as E:
         print(E)
@@ -31,6 +54,17 @@ def main():
         except Exception as E:
             print(E)
             print(traceback.format_exc())
+
+
+def _is_gui_tab_window() -> bool:
+    try:
+        if not getattr(settings.get_args(), "gui", False):
+            return False
+        from ofscraper.gui import site_context
+
+        return not site_context.is_child() and site_context.tabs_enabled()
+    except Exception:
+        return False
 
 
 def settings_loader():

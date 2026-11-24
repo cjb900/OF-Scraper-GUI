@@ -5,7 +5,8 @@ and DRM segments carry the cookies in their Cookie header. They go only to
 hosts under these domains, over http or https. A host matches a domain or a
 subdomain of it on a dot boundary: cdn2.onlyfans.com does, evil-onlyfans.com
 and onlyfans.com.evil.example don't. MEDIA_HOST_SUFFIXES
-(OFSC_MEDIA_HOST_SUFFIXES) adds domains.
+(OFSC_MEDIA_HOST_SUFFIXES) adds domains, and so does the GUI's Media Host
+Suffixes setting (advanced_options.media_host_suffixes).
 
 Fansly isn't checked: its token goes to its API host only, never to a file's
 host (sites/fansly/headers.py).
@@ -33,10 +34,21 @@ class RefusedHost(Exception):
     """A request that would send the login to a host outside the list."""
 
 
+def _config_suffixes():
+    """The GUI's Media Host Suffixes (advanced_options.media_host_suffixes)."""
+    try:
+        import ofscraper.utils.config.data as config_data
+
+        return str(config_data.get_media_host_suffixes() or "").split(",")
+    except Exception:
+        return []
+
+
 def suffixes():
     extra = of_env.getattr("MEDIA_HOST_SUFFIXES") or []
     if isinstance(extra, str):
         extra = extra.split(",")
+    extra = list(extra) + _config_suffixes()
     cleaned = (str(s).strip().lower().lstrip("*.").rstrip(".") for s in extra)
     return DEFAULT_SUFFIXES + tuple(s for s in cleaned if s)
 

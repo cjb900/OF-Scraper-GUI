@@ -8,10 +8,28 @@ from ofscraper.classes.of.media import Media
 log = logging.getLogger("shared")
 
 
+def _format_length_display(value):
+    """Format duration into DD:HH:MM:SS for GUI display."""
+    if value in (None, '', 'N/A'):
+        return 'N/A'
+    try:
+        total_seconds = int(float(value))
+    except Exception:
+        return str(value)
+    days = total_seconds // 86400
+    hours = (total_seconds % 86400) // 3600
+    minutes = (total_seconds % 3600) // 60
+    seconds = total_seconds % 60
+    return f"{days:02d}:{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
 class PostCollection:
     """
-    Manages a de-duplicated collection of Post objects. It orchestrates
-    the filtering and preparation of posts and their media for various actions.
+    Manages a collection of Post objects for GUI/table building and downloads.
+
+    Important: when GUI "allow duplicates" is enabled, we preserve repeated
+    post instances for table/display purposes so reposts and paid/locked rows
+    remain visible the way older GUI builds exposed them.
     """
 
     def __init__(self, model_id=None, username=None, mode="download"):
@@ -28,6 +46,8 @@ class PostCollection:
         self.mode = mode
         # Internal dictionary to store posts, using post_id as the key for de-duplication
         self._posts_map = {}
+        # Ordered raw list preserving all added post instances for GUI/table use.
+        self._raw_posts = []
         log.info(f"Initialized PostCollection for {username}")
 
     @property
@@ -36,12 +56,22 @@ class PostCollection:
         return list(self._posts_map.values())
 
     @property
+    def raw_posts(self) -> list[Post]:
+        """Returns posts in insertion order, preserving duplicates/reposts."""
+        return list(self._raw_posts)
+
+    @property
     def all_media(self) -> list:
         """
-        Collects EVERY media item from EVERY post in the collection,
-        regardless of filtering. This is useful for creating a master list.
+        Collects EVERY media item from EVERY unique post in the collection.
+        This is the canonical list used by the core processing pipeline.
         """
         return [media for post in self.posts for media in post.all_media]
+
+    @property
+    def raw_all_media(self) -> list:
+        """Collects media from all inserted posts, preserving duplicates/reposts."""
+        return [media for post in self.raw_posts for media in post.all_media]
 
     @property
     def all_unique_media(self) -> list:
@@ -100,14 +130,21 @@ class PostCollection:
             items = [items]
         actions = actions or []
         new_posts_added = 0
+        added_posts_list = []
         for item in items:
             # Call the single-item processor
             post = self._process_and_add_post(item, actions, overwrite)
             if post:  # You can track how many were successfully added
                 new_posts_added += 1
+                added_posts_list.append(post)
 
         if new_posts_added > 0:
             log.info(f"Added {new_posts_added} posts to the collection")
+            try:
+                from ofscraper.plugins.manager import plugin_manager
+                plugin_manager.dispatch_event("on_posts_collected", added_posts_list, self.username)
+            except Exception as e:
+                log.warning(f"Failed to dispatch on_posts_collected to plugins: {e}")
 
     def get_media_to_download(self) -> list:
         """
@@ -182,6 +219,10 @@ class PostCollection:
         log.debug(f"{len(actionable_posts)} posts are actionable for liking.")
 
         final_posts_to_like = helpers.sort_by_date(actionable_posts)
+        # --after / --before (the GUI's Post Date Range) limit likes too: Labels,
+        # Archived and Pinned are fetched whole, so without this every post
+        # there was liked whatever the range
+        final_posts_to_like = helpers.posts_date_filter(final_posts_to_like)
         final_posts_to_like = helpers.dupefilterPost(final_posts_to_like)
         final_posts_to_like = helpers.temp_post_filter(final_posts_to_like)
         final_posts_to_like = helpers.final_post_sort(final_posts_to_like)
@@ -224,6 +265,35 @@ class PostCollection:
             f"Found {len(posts_for_text)} posts for text download after final filtering."
         )
         return posts_for_text
+
+    def get_rows_for_gui_table(self) -> list:
+        """
+        Build GUI table row dicts from this collection's media list.
+        Shows ALL rows including duplicates (same media appearing in multiple API
+        areas like Timeline + Archived) and locked/paid items that won't download.
+        Also computes the duplicate count and stores it in the postcollection module
+        so the Scrape Summary can report it as "| duplicates: N".
+        Delegates to the GUI workflow builder; returns [] when GUI is not active.
+        """
+        try:
+            from ofscraper.gui.utils.workflow import _build_media_rows
+            global _gui_duplicate_count
+            raw = self.raw_all_media
+            # Compute duplicate count for Scrape Summary (raw rows minus unique by media_id)
+            seen = set()
+            unique_count = 0
+            for m in raw:
+                mid = getattr(m, "id", None)
+                key = mid if mid is not None else id(m)
+                if key not in seen:
+                    seen.add(key)
+                    unique_count += 1
+            _gui_duplicate_count = len(raw) - unique_count
+            return _build_media_rows(raw, self.username or "")
+        except Exception as e:
+            log.debug(f"get_rows_for_gui_table failed: {e}")
+            return []
+
 
     def update_info(self, username: str = None, model_id: str = None):
         if username:
@@ -317,6 +387,8 @@ class PostCollection:
             self._posts_map[post_id] = post_object
 
         existing_post = self._posts_map[post_id]
+        # every post as added, for the GUI table (a repost shows in each area)
+        self._raw_posts.append(existing_post)
 
         # Set eligibility flags
         if "like" in actions:
@@ -328,3 +400,7 @@ class PostCollection:
         if "metadata" in actions:
             existing_post.is_metadata_candidate = True
         return existing_post
+
+
+# Module-level counter written by get_rows_for_gui_table(); read by Scrape Summary.
+_gui_duplicate_count = 0

@@ -442,8 +442,8 @@ def test_labels_plus_and_star_add_labels_to_the_fansly_areas(fansly, monkeypatch
     fansly.command = "post_check"
     chosen = areas.get_final_posts_area()
     assert {"Labels", "Timeline", "Messages", "Purchased"} <= chosen
-    assert {a for a in chosen if a in scrape.AREAS} == {"Labels", "Timeline", "Messages",
-                                                        "Purchased"}
+    assert {a for a in chosen if a in scrape.AREAS} == {"Profile", "Labels", "Timeline",
+                                                        "Messages", "Purchased"}
 
 
 def test_post_in_timeline_and_wall_is_downloaded_once(fansly, tmp_db, monkeypatch):
