@@ -68,7 +68,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # ── Install ofscraper inside the venv ─────────────────────────────────────────
 # PyQt6 is provided by the system package above — skip it here
-RUN pip install --no-cache-dir ofscraper==${GUI_PATCH_VERSION}
+# [postgres]: the driver for the optional PostgreSQL database (3.18.0+;
+# an older version without that extra just warns and installs as before)
+RUN pip install --no-cache-dir "ofscraper[postgres]==${GUI_PATCH_VERSION}"
 
 # ── Playwright + Chromium's system libraries ──────────────────────────────────
 # For plugins that drive Chromium (Live Stream Monitor). Both are in the image

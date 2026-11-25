@@ -338,6 +338,22 @@ def _onlyfans_databases(target: pathlib.Path):
     return found
 
 
+def _update_postgres_download_paths(moves) -> int:
+    """With PostgreSQL on, the recorded download folders are there too (the
+    user_data.db files, updated above, are only the copy from before)."""
+    try:
+        from ofscraper.gui.utils import postgres_setup
+
+        if not postgres_setup.enabled():
+            return 0
+        from ofscraper.gui.utils import database_reads
+
+        return database_reads.move_download_paths(moves, _relocated)
+    except Exception as e:
+        log.warning(f"Could not update the download folders in PostgreSQL: {e}")
+        return 0
+
+
 def apply_onlyfans_folder(plan, move: bool) -> dict:
     """Carry out the choice for onlyfans_folder_plan().
 
@@ -367,6 +383,7 @@ def apply_onlyfans_folder(plan, move: bool) -> dict:
                 result["failed"].append(name)
         if moves:
             result["paths_updated"] = _update_download_paths(moves, _onlyfans_databases(target))
+            result["paths_updated"] += _update_postgres_download_paths(moves)
         _set_save_location(target)
         log.info(f"OnlyFans downloads now go to {target}; moved {len(result['moved'])} model folder(s)")
     _mark_onlyfans_folder_decided()

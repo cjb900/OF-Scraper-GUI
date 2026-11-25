@@ -1,4 +1,4 @@
-[🏠 README](../README.md) · [Install](install.md) · [GUI guide](gui-guide.md) · [Docker](docker.md) · [Plugins](plugins.md) · [Versions](versions.md) · [Troubleshooting](troubleshooting.md)
+[🏠 README](../README.md) · [Install](install.md) · [GUI guide](gui-guide.md) · [Docker](docker.md) · [PostgreSQL](postgresql.md) · [Plugins](plugins.md) · [Versions](versions.md) · [Troubleshooting](troubleshooting.md)
 
 ---
 
@@ -202,6 +202,19 @@ environment:
 - `--site`, `--config` and `--gui` are set by the tab window for each site and are ignored here.
 - **Fansly and `-ts` / `--sub-status active`:** on Fansly this keeps only creators with a paid subscription that hasn't ended. Creators you follow for free have no subscription, so they're dropped. Leave the flag out to scrape everyone you follow.
 - Discord messages say which site they come from ("OF-Scraper · OnlyFans" / "OF-Scraper · Fansly").
+
+## PostgreSQL (optional, 3.18.0)
+
+The image includes the PostgreSQL driver. To run the server itself, including next to this container in the same `docker-compose.yml`, see [PostgreSQL](postgresql.md#b-next-to-the-gui-container). Then either:
+
+- set it up in the GUI under **Merge DBs → PostgreSQL**, which saves the address to `postgresql.env` in the config volume, or
+- set it in `docker-compose.yml`:
+  ```yaml
+  environment:
+    - OFSC_DATABASE_URL=postgresql://user:password@host:5432/database
+  ```
+
+Use one or the other: an address saved in the GUI replaces the one from `environment:`. Then bring your `user_data.db` files in from the same GUI tab before the next scrape. The [GUI guide](gui-guide.md#postgresql-optional-3180) covers what it does and what changes.
 
 ## Running the CLI instead of the GUI (`MODE=cli`)
 

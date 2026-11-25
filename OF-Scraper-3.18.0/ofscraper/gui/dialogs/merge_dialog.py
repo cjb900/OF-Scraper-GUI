@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPlainTextEdit,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -25,7 +26,8 @@ log = logging.getLogger("shared")
 
 
 class MergePage(QWidget):
-    """Database merge page — replaces the InquirerPy merge prompts."""
+    """Database page: merging user_data.db files (replaces the InquirerPy
+    merge prompts) and, on its own tab, switching to PostgreSQL."""
 
     def __init__(self, manager=None, parent=None):
         super().__init__(parent)
@@ -34,14 +36,27 @@ class MergePage(QWidget):
         self._paths = MaskedPathFields(self.source_input, self.dest_input)
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(16)
+        page = QVBoxLayout(self)
+        page.setContentsMargins(24, 24, 24, 24)
+        page.setSpacing(16)
 
         # Header
         header = QLabel("Merge Databases")
         style_page_title(header)
-        layout.addWidget(header)
+        page.addWidget(header)
+
+        self.tabs = QTabWidget()
+        page.addWidget(self.tabs)
+        merge_tab = QWidget()
+        self.tabs.addTab(merge_tab, "Merge user_data.db files")
+        layout = QVBoxLayout(merge_tab)
+        layout.setContentsMargins(4, 12, 4, 4)
+        layout.setSpacing(16)
+
+        from ofscraper.gui.dialogs.postgres_panel import PostgresPanel
+
+        self.postgres_panel = PostgresPanel()
+        self.tabs.addTab(self.postgres_panel, "PostgreSQL")
 
         subtitle = QLabel(
             "Recursively search a folder for user_data.db files and merge them "
@@ -50,6 +65,13 @@ class MergePage(QWidget):
         subtitle.setProperty("subheading", True)
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
+
+        # PostgreSQL on: these files aren't what the scraper uses (upstream's notice)
+        self._postgres_notice = QLabel()
+        self._postgres_notice.setWordWrap(True)
+        self._postgres_notice.setVisible(False)
+        self._postgres_notice.setStyleSheet(f"color: {c('warning')};")
+        layout.addWidget(self._postgres_notice)
 
         layout.addSpacing(16)
 
@@ -112,8 +134,24 @@ class MergePage(QWidget):
         self.output_text.setPlaceholderText("Merge output will appear here...")
         layout.addWidget(self.output_text)
 
+    def showEvent(self, event):
+        # read when shown (the settings are loaded by then), not when built
+        try:
+            from ofscraper.gui.utils import postgres_setup
+
+            on = postgres_setup.enabled()
+            if on:
+                import ofscraper.db.postgres as postgres
+
+                self._postgres_notice.setText(postgres.sqlite_files_notice("Merge Databases"))
+            self._postgres_notice.setVisible(on)
+        except Exception:
+            pass
+        super().showEvent(event)
+
     def _apply_theme(self, _is_dark=True):
         self._warning_label.setStyleSheet(f"color: {c('warning')}; font-weight: bold;")
+        self._postgres_notice.setStyleSheet(f"color: {c('warning')};")
 
     def _browse_source(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Source Folder")

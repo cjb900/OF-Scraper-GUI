@@ -1,4 +1,4 @@
-[🏠 README](../README.md) · [Install](install.md) · [GUI guide](gui-guide.md) · [Docker](docker.md) · [Plugins](plugins.md) · [Versions](versions.md) · [Troubleshooting](troubleshooting.md)
+[🏠 README](../README.md) · [Install](install.md) · [GUI guide](gui-guide.md) · [Docker](docker.md) · [PostgreSQL](postgresql.md) · [Plugins](plugins.md) · [Versions](versions.md) · [Troubleshooting](troubleshooting.md)
 
 ---
 
@@ -459,6 +459,60 @@ Merge data from one OF-Scraper database into another. This is useful if you have
 - Select a **source database** (the one to merge from)
 - Select a **target database** (the one to merge into)
 - Duplicate records are handled automatically — only new entries are added
+
+#### PostgreSQL (optional, 3.18.0)
+
+Open **Merge DBs** and choose the **PostgreSQL** tab.
+
+**What it is.** By default OF-Scraper keeps each creator's records in a small `user_data.db` file (SQLite) of their own. These records include what was found, what was downloaded and what was unlocked. Since 3.18.0, it can instead keep every creator in one PostgreSQL database on a server you run. Nothing changes unless you turn it on, and you can switch back at any time.
+
+**Benefits**
+- **One place for everything.** Every creator, on both sites, is in one database, so you can query it and back it up as a whole (`pg_dump`).
+- **Several computers, one library.** Two or more computers or containers can scrape into the same database at the same time. If both save the same row, the second keeps the first one's copy.
+- **Other tools can read it.** Stash (`stash_sync --postgres`), dashboards and plain SQL can read it directly. IDs are numbers, yes/no columns are true/false and dates are timestamps.
+
+**Side effects and things to know**
+- **You run the server.** It must be PostgreSQL 15 or newer, with a login that can create tables in the database. [Setting up a PostgreSQL server](postgresql.md) has a Docker Compose example.
+- **It isn't faster on one computer.** Scraping speed is set by the network and downloads, not the database.
+- **No automatic backup copies.** The scraper backs up a `user_data.db` before upgrading it, but there's no equivalent for PostgreSQL. Back up with `pg_dump`.
+- **Every profile shares the one database.** Data is split by site (OnlyFans and Fansly each get their own schema), not by profile.
+- **Already-downloaded checks stay per creator**, just as with the files. Media is never skipped because another creator has it.
+- **Merge Databases still works only on `user_data.db` files.** It doesn't see anything scraped since the switch.
+- **Your `user_data.db` files are never changed or deleted.** They aren't used while PostgreSQL is on; keep them as a backup from before the switch.
+- **Driver.** PostgreSQL needs a driver (psycopg). The Docker image includes it. On a pip, pipx or uv install, use **Install driver** on the tab. The standalone `.exe` can't use PostgreSQL. Upgrading with the GUI patch script keeps the driver. If pipx or uv can't be found, the tab shows the command to run yourself. The button installs the driver the same way ofscraper was installed:
+  - pipx: `pipx inject ofscraper "psycopg[binary,pool]>=3.3.9,<3.4"`
+  - uv: `uv pip install --python <ofscraper's python> "psycopg[binary,pool]>=3.3.9,<3.4"`
+  - pip: `python -m pip install "psycopg[binary,pool]>=3.3.9,<3.4"`
+
+**Turning it on**
+1. **Connection.** Enter the host, port, database, user and password, then click **Test connection**. **Save and use PostgreSQL** tests the connection again and saves it.
+   - The address is saved to `postgresql.env` next to your OnlyFans `config.json`, readable only by your user. That file is listed under **Env Files** in both the OnlyFans and Fansly settings. The password is never written to `config.json`.
+   - If the Fansly tab has never been opened, open it once, then save again.
+2. **Bring your files in.** Do this before your next scrape: until then every creator looks new, and everything would download again.
+   - The folder defaults to your profile's `.data` folder. Click **Preview import** to see the files, creators and rows found, and anything that blocks them.
+   - Then click **Import**. It's all or nothing, and your files aren't changed.
+   - A creator that PostgreSQL already has is refused, so nothing is imported twice.
+   - If two files hold the same creator (after a rename, for example), combine them with **Merge user_data.db files** first.
+   - **Skip files that can't be brought in** imports the rest and lists the files it skipped.
+3. **Restart the GUI** (both tabs). The scraper connects to the database once, at startup. The tab's status line says which database this window uses.
+
+**Going back to `user_data.db` files**
+- **Use user_data.db files again** stops listing `postgresql.env` and deletes it. Nothing in PostgreSQL is deleted.
+- After a restart the scraper uses your old files as they were before the switch, without anything scraped since.
+- **To keep what was scraped since:** first **Export** to an empty folder, choosing one site at a time when both have rows. Each creator gets `<folder>/<creator id>/user_data.db`. Then merge those files into yours with **Merge user_data.db files**.
+
+**What the GUI does with PostgreSQL on**
+- These use PostgreSQL:
+  - scraping and downloads
+  - check mode
+  - the results table and its "DB: downloaded/total" counts
+  - showing only what's new since the last run
+- **Delete model DB** (Advanced Scrape Options) deletes the creator's rows from PostgreSQL and keeps their old `user_data.db`.
+- The one-time OnlyFans folder move updates the download folders recorded in PostgreSQL too.
+
+**Docker:** `OFSC_DATABASE_URL` can also be set under `environment:` in `docker-compose.yml`. If you save a connection on this tab as well, the saved one wins, because env files override the environment. Use one or the other.
+
+**Before importing or exporting:** make sure no scrape is running in either tab, including daemon mode.
 
 ## Running a scrape
 

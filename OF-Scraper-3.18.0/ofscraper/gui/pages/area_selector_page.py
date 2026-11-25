@@ -396,6 +396,8 @@ class AreaSelectorPage(QWidget):
         self.delete_db_check.setToolTip(
             "Deletes the model's SQLite database before scraping starts.\n"
             "This resets all downloaded/unlocked tracking, so everything appears as new.\n"
+            "With PostgreSQL on, the model's rows are deleted from PostgreSQL instead,\n"
+            "and their old user_data.db is kept as a backup.\n"
             "Requires 'Rescrape everything' to be enabled."
         )
         row = QHBoxLayout()

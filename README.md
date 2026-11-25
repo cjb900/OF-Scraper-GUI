@@ -144,6 +144,7 @@ One container can scrape both sites at once: set `ONLYFANS_GUI_ARGS` and `FANSLY
 | [Install](docs/install.md) | Platforms, Python and FFmpeg, patch script options, how your install is detected, backups and restore, `ofscraper_tools.py` (uninstall and data clean-up) |
 | [GUI guide](docs/gui-guide.md) | Every page and feature, in the order you use them |
 | [Docker](docs/docker.md) | Running the GUI or the CLI daemon in a container |
+| [PostgreSQL](docs/postgresql.md) | Setting up a PostgreSQL server (Docker Compose example) for 3.18.0's optional database |
 | [Plugins](docs/plugins.md) | The plugin system, where to get the plugins, and each plugin's setup |
 | [Versions](docs/versions.md) | Which features each patch version has |
 | [Troubleshooting](docs/troubleshooting.md) | Login, DRM keys, FFmpeg, lost files, crashes |

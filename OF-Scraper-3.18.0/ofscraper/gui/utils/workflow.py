@@ -1467,6 +1467,9 @@ def _load_models_from_db(selected_models, date_range=None, media_ids=None, stats
     FROM medias;
     """
 
+    from ofscraper.gui.utils import postgres_setup as _pg_setup
+
+    _postgres_on = _pg_setup.enabled()
     per_model_stats = {}  # {username: {photos, videos, audios, dl_photos, ...}}
     all_rows = []
 
@@ -1475,59 +1478,69 @@ def _load_models_from_db(selected_models, date_range=None, media_ids=None, stats
         username = model.name
         conn = None
         try:
-            try:
-                database_path = pathlib.Path(
-                    placeholder.databasePlaceholder().databasePathHelper(
-                        model_id, username
-                    )
-                )
-            except Exception as _ph_err:
-                import ofscraper.utils.paths.common as _cp_mtime
-                import ofscraper.utils.profiles.data as _pd_mtime
-                _cfg_home = str(_cp_mtime.get_config_home())
-                _act_profile = str(_pd_mtime.get_active_profile())
-                database_path = pathlib.Path(
-                    _cfg_home, _act_profile, ".data",
-                    str(model_id), "user_data.db"
-                )
-                log.debug(
-                    f"[DB Load] databasePathHelper failed for {username} "
-                    f"({type(_ph_err).__name__}: {_ph_err}) — using fallback path: {database_path}"
-                )
-            log.debug(f"[DB Load] Checking DB path for {username}: {database_path}")
-            if not database_path.exists():
-                log.debug(f"[DB Load] No DB file for {username} at {database_path} — skipping")
-                continue
+            if _postgres_on:
+                # PostgreSQL: the scraper's own reads (only this creator's rows)
+                from ofscraper.gui.utils import database_reads as _db_reads
 
-            import time
-            retries = 3
-            data = None
-            post_info = {}
-            for attempt in range(retries):
+                _found = _db_reads.read_creator_media(model_id, username)
+                if _found is None:
+                    log.debug(f"[DB Load] No rows in PostgreSQL for {username} — skipping")
+                    continue
+                data, post_info = _found
+            else:
                 try:
-                    conn = sqlite3.connect(
-                        database_path, check_same_thread=False, timeout=30
+                    database_path = pathlib.Path(
+                        placeholder.databasePlaceholder().databasePathHelper(
+                            model_id, username
+                        )
                     )
-                    conn.row_factory = sqlite3.Row
-                    cur = conn.cursor()
-                    cur.execute(media_select_sql)
-                    data = [dict(row) for row in cur.fetchall()]
+                except Exception as _ph_err:
+                    import ofscraper.utils.paths.common as _cp_mtime
+                    import ofscraper.utils.profiles.data as _pd_mtime
+                    _cfg_home = str(_cp_mtime.get_config_home())
+                    _act_profile = str(_pd_mtime.get_active_profile())
+                    database_path = pathlib.Path(
+                        _cfg_home, _act_profile, ".data",
+                        str(model_id), "user_data.db"
+                    )
+                    log.debug(
+                        f"[DB Load] databasePathHelper failed for {username} "
+                        f"({type(_ph_err).__name__}: {_ph_err}) — using fallback path: {database_path}"
+                    )
+                log.debug(f"[DB Load] Checking DB path for {username}: {database_path}")
+                if not database_path.exists():
+                    log.debug(f"[DB Load] No DB file for {username} at {database_path} — skipping")
+                    continue
 
-                    # Also fetch price and text from post/message/story tables
-                    post_info = _query_post_info(cur)
-                    cur.close()
-                    break
-                except sqlite3.OperationalError as oe:
-                    if "locked" in str(oe).lower() and attempt < retries - 1:
-                        log.debug(f"[DB Load] Database locked for {username}, retrying in 1s... (attempt {attempt+1}/{retries})")
-                        if conn:
-                            try:
-                                conn.close()
-                            except Exception:
-                                pass
-                        time.sleep(1.0)
-                        continue
-                    raise
+                import time
+                retries = 3
+                data = None
+                post_info = {}
+                for attempt in range(retries):
+                    try:
+                        conn = sqlite3.connect(
+                            database_path, check_same_thread=False, timeout=30
+                        )
+                        conn.row_factory = sqlite3.Row
+                        cur = conn.cursor()
+                        cur.execute(media_select_sql)
+                        data = [dict(row) for row in cur.fetchall()]
+
+                        # Also fetch price and text from post/message/story tables
+                        post_info = _query_post_info(cur)
+                        cur.close()
+                        break
+                    except sqlite3.OperationalError as oe:
+                        if "locked" in str(oe).lower() and attempt < retries - 1:
+                            log.debug(f"[DB Load] Database locked for {username}, retrying in 1s... (attempt {attempt+1}/{retries})")
+                            if conn:
+                                try:
+                                    conn.close()
+                                except Exception:
+                                    pass
+                            time.sleep(1.0)
+                            continue
+                        raise
 
             log.debug(f"[DB Load] Found {len(data)} media records in DB for {username}")
 
@@ -3812,8 +3825,30 @@ class GUIWorkflow:
                             import ofscraper.utils.profiles.data as _pd_mtime
                             _cfg_home = str(_cp_mtime.get_config_home())
                             _act_profile = str(_pd_mtime.get_active_profile())
+                            from ofscraper.gui.utils import postgres_setup as _pg_mtime
+
+                            _pg_on_mtime = _pg_mtime.enabled()
                             for _m_mtime in self._selected_models:
                                 try:
+                                    if _pg_on_mtime:
+                                        # PostgreSQL: the newest posted_at of this
+                                        # creator's rows, as MAX(posted_at) in a file
+                                        from ofscraper.gui.utils import (
+                                            database_reads as _dbr_mtime,
+                                        )
+
+                                        _max_posted = _dbr_mtime.newest_posted_at(
+                                            _m_mtime.id, _m_mtime.name
+                                        )
+                                        if _max_posted:
+                                            self._db_prerun_mtimes[_m_mtime.id] = (
+                                                _arrow_mtime.get(_max_posted)
+                                            )
+                                        log.debug(
+                                            f"[DIAG] PostgreSQL max post date for"
+                                            f" {_m_mtime.name}: {_max_posted}"
+                                        )
+                                        continue
                                     # Primary: use placeholder for custom metadata paths
                                     _db_p = None
                                     try:
@@ -4416,6 +4451,12 @@ class GUIWorkflow:
             "WARNING",
             "Advanced: purging model DB/files before scraping (requested)",
         )
+        from ofscraper.gui.utils import database_reads as _db_reads
+        from ofscraper.gui.utils import postgres_setup as _pg_setup
+
+        # PostgreSQL: the creator's rows are there; their user_data.db (from
+        # before the switch, a backup) is left alone
+        _pg_on = _pg_setup.enabled()
 
         for model in list(self._selected_models or []):
             model_id = getattr(model, "id", None)
@@ -4457,22 +4498,28 @@ class GUIWorkflow:
                 actual_model_dir = db_path.parent
 
             # Delete downloaded files first (uses DB to locate paths)
-            if delete_files and db_path.exists():
+            if delete_files and (_pg_on or db_path.exists()):
                 try:
-                    con = sqlite3.connect(db_path)
-                    con.row_factory = sqlite3.Row
-                    cur = con.cursor()
-                    cur.execute(
-                        "SELECT directory, filename FROM medias WHERE downloaded=(1) AND directory IS NOT NULL AND filename IS NOT NULL"
-                    )
-                    rows = cur.fetchall()
-                    cur.close()
-                    con.close()
-                    # Force CPython to release the file handle immediately.
-                    # On Windows, sqlite3 handles can remain open until GC runs,
-                    # which prevents unlink() from succeeding.
-                    del cur, con
-                    gc.collect()
+                    if _pg_on:
+                        rows = [
+                            {"directory": _d, "filename": _f}
+                            for _d, _f in _db_reads.downloaded_files(model_id, username)
+                        ]
+                    else:
+                        con = sqlite3.connect(db_path)
+                        con.row_factory = sqlite3.Row
+                        cur = con.cursor()
+                        cur.execute(
+                            "SELECT directory, filename FROM medias WHERE downloaded=(1) AND directory IS NOT NULL AND filename IS NOT NULL"
+                        )
+                        rows = cur.fetchall()
+                        cur.close()
+                        con.close()
+                        # Force CPython to release the file handle immediately.
+                        # On Windows, sqlite3 handles can remain open until GC runs,
+                        # which prevents unlink() from succeeding.
+                        del cur, con
+                        gc.collect()
                 except Exception as e:
                     app_signals.log_message.emit(
                         "ERROR",
@@ -4546,7 +4593,19 @@ class GUIWorkflow:
                     )
 
             # Delete DB
-            if delete_db and db_path.exists():
+            if delete_db and _pg_on:
+                try:
+                    _removed = _db_reads.delete_creator_rows(model_id, username)
+                    app_signals.log_message.emit(
+                        "INFO",
+                        f"Deleted {_removed:,} rows for {username} from PostgreSQL",
+                    )
+                except Exception as e:
+                    app_signals.log_message.emit(
+                        "ERROR",
+                        f"Failed to delete {username}'s rows from PostgreSQL: {e}",
+                    )
+            elif delete_db and db_path.exists():
                 # On Windows, sqlite3 file handles can linger after close().
                 # Retry up to 3 times with a short delay to let the OS release them.
                 db_deleted = False
@@ -4586,7 +4645,7 @@ class GUIWorkflow:
             # profile data folder to be reset too (Explorer "Date created" etc).
             # Remove the entire model dir only when it matches the default pattern:
             # <profile>/.data/<model_id>/...
-            if delete_db:
+            if delete_db and not _pg_on:
                 try:
                     if (
                         expected_model_dir
