@@ -207,7 +207,7 @@ environment:
 
 The image includes the PostgreSQL driver. To run the server itself, including next to this container in the same `docker-compose.yml`, see [PostgreSQL](postgresql.md#b-next-to-the-gui-container). Then either:
 
-- set it up in the GUI under **Merge DBs → PostgreSQL**, which saves the address to `postgresql.env` in the config volume, or
+- set it up in the GUI under **Manage DBs → PostgreSQL**, which saves the address to `postgresql.env` in the config volume, or
 - set it in `docker-compose.yml`:
   ```yaml
   environment:

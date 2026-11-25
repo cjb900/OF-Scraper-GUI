@@ -1,4 +1,4 @@
-"""Merge DBs > Creators: each creator PostgreSQL holds for a site, with their
+"""Manage DBs > Creators: each creator PostgreSQL holds for a site, with their
 counts, and deleting a creator's rows so they are scraped from scratch (what
 deleting their user_data.db did with SQLite files).
 

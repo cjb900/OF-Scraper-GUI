@@ -219,7 +219,7 @@ This page explains what each section of the GUI does and how to use it.
 - **Authentication**: Enter your cookies/headers (stored in your profile `auth.json`).
 - **Configuration**: Edit `config.json` settings (save location, formats, performance, etc.).
 - **Profiles**: Manage profiles (each profile has separate auth + `.data`).
-- **Merge DBs**: Merge `user_data.db` files into a single database.
+- **Manage DBs**: Merge `user_data.db` files, and use the optional PostgreSQL database.
 - **Plugins**: List installed plugins, enable/disable, open folders.
 
 ## Scraper workflow (Scraper →)
@@ -338,7 +338,9 @@ Edit your OF-Scraper settings without touching `config.json` directly. Click **S
 - **Download Filter**: Choose which media types to include — **Images**, **Audios**, **Videos**, **Text**. This is the default filter applied to every scrape (individual runs can override it on the area selector page).
 - **Post Script**: Optional path to a script that is executed after each download completes.
 
-## Merge DBs
+## Manage DBs
+
+### Merge user_data.db files
 
 1. Pick a **Source Folder** that contains one or more `user_data.db` files.
 2. Pick a **Destination** folder for the merged output.
@@ -439,7 +441,7 @@ class HelpPage(QWidget):
         self.jump_combo.addItem("Table / Scraping page", "table-root")
         self.jump_combo.addItem("Filters", "filters-root")
         self.jump_combo.addItem("Table columns", "table-columns")
-        self.jump_combo.addItem("Merge DBs", "merge-dbs")
+        self.jump_combo.addItem("Manage DBs", "manage-dbs")
         self.jump_combo.addItem("Troubleshooting notes", "troubleshooting")
         self.jump_combo.addItem("Auth Issues", "auth-issues")
         self.jump_combo.addItem("Scraping by Post URL / ID", "manual-url-scrape")

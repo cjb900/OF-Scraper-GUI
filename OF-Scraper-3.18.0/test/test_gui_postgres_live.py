@@ -1,5 +1,5 @@
 """The GUI with PostgreSQL on, against a real server: files brought in with
-the commands Merge DBs > PostgreSQL runs, then the GUI's table, "new since
+the commands Manage DBs > PostgreSQL runs, then the GUI's table, "new since
 the last run", Purge and the OnlyFans folder move work on PostgreSQL.
 
 Skipped unless OFSC_TEST_POSTGRES_URL names a server the tests may use. Each
@@ -165,7 +165,7 @@ def test_a_wrong_password_is_one_sentence_without_it(database):
     assert "refused" in str(caught.value)
 
 
-# --- Merge DBs > PostgreSQL creators ----------------------------------------------
+# --- Manage DBs > PostgreSQL creators ----------------------------------------------
 
 
 def _two_creators_imported(tmp_path, database):

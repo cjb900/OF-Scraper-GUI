@@ -446,7 +446,11 @@ Profiles let you maintain completely separate configurations and credentials —
 - **Switch** between profiles — the active profile is shown in the navigation bar
 - Each profile has its own `auth.json` and data directory
 
-### Merge Databases
+### Manage Databases
+
+The **🗄️ Manage DBs** page (called Merge DBs before v500) has three tabs: **Merge user_data.db files**, **PostgreSQL** and **PostgreSQL creators**.
+
+#### Merge user_data.db files
 
 <details><summary>Screenshot</summary>
 
@@ -462,7 +466,7 @@ Merge data from one OF-Scraper database into another. This is useful if you have
 
 #### PostgreSQL (optional, 3.18.0)
 
-Open **Merge DBs** and choose the **PostgreSQL** tab.
+Open **Manage DBs** and choose the **PostgreSQL** tab.
 
 **What it is.** By default OF-Scraper keeps each creator's records in a small `user_data.db` file (SQLite) of their own. These records include what was found, what was downloaded and what was unlocked. Since 3.18.0, it can instead keep every creator in one PostgreSQL database on a server you run. Nothing changes unless you turn it on, and you can switch back at any time.
 
@@ -477,7 +481,7 @@ Open **Merge DBs** and choose the **PostgreSQL** tab.
 - **No automatic backup copies.** The scraper backs up a `user_data.db` before upgrading it, but there's no equivalent for PostgreSQL. Back up with `pg_dump`.
 - **Every profile shares the one database.** Data is split by site (OnlyFans and Fansly each get their own schema), not by profile.
 - **Already-downloaded checks stay per creator**, just as with the files. Media is never skipped because another creator has it.
-- **Merge Databases still works only on `user_data.db` files.** It doesn't see anything scraped since the switch.
+- **Merging user_data.db files still works only on `user_data.db` files.** It doesn't see anything scraped since the switch.
 - **Your `user_data.db` files are never changed or deleted.** They aren't used while PostgreSQL is on; keep them as a backup from before the switch.
 - **Driver.** PostgreSQL needs a driver (psycopg). The Docker image includes it. On a pip, pipx or uv install, use **Install driver** on the tab. The standalone `.exe` can't use PostgreSQL. Upgrading with the GUI patch script keeps the driver. If pipx or uv can't be found, the tab shows the command to run yourself. The button installs the driver the same way ofscraper was installed:
   - pipx: `pipx inject ofscraper "psycopg[binary,pool]>=3.3.9,<3.4"`
@@ -517,7 +521,7 @@ Open **Merge DBs** and choose the **PostgreSQL** tab.
 
 #### PostgreSQL creators
 
-Open **Merge DBs** and choose the **PostgreSQL creators** tab. It works once this window uses PostgreSQL (after the restart in step 3 above).
+Open **Manage DBs** and choose the **PostgreSQL creators** tab. It works once this window uses PostgreSQL (after the restart in step 3 above).
 
 **The table.** Pick **OnlyFans** or **Fansly**. Each creator in the database for that site gets a row:
 

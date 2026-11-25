@@ -540,7 +540,7 @@ class MainWindow(QMainWindow):
             ("config", "⚙️ Configuration"),
             ("drm", "🔒 DRM Key Creation"),
             ("profiles", "👥 Profiles"),
-            ("merge", "🔀 Merge DBs"),
+            ("merge", "🗄️ Manage DBs"),
             ("plugins", "🧩 Plugins"),
             ("help", "📖 Help / README"),
         ]

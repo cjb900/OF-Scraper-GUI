@@ -22,7 +22,7 @@ Each patch script works with exactly one OF-Scraper version. To see which patch 
 | Feature | 3.12.9 | 3.14.3 | 3.14.5 | 3.14.7 | 3.17.1 |
 |---|:---:|:---:|:---:|:---:|:---:|
 | Core scraper workflow (download, like/unlike) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Authentication, Configuration, Profiles, Merge DBs | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Authentication, Configuration, Profiles, Merge / Manage DBs | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Daemon mode | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Discord webhook toggle | ✅ | ✅ | ✅ | ✅ | ✅ |
 | DRM Key Creation | ✅ | ✅ | ✅ | ✅ | ✅ |

@@ -1,4 +1,4 @@
-"""Merge DBs > Creators: what PostgreSQL holds for each creator, and deleting
+"""Manage DBs > Creators: what PostgreSQL holds for each creator, and deleting
 one creator's rows, as deleting their user_data.db did with SQLite files.
 
 Reads go through upstream's read-only Reader and the delete through its

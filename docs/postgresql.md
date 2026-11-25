@@ -10,7 +10,7 @@ You need:
 
 - **PostgreSQL 15 or newer.** The examples use 17.
 - **A database and a login that owns it.** The scraper creates its own tables, in one schema per site (`onlyfans`, `fansly`).
-- **The driver on the OF-Scraper side.** The GUI's Docker image has it. On a pip, pipx or uv install, use **Install driver** on the **Merge DBs → PostgreSQL** tab. The standalone `.exe` can't use PostgreSQL.
+- **The driver on the OF-Scraper side.** The GUI's Docker image has it. On a pip, pipx or uv install, use **Install driver** on the **Manage DBs → PostgreSQL** tab. The standalone `.exe` can't use PostgreSQL.
 
 Pick one way to run the server:
 
@@ -64,7 +64,7 @@ Pick one way to run the server:
    ```
    After a few seconds `docker compose ps` shows the container as `(healthy)`.
 
-3. In the GUI, open **Merge DBs → PostgreSQL** and enter:
+3. In the GUI, open **Manage DBs → PostgreSQL** and enter:
 
    | Field | Value |
    |---|---|
@@ -135,7 +135,7 @@ With the `ports:` block, the `ports:` lines on `postgres` aren't needed for the 
 
 Then either:
 
-- enter those details in the GUI under **Merge DBs → PostgreSQL** (as in A, step 3), or
+- enter those details in the GUI under **Manage DBs → PostgreSQL** (as in A, step 3), or
 - set the address on `ofscraper-gui` under `environment:`:
   ```yaml
       - OFSC_DATABASE_URL=postgresql://ofscraper:pick-a-long-password@localhost:5432/ofscraper
@@ -207,7 +207,7 @@ Minor updates (17.x) only need `docker compose pull` and `docker compose up -d`.
 docker exec -it ofscraper-postgres psql -U ofscraper -d ofscraper -c "ALTER ROLE ofscraper PASSWORD 'new-password'"
 ```
 
-Then update `.env`, and save the new password in the GUI (**Merge DBs → PostgreSQL**, **Save and use PostgreSQL**) or in `OFSC_DATABASE_URL`.
+Then update `.env`, and save the new password in the GUI (**Manage DBs → PostgreSQL**, **Save and use PostgreSQL**) or in `OFSC_DATABASE_URL`.
 
 ## Troubleshooting
 

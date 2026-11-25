@@ -41,7 +41,7 @@ class MergePage(QWidget):
         page.setSpacing(16)
 
         # Header
-        header = QLabel("Merge Databases")
+        header = QLabel("Manage Databases")
         style_page_title(header)
         page.addWidget(header)
 
@@ -148,7 +148,7 @@ class MergePage(QWidget):
             if on:
                 import ofscraper.db.postgres as postgres
 
-                self._postgres_notice.setText(postgres.sqlite_files_notice("Merge Databases"))
+                self._postgres_notice.setText(postgres.sqlite_files_notice("this tab"))
             self._postgres_notice.setVisible(on)
         except Exception:
             pass

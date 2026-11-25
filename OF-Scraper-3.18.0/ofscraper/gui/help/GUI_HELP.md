@@ -88,7 +88,7 @@ Tip: the small **(?)** buttons next to sections will jump you to the matching se
 - [Table columns](#table-columns)
 - [Scraping by Post URL / ID](#manual-url-scrape)
 - [DRM Key Creation](#drm-key-creation)
-- [Merge DBs](#merge-dbs)
+- [Manage DBs](#manage-dbs)
   - [PostgreSQL (optional)](#postgresql)
 - [Troubleshooting notes](#troubleshooting)
   - [GUI crash / hang diagnostics](#troubleshooting-crash)
@@ -283,14 +283,14 @@ For authors, see `ofscraper/plugins/PLUGIN_DEVELOPMENT.md` in the project source
 <a id="nav-left"></a>
 ## Left navigation
 
-Each main page has a colored icon next to its label in the sidebar (for example ⚡ Scraper, 🔑 Authentication, ⚙️ Configuration, 🔒 DRM Key Creation, 👥 Profiles, 🔀 Merge DBs, 🧩 Plugins, 📖 Help / README). Plugin pages (such as **Live Monitor** or **AI Assistant**) appear below the built-in items when that plugin is loaded.
+Each main page has a colored icon next to its label in the sidebar (for example ⚡ Scraper, 🔑 Authentication, ⚙️ Configuration, 🔒 DRM Key Creation, 👥 Profiles, 🗄️ Manage DBs, 🧩 Plugins, 📖 Help / README). Plugin pages (such as **Live Monitor** or **AI Assistant**) appear below the built-in items when that plugin is loaded.
 
 - **Scraper**: Main workflow for scraping/downloading/liking.
 - **Authentication**: Enter cookies/headers (stored in your profile `auth.json`). Includes **Login in Browser** — an embedded browser that captures credentials automatically on login.
 - **Configuration**: Edit `config.json` settings (save location, formats, performance, CDM, etc.).
 - **Profiles**: Manage profiles (each profile has separate auth + `.data`).
 - **DRM Key Creation**: Automated Widevine L3 key extraction using an Android emulator. Required for scraping DRM-protected content with **Key Mode: manual**.
-- **Merge DBs**: Merge `user_data.db` files into a single database, or switch to the optional PostgreSQL database (PostgreSQL tab).
+- **Manage DBs**: Merge `user_data.db` files, switch to the optional PostgreSQL database (PostgreSQL tab), and see or delete creators in it (PostgreSQL creators tab).
 - **Plugins**: List installed plugins, enable/disable, open the plugins folder. **Load now** / **Unload now** apply without restarting the app.
 - **Help / README**: This page (one shared page — `?` buttons jump here instead of opening extra windows). Toolbar: **Jump to…**, **Text size** (**A−** / size / **A+** / **Reset**), **About**, **Show Welcome**, **Additional Help**.
 
@@ -1368,8 +1368,16 @@ Saved to `~/.config/ofscraper/device/` by default (or the **Output Folder** you 
 
 ---
 
-<a id="merge-dbs"></a>
-## Merge DBs
+<a id="manage-dbs"></a>
+## Manage DBs
+
+The Manage DBs page has three tabs:
+
+- **Merge user_data.db files**: combine creators' `user_data.db` files into one.
+- **PostgreSQL**: switch to the optional PostgreSQL database, and move your files in or back out.
+- **PostgreSQL creators**: see each creator in PostgreSQL, and delete one to scrape them from scratch.
+
+### Merge user_data.db files
 
 1. Pick a **Source Folder** containing one or more `user_data.db` files.
 2. Pick a **Destination** folder for the merged output.
@@ -1378,7 +1386,7 @@ Saved to `~/.config/ofscraper/device/` by default (or the **Output Folder** you 
 <a id="postgresql"></a>
 ### PostgreSQL (optional)
 
-Open **Merge DBs** and choose the **PostgreSQL** tab.
+Open **Manage DBs** and choose the **PostgreSQL** tab.
 
 **What it is.** By default OF-Scraper keeps each creator's records in a small `user_data.db` file (SQLite) of their own. These records include what was found, what was downloaded and what was unlocked. Since 3.18.0, it can instead keep every creator in one PostgreSQL database on a server you run. Nothing changes unless you turn it on, and you can switch back at any time.
 
@@ -1393,7 +1401,7 @@ Open **Merge DBs** and choose the **PostgreSQL** tab.
 - **No automatic backup copies.** The scraper backs up a `user_data.db` before upgrading it, but there's no equivalent for PostgreSQL. Back up with `pg_dump`.
 - **Every profile shares the one database.** Data is split by site (OnlyFans and Fansly each get their own schema), not by profile.
 - **Already-downloaded checks stay per creator**, just as with the files. Media is never skipped because another creator has it.
-- **Merge Databases still works only on `user_data.db` files.** It doesn't see anything scraped since the switch.
+- **Merging user_data.db files still works only on `user_data.db` files.** It doesn't see anything scraped since the switch.
 - **Your `user_data.db` files are never changed or deleted.** They aren't used while PostgreSQL is on; keep them as a backup from before the switch.
 - **Driver.** PostgreSQL needs a driver (psycopg). The Docker image includes it. On a pip, pipx or uv install, use **Install driver** on the tab. The standalone `.exe` can't use PostgreSQL. Upgrading with the GUI patch script keeps the driver. If pipx or uv can't be found, the tab shows the command to run yourself. The button installs the driver the same way ofscraper was installed:
   - pipx: `pipx inject ofscraper "psycopg[binary,pool]>=3.3.9,<3.4"`
@@ -1433,7 +1441,7 @@ Open **Merge DBs** and choose the **PostgreSQL** tab.
 
 #### PostgreSQL creators
 
-Open **Merge DBs** and choose the **PostgreSQL creators** tab. It works once this window uses PostgreSQL (after the restart in step 3 above).
+Open **Manage DBs** and choose the **PostgreSQL creators** tab. It works once this window uses PostgreSQL (after the restart in step 3 above).
 
 **The table.** Pick **OnlyFans** or **Fansly**. Each creator in the database for that site gets a row:
 

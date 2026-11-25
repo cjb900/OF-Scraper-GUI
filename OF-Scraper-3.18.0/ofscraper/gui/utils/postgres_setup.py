@@ -260,7 +260,7 @@ def _write_env_file(url: str) -> pathlib.Path:
     path = env_file_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     text = (
-        "# Written by the OF-Scraper GUI (Merge DBs > PostgreSQL).\n"
+        "# Written by the OF-Scraper GUI (Manage DBs > PostgreSQL).\n"
         "# Holds the PostgreSQL password: keep this file private.\n"
         f"{URL_KEY}='{url}'\n"
     )

@@ -1,4 +1,4 @@
-"""Merge DBs > PostgreSQL: switch from user_data.db files to upstream's
+"""Manage DBs > PostgreSQL: switch from user_data.db files to upstream's
 optional PostgreSQL database, move the files in, and back out.
 
 The work is done by gui/utils/postgres_setup.py and upstream's own
@@ -77,7 +77,7 @@ class PostgresPanel(QWidget):
 
     def showEvent(self, event):
         # the settings (profile folder, database address) are read when the
-        # tab is first shown, not when the Merge DBs page is built
+        # tab is first shown, not when the Manage DBs page is built
         if not self._loaded:
             self._loaded = True
             if not self._paths.value(self.import_folder):
