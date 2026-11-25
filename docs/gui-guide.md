@@ -492,10 +492,10 @@ Open **Manage DBs** and choose the **PostgreSQL** tab.
   - pip: `python -m pip install "psycopg[binary,pool]>=3.3.9,<3.4"`
 
 **Turning it on**
-1. **Connection.** Enter the host, port, database, user and password, then click **Test connection**. **Save and use PostgreSQL** tests the connection again and saves it.
+1. **Connection.** Enter the host, port, database, user and password, then click **Test connection**. **Save and use PostgreSQL** tests the connection again and saves it. Before asking, it checks what the server already holds: on a server that already has your creators (set up from another computer, or earlier), it says so, and how many of your `user_data.db` files are for creators it doesn't have yet.
    - The address is saved to `postgresql.env` next to your OnlyFans `config.json`, readable only by your user. That file is listed under **Env Files** in both the OnlyFans and Fansly settings. The password is never written to `config.json`.
    - If the Fansly tab has never been opened, open it once, then save again.
-2. **Bring your files in.** Do this before your next scrape: until then every creator looks new, and everything would download again.
+2. **Bring your files in.** Do this before your next scrape: until then a creator PostgreSQL doesn't have yet looks new, and everything of theirs would download again. On a server that already has all your creators, there's nothing to bring in.
    - The folder defaults to your profile's `.data` folder. Click **Preview import** to see the files, creators and rows found, and anything that blocks them.
    - Then click **Import**. It's all or nothing, and your files aren't changed.
    - A creator that PostgreSQL already has is refused, so nothing is imported twice.

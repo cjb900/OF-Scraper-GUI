@@ -230,3 +230,13 @@ def test_deleting_but_keeping_the_names_keeps_them_listed(tmp_path, database):
     left = {c.model_id: c for c in postgres_creators.list_creators(database, "onlyfans")}
     assert left[111].username == "a_creator"
     assert (left[111].media, left[111].posts, left[111].messages) == (0, 0, 0)
+
+
+def test_save_question_reads_what_the_server_holds(tmp_path, database):
+    data = _two_creators_imported(tmp_path, database)
+    current_file(data / "333" / "user_data.db", 333)
+
+    view = postgres_setup.server_overview(database, "onlyfans", data)
+
+    assert (view.creators, view.other_site, view.files, view.missing) == (2, 0, 3, 1)
+    assert "1 of your 3 user_data.db files is for a creator" in postgres_setup.save_message(view)

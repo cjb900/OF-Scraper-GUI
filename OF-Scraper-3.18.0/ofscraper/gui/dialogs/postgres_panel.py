@@ -175,8 +175,9 @@ class PostgresPanel(QWidget):
         import_box = QGroupBox("2. Bring your user_data.db files in")
         import_layout = QVBoxLayout(import_box)
         import_note = QLabel(
-            "Turning PostgreSQL on doesn't move anything: until your files are "
-            "brought in, every creator looks new and everything downloads again. "
+            "Turning PostgreSQL on doesn't move anything: a creator PostgreSQL doesn't "
+            "have yet looks new, and everything of theirs downloads again, until "
+            "their file is brought in. "
             "Preview first; nothing is written until you press Import. It's all "
             "or nothing, your files aren't changed, and a creator PostgreSQL "
             "already has is refused. Two files for one creator? Merge them first."
@@ -406,13 +407,24 @@ class PostgresPanel(QWidget):
         self._on_test(then=self._save_tested)
 
     def _save_tested(self, url):
+        from ofscraper.gui import site_context
+
+        site = "fansly" if site_context.is_fansly() else "onlyfans"
+        folder = self._paths.value(self.import_folder) or pg.default_data_folder()
+        self._say("Checking what PostgreSQL already holds...")
+        self._run_in_background(
+            lambda: pg.server_overview(url, site, folder),
+            lambda view, error: self._ask_to_save(url, view, error),
+        )
+
+    def _ask_to_save(self, url, view, error):
+        if error:
+            self._say(f"Couldn't check: {pg.masked(error, url)}")
         answer = QMessageBox.question(
             self,
             "Use PostgreSQL",
             "The connection works. Save it and use PostgreSQL from the next start?\n\n"
-            "Until you bring your user_data.db files in (step 2), every creator "
-            "will look new to the scraper and everything would download again. "
-            "Import before your next scrape.",
+            + pg.save_message(view, pg.masked(error, url) if error else ""),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
@@ -427,10 +439,13 @@ class PostgresPanel(QWidget):
         log.info(f"[PostgreSQL] saved the address for {pg.describe(url)}")
         app_signals.config_updated.emit()
         self.refresh_status()
-        self._say(
-            "Saved. Now preview and import your files (step 2), then restart "
-            "the GUI (both tabs) to start using PostgreSQL."
-        )
+        if view is not None and not view.missing and not view.unknown:
+            self._say("Saved. Restart the GUI (both tabs) to start using PostgreSQL.")
+        else:
+            self._say(
+                "Saved. Now preview and import your files (step 2), then restart "
+                "the GUI (both tabs) to start using PostgreSQL."
+            )
 
     def _on_use_sqlite(self):
         answer = QMessageBox.question(

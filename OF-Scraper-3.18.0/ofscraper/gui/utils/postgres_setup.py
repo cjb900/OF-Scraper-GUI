@@ -474,6 +474,114 @@ def shown_command(command: list[str]) -> str:
     return " ".join(shown)
 
 
+SITE_LABELS = {"onlyfans": "OnlyFans", "fansly": "Fansly"}
+
+
+@dataclass
+class ServerOverview:
+    """What a PostgreSQL server already holds, against the user_data.db files
+    in the step 2 folder, for the "Save and use PostgreSQL" question."""
+
+    site: str  # this window's site: "onlyfans" or "fansly"
+    creators: int  # creators PostgreSQL has for this site
+    other_site: int  # creators it has for the other site
+    files: int  # user_data.db files in the folder
+    missing: int  # files for creators PostgreSQL doesn't have yet
+    unknown: int  # files whose creator the folder name doesn't give
+
+
+def local_creator_files(folder) -> tuple[list[int], int]:
+    """([creator ids], files without one) for the user_data.db files under
+    folder. A profile's .data folder keeps each creator's file in a folder
+    named after their ID; another metadata setting may name it otherwise."""
+    ids, unknown = [], 0
+    root = pathlib.Path(folder) if folder else None
+    if not root or not root.is_dir():
+        return ids, unknown
+    for db in sorted(root.rglob("user_data.db")):
+        name = db.parent.name
+        if name.isdigit():
+            ids.append(int(name))
+        else:
+            unknown += 1
+    return ids, unknown
+
+
+def server_overview(url, site, folder) -> ServerOverview:
+    """Read which creators PostgreSQL already has (both sites) and compare
+    this site's with the user_data.db files in folder."""
+    from ofscraper.gui.utils import postgres_creators
+
+    other = "fansly" if site == "onlyfans" else "onlyfans"
+    have = {c.model_id for c in postgres_creators.list_creators(url, site)}
+    other_count = len(postgres_creators.list_creators(url, other))
+    ids, unknown = local_creator_files(folder)
+    return ServerOverview(
+        site=site,
+        creators=len(have),
+        other_site=other_count,
+        files=len(ids) + unknown,
+        missing=len(set(ids) - have),
+        unknown=unknown,
+    )
+
+
+def _creators(n: int, site: str) -> str:
+    return f"{n:,} {SITE_LABELS.get(site, site)} creator{'' if n == 1 else 's'}"
+
+
+def save_message(view: ServerOverview | None, error: str = "") -> str:
+    """The "Save and use PostgreSQL" question's explanation, from what the
+    server already holds. Without an overview (it couldn't be read), what is
+    true either way."""
+    if view is None:
+        why = f" ({error})" if error else ""
+        return (
+            f"What PostgreSQL already holds couldn't be checked{why}. A creator it "
+            "doesn't have yet looks new to the scraper, and everything of theirs "
+            "would download again, until their user_data.db file is brought in "
+            "(step 2). Preview import shows which files those are."
+        )
+    other = "fansly" if view.site == "onlyfans" else "onlyfans"
+    if view.creators:
+        said = f"PostgreSQL already has {_creators(view.creators, view.site)}"
+    else:
+        said = f"PostgreSQL has no {SITE_LABELS[view.site]} creators yet"
+    if view.other_site:
+        said += f" (and {_creators(view.other_site, other)})"
+    said += "."
+    if not view.files:
+        return said + " No user_data.db files were found in the step 2 folder, so there is nothing to bring in from there."
+    if not view.missing and not view.unknown:
+        many = "all " if view.files > 1 else ""
+        return said + (
+            f" It has {many}the creator{'s' if view.files > 1 else ''} of your "
+            f"{view.files:,} user_data.db file{'s' if view.files > 1 else ''}, so nothing needs bringing in."
+        )
+    if view.missing:
+        if view.missing == view.files and not view.creators:
+            said += (
+                f" Until you bring your {view.files:,} user_data.db file{'s' if view.files > 1 else ''}"
+                " in (step 2), every creator will look new to the scraper and everything"
+                " would download again. Import before your next scrape."
+            )
+        else:
+            one = view.missing == 1
+            said += (
+                f" {view.missing:,} of your {view.files:,} user_data.db files"
+                f" {'is' if one else 'are'} for {'a creator' if one else 'creators'} it doesn't have yet."
+                f" Until {'it is' if one else 'they are'} brought in (step 2), {'that creator looks' if one else 'those creators look'}"
+                " new and everything of theirs would download again. Preview import shows which."
+            )
+    if view.unknown:
+        one = view.unknown == 1
+        said += (
+            f" {view.unknown:,} file{'' if one else 's'} couldn't be matched to a creator by"
+            " folder name; Preview import checks them."
+        )
+    return said
+
+
 @dataclass
 class ImportOutcome:
     ready: bool  # a preview whose Import would bring files in
