@@ -47,8 +47,8 @@ ABOUT = (
     "directly.<br><br>"
     "<b>Things to know:</b> you need a PostgreSQL 15+ server you run yourself; "
     "it isn't faster for a single computer; there are no automatic backup "
-    "copies (use pg_dump); every profile shares the one database; Merge "
-    "Databases still only works on user_data.db files; the standalone .exe "
+    "copies (use pg_dump); every profile shares the one database; the Merge "
+    "user_data.db files tab still only works on those files; the standalone .exe "
     "can't use it. Your user_data.db files are never changed, and you can "
     "switch back at any time. See Help for the full list."
 )
@@ -550,15 +550,14 @@ class PostgresPanel(QWidget):
         output = "".join(getattr(self, "_output", []))
         self._process = None
         self._job = None
-        if kind == "import-preview":
-            # upstream's preview ends with this when there are files to bring in
-            self._previewed = key if "with --apply to bring" in output else None
-            if self._previewed:
-                self._say("Preview done: press Import to bring these in.")
-        elif kind == "import-apply":
-            self._previewed = None
-            if code == 0:
-                self._say("Import finished.")
+        show_code = True
+        if kind in ("import-preview", "import-apply"):
+            skip_bad = bool(key and key[1])
+            outcome = pg.import_outcome(output, apply=kind == "import-apply", skip_bad=skip_bad)
+            self._previewed = key if kind == "import-preview" and outcome.ready else None
+            if outcome.message:
+                self._say(outcome.message)
+            show_code = outcome.show_exit_code
         elif kind == "export-preview":
             self._export_previewed = key if code == 0 else None
             if self._export_previewed:
@@ -569,7 +568,7 @@ class PostgresPanel(QWidget):
             self._say("Driver installed." if code == 0 else "The install didn't finish.")
             if code == 0:
                 self._say("Restart the GUI to use it.")
-        if code not in (0, None):
+        if code not in (0, None) and show_code:
             self._say(f"(exit code {code})")
         self.refresh_status()
 

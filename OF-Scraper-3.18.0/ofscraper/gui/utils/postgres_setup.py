@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 import shutil
 import stat
 import sys
@@ -483,6 +484,88 @@ def shown_command(command: list[str]) -> str:
             continue
         shown.append(f'"{arg}"' if any(c in arg for c in " []<>,;&|") else arg)
     return " ".join(shown)
+
+
+@dataclass
+class ImportOutcome:
+    ready: bool  # a preview whose Import would bring files in
+    message: str  # what the tab adds after upstream's own output
+    show_exit_code: bool  # False when the message already says how it went
+
+
+_BLOCKED = re.compile(r"^\s*([\d,]+) files? can't be brought in:", re.MULTILINE)
+_TO_BRING = re.compile(r"(?:to bring|Bringing) ([\d,]+) files? in")
+_PROBLEM = re.compile(r"^\s+- (.*)$", re.MULTILINE)
+_ALREADY = "PostgreSQL already has rows for creator"
+
+
+def _files(n: int) -> str:
+    return f"{n:,} file{'' if n == 1 else 's'}"
+
+
+def import_outcome(output: str, apply: bool, skip_bad: bool) -> ImportOutcome:
+    """Upstream's postgres_import report (POSTGRESQL.md) read for the tab.
+
+    The command exits 1 whenever a file can't be brought in, also when
+    --skip-bad-files brought the rest in, and its hints name its flags. The
+    tab says in its own words how it went, and enables Import only after a
+    preview whose Import would bring something in: without "Skip files that
+    can't be brought in", one blocked file stops every file (all or nothing).
+    """
+    text = output or ""
+    found = _BLOCKED.search(text)
+    blocked = int(found.group(1).replace(",", "")) if found else 0
+    found = _TO_BRING.search(text)
+    good = int(found.group(1).replace(",", "")) if found else 0
+    problems = _PROBLEM.findall(text)
+    already = bool(problems) and all(p.startswith(_ALREADY) for p in problems)
+    one = blocked == 1
+    why = (
+        (" That creator is already in PostgreSQL (brought in before), so leaving"
+         " the file out is safe." if one else
+         " Those creators are already in PostgreSQL (brought in before), so"
+         " leaving them out is safe.")
+        if already else ""
+    )
+    if apply:
+        if re.search(r"^Done\.", text, re.MULTILINE):
+            said = f"Import finished: {_files(good)} brought in." if good else "Import finished."
+            if blocked:
+                said += f" The {_files(blocked)} listed above {'was' if blocked == 1 else 'were'} left out and {'stays' if one else 'stay'} only in user_data.db.{why}"
+            return ImportOutcome(False, said, False)
+        if blocked and not skip_bad and "Nothing was written" in text:
+            return ImportOutcome(
+                False,
+                f"Nothing was brought in: the {_files(blocked)} listed above stop the import."
+                " Tick \"Skip files that can't be brought in\", preview again, then Import."
+                + why,
+                False,
+            )
+        return ImportOutcome(False, "The import didn't finish; nothing was brought in.", True)
+    if "There is nothing to bring in." in text:
+        said = "Nothing new to bring in."
+        if already:
+            said += " Every creator in this folder is already in PostgreSQL."
+        return ImportOutcome(False, said, False)
+    if good and not blocked:
+        return ImportOutcome(True, f"Preview done: press Import to bring {_files(good)} in.", False)
+    if good and skip_bad:
+        return ImportOutcome(
+            True,
+            f"Preview done: press Import to bring {_files(good)} in. The {_files(blocked)}"
+            f" listed above will be left out.{why}",
+            False,
+        )
+    if good:
+        return ImportOutcome(
+            False,
+            f"Import is off: the {_files(blocked)} listed above can't be brought in, and"
+            f" without skipping {'it' if one else 'them'} nothing is. Tick \"Skip files that can't be brought"
+            f" in\" and preview again to bring in the other {_files(good)}, or fix or"
+            f" move {'that file' if one else 'those files'}.{why}",
+            False,
+        )
+    return ImportOutcome(False, "", True)
 
 
 def import_command(folder, apply=False, skip_bad=False, staging=None) -> list[str]:
