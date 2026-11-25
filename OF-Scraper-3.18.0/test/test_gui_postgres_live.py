@@ -163,3 +163,70 @@ def test_a_wrong_password_is_one_sentence_without_it(database):
         postgres_setup.test_connection(wrong)
     assert "not-it-zz9" not in str(caught.value)
     assert "refused" in str(caught.value)
+
+
+# --- Merge DBs > PostgreSQL creators ----------------------------------------------
+
+
+def _two_creators_imported(tmp_path, database):
+    home = tmp_path / "home"
+    data = home / ".config" / "ofscraper" / "main_profile" / ".data"
+    current_file(data / "111" / "user_data.db", 111)
+    current_file(data / "222" / "user_data.db", 222)
+    code, said = gui_command(postgres_setup.import_command(data, apply=True), database, home)
+    assert code == 0, said
+    return data
+
+
+def test_creators_list_counts_match_the_files(tmp_path, database):
+    from ofscraper.gui.utils import postgres_creators
+
+    data = _two_creators_imported(tmp_path, database)
+    db = data / "111" / "user_data.db"
+
+    found = {c.model_id: c for c in postgres_creators.list_creators(database, "onlyfans")}
+
+    assert set(found) == {111, 222}
+    one = found[111]
+    assert one.username == "a_creator"
+    assert one.media == sqlite_rows(db, "SELECT COUNT(DISTINCT media_id) FROM medias WHERE model_id = 111")[0][0]
+    assert one.downloaded == sqlite_rows(
+        db, "SELECT COUNT(DISTINCT media_id) FROM medias WHERE model_id = 111 AND downloaded = 1"
+    )[0][0]
+    assert one.posts == sqlite_rows(db, "SELECT COUNT(*) FROM posts WHERE model_id = 111")[0][0]
+    assert one.size == sqlite_rows(
+        db, "SELECT COALESCE(SUM(size), 0) FROM medias WHERE model_id = 111 AND downloaded = 1"
+    )[0][0]
+    # nothing was ever scraped on the other site
+    assert postgres_creators.list_creators(database, "fansly") == []
+
+    details = postgres_creators.creator_details(database, "onlyfans", 111)
+    assert [n for n, _, _ in details.names] == ["a_creator"]
+    assert sum(row[2] for row in details.breakdown) >= one.media
+
+
+def test_deleting_a_creator_leaves_the_others(tmp_path, database):
+    from ofscraper.gui.utils import postgres_creators
+
+    _two_creators_imported(tmp_path, database)
+    before = {c.model_id: c for c in postgres_creators.list_creators(database, "onlyfans")}
+
+    removed = postgres_creators.delete_creators(database, "onlyfans", [111])
+
+    assert removed["medias"] > 0 and removed["profiles"] == 1
+    after = {c.model_id: c for c in postgres_creators.list_creators(database, "onlyfans")}
+    assert set(after) == {222}
+    assert after[222] == before[222]
+
+
+def test_deleting_but_keeping_the_names_keeps_them_listed(tmp_path, database):
+    from ofscraper.gui.utils import postgres_creators
+
+    _two_creators_imported(tmp_path, database)
+
+    removed = postgres_creators.delete_creators(database, "onlyfans", [111], forget_names=False)
+
+    assert "profiles" not in removed
+    left = {c.model_id: c for c in postgres_creators.list_creators(database, "onlyfans")}
+    assert left[111].username == "a_creator"
+    assert (left[111].media, left[111].posts, left[111].messages) == (0, 0, 0)

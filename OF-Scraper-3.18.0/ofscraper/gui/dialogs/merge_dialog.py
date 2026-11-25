@@ -58,6 +58,11 @@ class MergePage(QWidget):
         self.postgres_panel = PostgresPanel()
         self.tabs.addTab(self.postgres_panel, "PostgreSQL")
 
+        from ofscraper.gui.dialogs.postgres_creators_panel import PostgresCreatorsPanel
+
+        self.creators_panel = PostgresCreatorsPanel()
+        self.tabs.addTab(self.creators_panel, "PostgreSQL creators")
+
         subtitle = QLabel(
             "Recursively search a folder for user_data.db files and merge them "
             "into a single destination database."

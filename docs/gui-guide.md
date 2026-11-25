@@ -508,11 +508,43 @@ Open **Merge DBs** and choose the **PostgreSQL** tab.
   - the results table and its "DB: downloaded/total" counts
   - showing only what's new since the last run
 - **Delete model DB** (Advanced Scrape Options) deletes the creator's rows from PostgreSQL and keeps their old `user_data.db`.
+- The **PostgreSQL creators** tab lists and deletes creators (below).
 - The one-time OnlyFans folder move updates the download folders recorded in PostgreSQL too.
 
 **Docker:** `OFSC_DATABASE_URL` can also be set under `environment:` in `docker-compose.yml`. If you save a connection on this tab as well, the saved one wins, because env files override the environment. Use one or the other.
 
 **Before importing or exporting:** make sure no scrape is running in either tab, including daemon mode.
+
+#### PostgreSQL creators
+
+Open **Merge DBs** and choose the **PostgreSQL creators** tab. It works once this window uses PostgreSQL (after the restart in step 3 above).
+
+**The table.** Pick **OnlyFans** or **Fansly**. Each creator in the database for that site gets a row:
+
+| Column | What it is |
+|---|---|
+| Creator, ID | The username seen last, and the creator's ID |
+| Media, Downloaded, Not downloaded | Media found, and how many of them are downloaded (a media in several posts counts once) |
+| Size | Total size of the downloaded files |
+| Posts, Messages, Stories, Other | Rows saved for each (Other: other posts and products) |
+| Newest post, Last seen | The newest media's post date, and when the username was last seen |
+
+- Click a column heading to sort, and type in **Filter by name or ID** to narrow the list.
+- Select one creator to see every username they've had (with dates) and their media by area (Timeline, Messages, Archived…) and type, with how many are downloaded.
+- **Refresh** reads the database again. The tab shows the database as it was when it was read.
+- With Privacy mode on, names and IDs are hidden; the filter still matches them.
+
+**Deleting a creator.** This is the PostgreSQL version of deleting a creator's `user_data.db`, to scrape them from scratch:
+
+1. Select one or more creators (Ctrl or Shift to select several).
+2. Click **Delete selected creators…** and confirm. The dialog lists them with their counts.
+
+- Their records go: what was found, downloaded and unlocked. The next scrape treats everything as new and **downloads it all again**. A file that is already there with the same content is kept, so you don't get a second copy; a different file with the same name is saved as `name_<media id>`.
+- **Downloaded files are never deleted.**
+- **Also forget their usernames** (on by default) removes their usernames too, as deleting the file did. They then leave the list until they are scraped again. Turn it off to keep them listed with no media.
+- It's all or nothing: if a scrape is writing that creator's rows at the same moment, nothing is deleted and the tab says why.
+- The button is off while this window is scraping. Make sure the other tab and daemon mode aren't scraping either.
+- It can't be undone. Back up first with `pg_dump` if unsure ([PostgreSQL](postgresql.md#backups)).
 
 ## Running a scrape
 

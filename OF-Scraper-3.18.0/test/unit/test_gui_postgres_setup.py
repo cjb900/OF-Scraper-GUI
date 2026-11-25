@@ -175,4 +175,5 @@ def test_building_merge_dbs_reads_no_settings(qapp, monkeypatch):
 
     page = MergePage()
     assert page.tabs.tabText(1) == "PostgreSQL"
+    assert page.tabs.tabText(2) == "PostgreSQL creators"
     assert not page.postgres_panel.import_btn.isEnabled()
