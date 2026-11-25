@@ -188,10 +188,23 @@ def _resolve_versions() -> dict[str, str]:
         except Exception:
             pass
 
+    python = install = environment = "unknown"
+    try:
+        from ofscraper.gui.utils import install_info
+
+        python = install_info.python_version()
+        install = install_info.install_label()
+        environment = install_info.environment_path()
+    except Exception:
+        pass
+
     return {
         "app": app_ver,
         "patch": patch_id or "(not set)",
         "os": _detect_os(),
+        "python": python,
+        "install": install,
+        "environment": environment,
         "ffmpeg": _tool_version_line("ffmpeg", ffmpeg_path),
         "ffprobe": _tool_version_line("ffprobe", ffprobe_path or ffmpeg_path),
     }
@@ -227,6 +240,8 @@ class AboutDialog(QDialog):
             ("App version", info["app"]),
             ("GUI patch", info["patch"]),
             ("Operating system", info["os"]),
+            ("Python", info["python"]),
+            ("Installed with", info["install"]),
             ("FFmpeg", info["ffmpeg"]),
             ("FFprobe", info["ffprobe"]),
         ]
@@ -240,6 +255,8 @@ class AboutDialog(QDialog):
             val.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse
             )
+            if label == "Installed with":
+                val.setToolTip(f"Environment: {info['environment']}")
             row.addWidget(key)
             row.addWidget(val, stretch=1)
             layout.addLayout(row)

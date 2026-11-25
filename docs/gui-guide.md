@@ -79,7 +79,10 @@ Click the sidebar version button (e.g. **`v3.17.1`**) — or **Help / README →
 **About shows**
 - **App version** — installed OF-Scraper version
 - **GUI patch** — applied patch id (useful when reporting issues)
-- **Operating system**, **FFmpeg**, and **FFprobe** paths/status
+- **Operating system**
+- **Python**: the Python ofscraper runs on, e.g. `3.12.13 (64-bit)`
+- **Installed with**: how ofscraper was installed: **pipx**, **uv (uv tool)**, **pip** (or **pip (in a virtual environment)**), with **Docker image** added inside the container, or **Standalone download**. Hover over it to see the environment's folder.
+- **FFmpeg** and **FFprobe** paths/status
 - **Updates** — status line after you run **Check for updates**, which looks for a new release of this GUI on GitHub, plus **Open GUI releases**
 - On startup the GUI also quietly checks GitHub; if a new GUI release exists you get a one-time prompt (Open release page / Dismiss this version / Later)
 - **Update now** (3.17.1; in the update prompt and in About when an update is found) — downloads the new patch script, checks it's the expected patch, closes OF-Scraper (asking first if a site is downloading) and runs the script in a console window. Answer its questions there; at the end it offers to start the GUI again. On Linux it needs a terminal program (gnome-terminal, konsole, xterm, …); without one you're shown the command to run. See [Install → Updating from the GUI](install.md#updating-from-the-gui-update-now)

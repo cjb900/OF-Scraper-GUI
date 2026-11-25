@@ -30,6 +30,8 @@ import sys
 from dataclasses import dataclass
 from urllib.parse import quote, unquote, urlsplit
 
+from ofscraper.gui.utils import install_info
+
 log = logging.getLogger("shared")
 
 URL_KEY = "OFSC_DATABASE_URL"
@@ -147,7 +149,11 @@ def driver_installed() -> bool:
 def standalone_build() -> bool:
     """The single-file download: upstream doesn't include the driver, and
     nothing can be installed into it."""
-    return bool(getattr(sys, "frozen", False))
+    return install_info.standalone_build()
+
+
+def install_method() -> str:
+    return install_info.install_method()
 
 
 # --- the env file and config.json ------------------------------------------------
@@ -389,24 +395,6 @@ def python_command() -> list[str]:
         if os.path.isfile(console):
             exe = console
     return [exe, "-u"]
-
-
-def install_method() -> str:
-    """How this ofscraper was installed: "pipx", "uv" (uv tool) or "pip".
-    pipx and uv tool environments have no pip of their own, so the driver
-    goes in the way they were made."""
-    prefix = pathlib.Path(sys.prefix)
-    if (prefix / "pipx_metadata.json").is_file():
-        return "pipx"
-    if (prefix / "uv-receipt.toml").is_file():
-        return "uv"
-    parts = [p.lower() for p in prefix.parts]
-    parent = prefix.parent.name.lower()
-    if parent == "venvs" and any("pipx" in p for p in parts):
-        return "pipx"
-    if parent == "tools" and "uv" in parts:
-        return "uv"
-    return "pip"
 
 
 def _find_tool(name: str) -> str | None:
