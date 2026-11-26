@@ -1494,7 +1494,7 @@ Open **Manage DBs** and choose the **PostgreSQL creators** tab. It works once th
 If the window disappears or freezes (especially during model load while changing pages, or mid-scrape under heavy downloads):
 
 1. Check **`~/.config/ofscraper/gui_crash_logs/`** (Windows: `%USERPROFILE%\.config\ofscraper\gui_crash_logs\`):
-   - `model_fetch_breadcrumbs.log` — last stage markers before a hang/crash (look for `scrape=1` / `activity_scrape` during a scrape)
+   - `model_fetch_breadcrumbs.log` — last stage markers before a hang/crash (look for `scrape=1` / `activity_scrape` during a scrape). Each line names the process (`host` is the tab window, `gui-onlyfans` / `gui-fansly` a site's window) and its PID. A site's window writes a `heartbeat` every 30 seconds while it responds: if they stop well before the end, it froze first. The tab window writes `child_exit` with the exit code when a site's window ends.
    - `faulthandler.log` — native / fatal dumps when available (access violations often involve Rich/console logging from worker threads)
      - It only gets an entry when the GUI crashes. For a GUI that freezes without crashing, set the environment variable `OFSCRAPER_GUI_HANG_DUMP_SECONDS` (for example `300`) to also write every thread's stack at that interval. It's off by default because, on Windows, these dumps can crash the GUI themselves.
 2. Turn on **Verbose Log** (sidebar) for a fuller session transcript next time.

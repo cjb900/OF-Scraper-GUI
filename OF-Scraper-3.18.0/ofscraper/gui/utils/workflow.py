@@ -3402,6 +3402,10 @@ class GUIWorkflow:
         """Run the scraper pipeline in a background thread.
         If daemon mode is enabled, loops with the configured interval."""
         run_count = 0
+        # the run's scraping_finished already sent (a normal run that ended):
+        # the finally doesn't send a second one, which redid the table, the
+        # plugins' post-scrape work and the host's idle message
+        _finished_sent = False
         # set when the run stops with an error: History and the run-end notice say so
         self._last_run_failed = False
         try:
@@ -4242,6 +4246,7 @@ class GUIWorkflow:
                     app_signals.log_message.emit(
                         "INFO", "Scraping pipeline finished"
                     )
+                    _finished_sent = True
                     break
 
                 # Daemon mode: surface last-run chip, then wait for interval
@@ -4328,12 +4333,13 @@ class GUIWorkflow:
                 set_scrape_active(False)
             except Exception:
                 pass
-            try:
-                from ofscraper.plugins.manager import plugin_manager as _pm_fin
-                _pm_fin.pre_scrape_complete()
-            except Exception:
-                pass
-            app_signals.scraping_finished.emit()
+            if not _finished_sent:
+                try:
+                    from ofscraper.plugins.manager import plugin_manager as _pm_fin
+                    _pm_fin.pre_scrape_complete()
+                except Exception:
+                    pass
+                app_signals.scraping_finished.emit()
 
     def _clear_model_badges(self):
         """Empty the per-model chip bar (it is refilled once the scrape starts)."""

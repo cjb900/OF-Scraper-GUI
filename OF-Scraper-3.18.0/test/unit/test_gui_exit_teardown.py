@@ -105,7 +105,6 @@ def test_shutdown_order(qapp, monkeypatch):
     removed = []
     fake_app = SimpleNamespace(
         _gui_event_logger="logger",
-        _legacy_model_loading_popup_filter="popup",
         removeEventFilter=lambda f: (removed.append(f), steps.append("filters")),
         sendPostedEvents=lambda *a: steps.append("posted"),
     )
@@ -113,7 +112,7 @@ def test_shutdown_order(qapp, monkeypatch):
     gui_app.shutdown_gui(fake_app, window, worker_wait_ms=100)
 
     assert steps[:2] == ["on_ui_teardown", "on_unload"]
-    assert removed == ["logger", "popup"]
+    assert removed == ["logger"]
     assert sip.isdeleted(window)
     assert steps[-1] == "posted"
 

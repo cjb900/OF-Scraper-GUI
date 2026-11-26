@@ -28,6 +28,10 @@ console = Console()
 log = logging.getLogger("shared")
 
 
+class AuthFileError(Exception):
+    """auth.json can't be read (GUI mode, where nothing prompts to repair it)."""
+
+
 def _is_gui_mode() -> bool:
     try:
         import ofscraper.utils.args.accessors.read as read_args
@@ -77,8 +81,14 @@ def handle_auth_errors(e: Exception,include_main_menu:bool=False) -> str | None:
     elif isinstance(e, json.JSONDecodeError):
         # In GUI mode, skip interactive repair prompts; the GUI auth dialog handles it
         if _is_gui_mode():
-            log.warning("GUI mode: skipping interactive auth repair for malformed auth.json")
-            return None
+            # Returning None means "read it again", and nothing repairs the
+            # file meanwhile: read_auth() spun forever with no pause, and
+            # every request that builds its headers hung. Stop with the reason.
+            raise AuthFileError(
+                f"auth.json has a syntax error at line {e.lineno}, column {e.colno} "
+                f"({e.msg}). Fix it on the Authentication page, or delete the "
+                "file and enter your login again."
+            ) from e
         console.print(f"[bold red]Error:[/bold red] Your 'auth.json' file has a syntax error at line {e.lineno}, column {e.colno}.")
         while True:
             try:

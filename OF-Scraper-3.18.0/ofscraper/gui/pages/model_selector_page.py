@@ -655,6 +655,8 @@ class ModelSelectorPage(QWidget):
         try:
             if self.manager and getattr(self.manager, "model_manager", None) is not None:
                 self.manager.model_manager.all_subs_dict = models or []
+            # a hidden label keeps no stale "loading" text
+            self.loading_label.setText("")
             self.loading_label.hide()
             self.retry_btn.hide()
             self.next_btn.setEnabled(True)

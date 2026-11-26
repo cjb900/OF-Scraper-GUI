@@ -74,7 +74,7 @@ Check the preview first: the same picture re-posted under a new media id shares 
 
 Diagnostic files are written under your OF-Scraper config folder:
 
-- `~/.config/ofscraper/gui_crash_logs/model_fetch_breadcrumbs.log`: recent UI and scrape steps (including whether a model fetch or scrape was running)
+- `~/.config/ofscraper/gui_crash_logs/model_fetch_breadcrumbs.log`: recent UI and scrape steps (including whether a model fetch or scrape was running). Each line says which process wrote it (`host` for the tab window, `gui-onlyfans` or `gui-fansly`) and its PID. A `heartbeat` line every 30 seconds shows the window was still responding, and the host writes `child_exit` with the exit code when a site's window ends. Past 5 MB it's moved to `model_fetch_breadcrumbs.log.1`.
 - `~/.config/ofscraper/gui_crash_logs/faulthandler.log`: native crash dumps when available
 
 When reporting a problem, include the last ~30 breadcrumb lines and your GUI patch id. In Docker these files are on the mounted config volume.

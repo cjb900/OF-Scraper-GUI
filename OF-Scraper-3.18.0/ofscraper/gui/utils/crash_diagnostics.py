@@ -37,6 +37,14 @@ _lock = threading.Lock()
 HANG_DUMP_ENV = "OFSCRAPER_GUI_HANG_DUMP_SECONDS"
 # Past this size, faulthandler.log is moved to faulthandler.log.1 at startup.
 FAULT_LOG_MAX_BYTES = 5 * 1024 * 1024
+# Past this size, the breadcrumb file is moved to <name>.1 at startup.
+BREADCRUMB_LOG_MAX_BYTES = 5 * 1024 * 1024
+# A main-thread "heartbeat" line this often: when a window disappears, the last
+# one says whether its GUI thread was still answering (a hang stops them).
+HEARTBEAT_SECONDS = 30
+# Which process writes a line: the tab host or a site's GUI. Two processes can
+# write to one file, so every line also carries its PID.
+_role = "gui"
 
 # Concurrent activity flags — included on every gui_action / breadcrumb line.
 _activity_lock = threading.Lock()
@@ -164,11 +172,17 @@ def activity_snapshot() -> str:
         )
 
 
+def set_role(role: str) -> None:
+    """Name this process on its breadcrumb lines ("host", "gui-onlyfans")."""
+    global _role
+    _role = str(role or "gui")
+
+
 def _write_line(stage: str, detail: str = "") -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + "Z"
     tid = threading.current_thread().name
     snap = activity_snapshot()
-    line = f"{ts} [{tid}] [{snap}] {stage}"
+    line = f"{ts} [{_role} pid={os.getpid()}] [{tid}] [{snap}] {stage}"
     if detail:
         line = f"{line} | {detail}"
     line += "\n"
@@ -212,6 +226,41 @@ def gui_action(kind: str, detail: str = "") -> None:
 def _short_stack(skip: int = 1, depth: int = 8) -> str:
     frames = traceback.extract_stack()[: -(skip + 1)][-depth:]
     return " <- ".join(f"{Path(f.filename).name}:{f.name}:{f.lineno}" for f in reversed(frames))
+
+
+def trim_breadcrumb_log() -> bool:
+    """Move a too-big breadcrumb file to <name>.1, so it starts fresh.
+    Returns True if moved. Another process writing to it at that moment
+    (Windows refuses the move then) leaves it for the next start."""
+    path = breadcrumb_log_path()
+    try:
+        if path.stat().st_size <= BREADCRUMB_LOG_MAX_BYTES:
+            return False
+        with _lock:
+            os.replace(path, path.with_name(path.name + ".1"))
+        return True
+    except Exception:
+        return False
+
+
+def start_heartbeat(app, seconds: float = HEARTBEAT_SECONDS):
+    """Write a "heartbeat" line every ``seconds`` from the Qt main thread.
+
+    The timer runs in the event loop, so the lines stop while the GUI thread
+    is stuck: a log that ends in heartbeats was a process killed or closed
+    from outside while it still answered; one whose heartbeats stopped
+    earlier hung first. Returns the timer (kept on the app as well)."""
+    from PyQt6.QtCore import QTimer
+
+    timer = QTimer(app)
+    timer.setInterval(int(max(1.0, float(seconds)) * 1000))
+    timer.timeout.connect(lambda: _write_line("heartbeat"))
+    timer.start()
+    try:
+        app._ofs_heartbeat = timer
+    except Exception:
+        pass
+    return timer
 
 
 def install_exit_tracing(app) -> None:
@@ -273,6 +322,7 @@ def install_crash_diagnostics() -> None:
     try:
         fault_path = fault_log_path()
         trim_fault_log()
+        trim_breadcrumb_log()
         _fault_fp = open(fault_path, "a", encoding="utf-8", buffering=1)
         _fault_fp.write(_fault_log_header("faulthandler enabled"))
         _fault_fp.flush()

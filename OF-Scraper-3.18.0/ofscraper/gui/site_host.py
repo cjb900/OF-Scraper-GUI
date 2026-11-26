@@ -138,6 +138,17 @@ def _remember_site(site: str) -> None:
         pass
 
 
+def _host_breadcrumb(stage: str, detail: str = "") -> None:
+    """A line in the crash breadcrumb file, marked as the tab host's."""
+    try:
+        from ofscraper.gui.utils import crash_diagnostics
+
+        crash_diagnostics.set_role("host")
+        crash_diagnostics.breadcrumb(stage, detail)
+    except Exception:
+        pass
+
+
 def run_site_host(manager=None) -> None:
     """Entry point for ``ofscraper --gui`` (outside a child process)."""
     prefer_x11()
@@ -160,6 +171,13 @@ def run_site_host(manager=None) -> None:
 
     app = QApplication(sys.argv[:1])
     app.setApplicationName("OF-Scraper")
+    _host_breadcrumb("startup")
+    try:
+        from ofscraper.gui.utils.crash_diagnostics import start_heartbeat
+
+        start_heartbeat(app)
+    except Exception:
+        pass
     app.setStyle("Fusion")
     try:
         import pathlib
@@ -212,7 +230,8 @@ def run_site_host(manager=None) -> None:
     except Exception:
         pass
 
-    app.exec()
+    code = app.exec()
+    _host_breadcrumb("host_exit", f"code={code}")
 
 
 # Qt classes are defined lazily so importing this module never needs PyQt6
@@ -314,6 +333,8 @@ def _define_classes():
             self.show_btn.hide()
             log.info(f"[GUI] starting {self.label}: {' '.join(command[:4])} …")
             proc.start(command[0], command[1:])
+            self._child_pid = int(proc.processId() or 0)
+            _host_breadcrumb("child_start", f"site={self.site} pid={self._child_pid}")
 
         def request_quit(self):
             if self.running():
@@ -415,6 +436,14 @@ def _define_classes():
             )
 
         def _finished(self, code, status):
+            # how each site's window ended, so a window that vanished can be
+            # told apart from one that was closed (the window can't log a kill)
+            _host_breadcrumb(
+                "child_exit",
+                f"site={self.site} pid={getattr(self, '_child_pid', 0)} code={code} "
+                f"status={'crash' if status == QProcess.ExitStatus.CrashExit else 'normal'} "
+                f"host_closing={int(bool(self.host.closing))}",
+            )
             self.busy = False
             if self.container is not None:
                 self.stack.removeWidget(self.container)

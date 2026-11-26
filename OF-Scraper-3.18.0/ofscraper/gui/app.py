@@ -220,80 +220,6 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         return False
 
 
-class _CloseLegacyModelLoadingPopup(QObject):
-    """Event filter that closes any stray legacy 'Loading models from API...' popup.
-
-    Some older code paths (or stale Qt objects) can still create a small top-level
-    window with that label. We don't want it since we show an inline loading bar.
-    """
-
-    TARGET_TEXT = "Loading models from API..."
-
-    @staticmethod
-    def _norm(s: str) -> str:
-        """Normalize strings to catch unicode ellipsis / spacing variations."""
-        if not s:
-            return ""
-        s = str(s)
-        s = s.replace("\u2026", "...")  # unicode ellipsis
-        return " ".join(s.strip().lower().split())
-
-    def _looks_like_legacy_popup(self, obj) -> bool:
-        """Return True if obj is a top-level legacy loading popup."""
-        target = self._norm(self.TARGET_TEXT)
-
-        # 1) Match window title
-        try:
-            title = self._norm(getattr(obj, "windowTitle", lambda: "")() or "")
-            if title and target.startswith("loading models from api") and target in title:
-                return True
-            if title and title == target:
-                return True
-        except Exception:
-            pass
-
-        # 2) Match QProgressDialog-like labelText()
-        try:
-            label_text = getattr(obj, "labelText", None)
-            if callable(label_text):
-                txt = self._norm(label_text() or "")
-                if "loading models from api" in txt:
-                    return True
-        except Exception:
-            pass
-
-        # 3) Match any child QLabel text
-        try:
-            from PyQt6.QtWidgets import QLabel
-
-            lbls = obj.findChildren(QLabel)
-            for l in lbls:
-                txt = self._norm(l.text() or "")
-                if "loading models from api" in txt:
-                    return True
-        except Exception:
-            pass
-
-        return False
-
-    def eventFilter(self, obj, event):
-        try:
-            if event.type() in (
-                QEvent.Type.Show,
-                QEvent.Type.ShowToParent,
-                QEvent.Type.WindowActivate,
-                QEvent.Type.Polish,
-                QEvent.Type.WindowTitleChange,
-            ):
-                # Only consider top-level widgets (popups/dialogs)
-                if hasattr(obj, "isWindow") and obj.isWindow():
-                    if self._looks_like_legacy_popup(obj):
-                        obj.close()
-        except Exception:
-            pass
-        return False
-
-
 def _is_docker() -> bool:
     """Return True when running inside a Docker / OCI container."""
     if os.path.exists("/.dockerenv"):
@@ -472,8 +398,14 @@ def launch_gui(manager=None):
 
     # Crash breadcrumbs + faulthandler (helps diagnose hard GUI crashes during model load).
     try:
-        from ofscraper.gui.utils.crash_diagnostics import install_crash_diagnostics
+        from ofscraper.gui.utils.crash_diagnostics import install_crash_diagnostics, set_role
 
+        try:
+            from ofscraper.gui import site_context as _sc
+
+            set_role(f"gui-{_sc.current_site()}")
+        except Exception:
+            pass
         install_crash_diagnostics()
     except Exception as e:
         log.warning(f"Could not install crash diagnostics: {e}")
@@ -524,13 +456,9 @@ def launch_gui(manager=None):
     else:
         app.setStyleSheet(get_dark_theme_qss())
 
-    # Close any stray legacy "Loading models..." popup globally.
-    try:
-        # Keep a Python reference so the filter can't be garbage-collected.
-        app._legacy_model_loading_popup_filter = _CloseLegacyModelLoadingPopup(app)  # type: ignore[attr-defined]
-        app.installEventFilter(app._legacy_model_loading_popup_filter)  # type: ignore[attr-defined]
-    except Exception:
-        pass
+    # No app-wide filter closes "Loading models from API..." windows any more:
+    # nothing creates that popup, and the filter matched the main window by
+    # its hidden inline loading label and closed the GUI mid-load.
 
     # Global GUI interaction verbose logger event filter
     try:
@@ -644,9 +572,10 @@ def launch_gui(manager=None):
     # python_exit breadcrumb registered just below.
     atexit.register(shutdown_gui, app, window, 1000)
     try:
-        from ofscraper.gui.utils.crash_diagnostics import install_exit_tracing
+        from ofscraper.gui.utils.crash_diagnostics import install_exit_tracing, start_heartbeat
 
         install_exit_tracing(app)
+        start_heartbeat(app)
     except Exception as e:
         log.debug(f"[GUI] exit tracing not installed: {e}")
 
@@ -697,13 +626,31 @@ def shutdown_gui(app, window, worker_wait_ms: int = 5000) -> None:
     except Exception as e:
         log.debug(f"[GUI] plugin shutdown failed: {e}")
 
-    for attr in ("_gui_event_logger", "_legacy_model_loading_popup_filter"):
+    # no Python from the heartbeat timer while the window is taken down
+    try:
+        heartbeat = getattr(app, "_ofs_heartbeat", None)
+        if heartbeat is not None:
+            heartbeat.stop()
+    except Exception:
+        pass
+
+    for attr in ("_gui_event_logger",):
         flt = getattr(app, attr, None)
         if flt is not None:
             try:
                 app.removeEventFilter(flt)
             except Exception:
                 pass
+
+    # A model fetch still running waits for the page's ack (60 s) after its
+    # HTTP call; the page is going, so release it now, or it blocks on into
+    # interpreter shutdown
+    try:
+        from ofscraper.gui.utils.model_fetch import signal_ui_ack
+
+        signal_ui_ack()
+    except Exception as e:
+        log.debug(f"[GUI] model fetch release failed: {e}")
 
     try:
         from PyQt6.QtCore import QThreadPool
