@@ -1500,6 +1500,8 @@ If the window disappears or freezes (especially during model load while changing
 2. Turn on **Verbose Log** (sidebar) for a fuller session transcript next time.
 3. When reporting a crash, include the last ~30 lines of the breadcrumb file and your GUI patch id (sidebar version → About).
 
+Log files hide your login cookies, signed links and Discord webhook token (a webhook shows as `discord.com/api/webhooks/1234.../{hidden}`). Logs from before patch v505 can hold the full webhook address: if you shared one, make a new webhook in Discord and paste it into Configuration.
+
 In **Docker**, the same folder is on the mounted config volume. The entrypoint also appends GUI stdout/stderr to `logging/gui-docker.log` and **restarts** the GUI after exit (`GUI_RESTART_DELAY`). Open noVNC at port **6699**.
 
 <a id="troubleshooting-docker"></a>

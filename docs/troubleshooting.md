@@ -79,6 +79,8 @@ Diagnostic files are written under your OF-Scraper config folder:
 
 When reporting a problem, include the last ~30 breadcrumb lines and your GUI patch id. In Docker these files are on the mounted config volume.
 
+Log files hide your login cookies, signed links and Discord webhook token. A webhook shows as `discord.com/api/webhooks/1234.../{hidden}`: enough to tell which one was used. Logs written before GUI patch v505 can still hold the full webhook address. If you shared one, make a new webhook in Discord and paste it into Configuration.
+
 **Verbose Log** (bottom of the sidebar) shows every log level in the app and writes a separate verbose log file, which helps with harder problems.
 
 ## The window flashes or draws badly

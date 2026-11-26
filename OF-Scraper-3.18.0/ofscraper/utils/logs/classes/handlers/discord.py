@@ -150,6 +150,24 @@ def fetch_image(url):
     return (r.content, *found)
 
 
+def _safe(error) -> str:
+    """An error as text without secrets: httpx's message names the link it
+    failed on, which for Discord is the webhook with its token. print() goes
+    to the console (and the Docker log) without the log formatters."""
+    try:
+        import ofscraper.utils.logs.utils.sensitive as sensitive
+
+        text = str(error)
+        for pattern, replacement in sensitive.getSenstiveDict().items():
+            try:
+                text = re.sub(pattern, replacement, text)
+            except re.error:
+                pass
+        return text
+    except Exception:
+        return type(error).__name__
+
+
 def post_with_files(url, payload, files):
     """Post ``payload`` with ``files`` [(name, content, type)] as multipart;
     the status code, or None when it could not be sent."""
@@ -159,7 +177,7 @@ def post_with_files(url, payload, files):
         try:
             r = httpx.post(url, data=body, files=parts, timeout=IMAGE_TIMEOUT)
         except Exception as e:
-            print(f"Error sending a Discord message: {e}")
+            print(f"Error sending a Discord message: {_safe(e)}")
             return None
         if r.status_code != 429:
             return r.status_code
@@ -267,7 +285,7 @@ class DiscordHandler(logging.Handler):
                     if len("\n".join(pending)) >= MAX_MESSAGE:
                         self._flush(pending, images)
             except Exception as e:
-                print(f"Error preparing a Discord message: {e}")
+                print(f"Error preparing a Discord message: {_safe(e)}")
             finally:
                 self.queue.task_done()
 
@@ -357,7 +375,7 @@ class DiscordHandler(logging.Handler):
                 if response.status_code not in {200, 204}:
                     print(f"Discord message not sent: status {response.status_code}")
         except Exception as e:
-            print(f"Error sending a Discord message: {e}")
+            print(f"Error sending a Discord message: {_safe(e)}")
 
     # kept for callers of the old names
     def split_text_by_word_chunks(self, text):

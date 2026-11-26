@@ -11,7 +11,12 @@ pytestmark = pytest.mark.unit
 
 
 @pytest.fixture
-def privacy():
+def privacy(monkeypatch):
+    # values earlier tests registered: a user id of "1" turned every 1 in
+    # these lines into "userid", so this file failed after them in a full run
+    from ofscraper.utils.logs.utils import sensitive
+
+    monkeypatch.setattr(sensitive, "_USER_ADDED_PATTERNS", {})
     before = pm.is_privacy_mode()
     pm.set_privacy_mode(True, persist=False, emit=False)
     yield

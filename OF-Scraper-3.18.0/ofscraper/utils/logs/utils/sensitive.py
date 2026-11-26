@@ -11,6 +11,11 @@ _FANSLY_IDS = r"fansly-client-id|fansly-session-id"
 
 # --- Default Patterns (Regex or Plain Text) ---
 _DEFAULT_PATTERNS = {
+    # A Discord webhook link is its own password: anyone with the token can
+    # post to the channel. Keep enough to tell which webhook it was (the host
+    # and the first digits of its ID); the rest of the ID and the token go.
+    # discord.com, discordapp.com, ptb./canary. hosts and /api/v10/ forms.
+    r"(?i)((?:ptb\.|canary\.)?discord(?:app)?\.com/api/(?:v\d+/)?webhooks/)(\d{1,4})\d*/[\w.-]+": r"\g<1>\g<2>.../{hidden}",
     # Redacts API keys and session tokens (Fixed to stop at whitespace).
     # First in the query too: a DRM link gets them as separate params, so its
     # query starts with ?Policy=
