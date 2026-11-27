@@ -1,0 +1,342 @@
+"""Fansly REST calls used to list creators, posts, messages and purchases.
+
+Every call goes through an OF-Scraper session (``c.requests_async``), which
+adds the Fansly headers for ``apiv3.fansly.com``. Responses come wrapped in
+``{"success": true, "response": ...}``; these helpers return the payload.
+"""
+
+import logging
+
+from ofscraper.sites.fansly import address, constants, normalize
+from ofscraper.sites.fansly.me import unwrap
+
+log = logging.getLogger("shared")
+
+# the API host has four addresses: the first ask, then one per address
+ADDRESS_ASKS = 5
+ACCOUNT_IDS_BATCH = 5
+# one account/media call answers at most 100 ids and says nothing about the rest
+ACCOUNT_MEDIA_BATCH = 100
+FOLLOWING_LIMIT = 50
+GROUPS_LIMIT = 20
+MESSAGES_LIMIT = 25
+# safety stop for cursor paging that never runs dry
+MAX_PAGES = 10000
+# A Fansly id starts with the time it was made: the milliseconds since
+# ID_EPOCH (epoch seconds), above ID_TIME_SHIFT lower bits. The API takes any
+# such number as a ``before`` cursor, not only the id of a real post.
+ID_EPOCH = 1561494359
+ID_TIME_SHIFT = 22
+# An id's time was within a second of ``createdAt`` on every post and message
+# checked. What the slack lets in is newer than the date asked for and is
+# dropped by the date filters.
+BEFORE_SLACK = 60
+
+
+def _ids(values):
+    # comma-separated lists are sent with literal commas, like the web app
+    return ",".join(str(v) for v in values)
+
+
+def cursor_before(seconds):
+    """The ``before`` cursor that starts paging at a time (epoch seconds):
+    the lowest id an item made ``BEFORE_SLACK`` seconds after it can have.
+    A time before the first id gives "1" (nothing is older); "0" would ask
+    for the newest page."""
+    milliseconds = int((float(seconds) + BEFORE_SLACK - ID_EPOCH) * 1000)
+    return str(max(1, milliseconds << ID_TIME_SHIFT))
+
+
+async def get_json(c, path, asks=None):
+    """The payload of one API call.
+
+    A response whose links are signed for an address the CDN refuses (#683)
+    is asked for again from the API host's next address, up to
+    ``ADDRESS_ASKS`` times in all, or ``asks`` times. A call limited by
+    ``asks`` moves the address at most ``asks - 1`` times and then uses the
+    links as they are, without forgetting the refused ranges. The link
+    refresher asks once and decides about the address itself
+    (``next_address``).
+    """
+    url = constants.api_url(path)
+    limit = asks or ADDRESS_ASKS
+    for ask in range(limit):
+        async with c.requests_async(url=url) as r:
+            data = unwrap(await r.json_())
+        if await address.usable(c, data):
+            return data
+        log.debug(f"Fansly: links signed for another address (ask {ask + 1} of {limit})")
+        if asks and ask + 1 >= limit:
+            break
+        address.try_next_address(c, url)
+    log.debug("Fansly: still signed for another address, using the links as they are")
+    if not asks:
+        address.forget_refused()
+    return data
+
+
+# ------------------------------------------------------------------ accounts
+
+
+async def accounts_by_username(c, usernames):
+    usernames = [u for u in usernames if u]
+    if not usernames:
+        return []
+    return list(await get_json(c, f"account?usernames={_ids(usernames)}") or [])
+
+
+async def accounts_by_id(c, ids):
+    out = []
+    ids = [str(i) for i in ids]
+    for start in range(0, len(ids), ACCOUNT_IDS_BATCH):
+        batch = ids[start : start + ACCOUNT_IDS_BATCH]
+        out.extend(await get_json(c, f"account?ids={_ids(batch)}") or [])
+    return out
+
+
+async def following_ids(c, my_account_id, limit=None):
+    """Account ids the signed-in account follows (offset paging)."""
+    limit = limit or FOLLOWING_LIMIT
+    out = []
+    offset = 0
+    previous = None
+    for _ in range(MAX_PAGES):
+        page = await get_json(
+            c,
+            f"account/{my_account_id}/following?before=0&after=0&limit={limit}&offset={offset}",
+        )
+        page = page or []
+        ids = [str(x["accountId"]) for x in page if x.get("accountId")]
+        # a server that ignores offset returns the same page again
+        if ids and ids == previous:
+            break
+        previous = ids
+        out.extend(ids)
+        if len(page) < limit:
+            break
+        offset += limit
+    return out
+
+
+def next_address(c):
+    """Send the next API calls to the API host's next address."""
+    address.try_next_address(c, constants.api_url(""))
+
+
+# ------------------------------------------------------------------ media backfill
+
+
+async def account_media(c, ids, asks=None):
+    """Full accountMedia objects by accountMedia id, 100 per call (``asks``:
+    see ``get_json``)."""
+    out = []
+    ids = [str(i) for i in ids]
+    for start in range(0, len(ids), ACCOUNT_MEDIA_BATCH):
+        batch = ids[start : start + ACCOUNT_MEDIA_BATCH]
+        out.extend(await get_json(c, f"account/media?ids={_ids(batch)}", asks=asks) or [])
+    return out
+
+
+async def missing_media(c, response, report=None):
+    """accountMedia the response names but doesn't embed (bundles show only 5)."""
+    missing = normalize.missing_account_media_ids(response)
+    if not missing:
+        return []
+    log.debug(f"fetching {len(missing)} Fansly media the response left out")
+    found = await account_media(c, missing)
+    if len(found) < len(missing):
+        log.debug(f"Fansly returned {len(found)} of the {len(missing)} media asked for")
+    if report is not None:
+        report.backfill_asked += len(missing)
+        report.backfill_returned += len(found)
+    return found
+
+
+# ------------------------------------------------------------------ posts
+
+
+async def timeline(c, account_id, wall_id="", after=None):
+    """All timeline post dicts, newest first."""
+    return [
+        post
+        async for page in timeline_pages(c, account_id, wall_id=wall_id, after=after)
+        for post in page
+    ]
+
+
+async def timeline_pages(c, account_id, wall_id="", after=None, before=None, report=None):
+    """Timeline post dicts one page at a time, newest first.
+
+    The first page starts at the newest post, or with ``before`` (epoch
+    seconds) at the posts made up to then (``cursor_before``). Each later
+    page is asked for with the id of the last post of the page before it.
+    Paging stops on an empty page, or once a page reaches posts older than
+    ``after`` (epoch seconds). With ``wall_id``, only that wall's posts.
+    With ``report`` (a ``normalize.ScanReport``), what the pages held and
+    what couldn't be used is counted into it.
+    """
+    cursor = "0" if before is None else cursor_before(before)
+    for _ in range(MAX_PAGES):
+        response = await get_json(
+            c,
+            f"timelinenew/{account_id}?before={cursor}&after=0&wallId={wall_id}&contentSearch=",
+        )
+        response = response or {}
+        page = response.get("posts") or []
+        if not page:
+            return
+        yield normalize.posts(
+            response, await missing_media(c, response, report), report=report
+        )
+        last = str(page[-1]["id"])
+        if last == cursor:
+            return
+        cursor = last
+        oldest = normalize.to_seconds(page[-1].get("createdAt"))
+        if after is not None and oldest is not None and oldest < after:
+            return
+
+
+async def timeline_stats(c, account_id):
+    """The media counts Fansly shows on the profile, or None."""
+    accounts = await accounts_by_id(c, [account_id])
+    return (accounts[0] if accounts else {}).get("timelineStats") or None
+
+
+async def walls(c, account_id):
+    """The walls (profile tabs) of one account, from ``account?ids=``, and the
+    account's ``hasMainWall`` (None when it isn't given)."""
+    accounts = await accounts_by_id(c, [account_id])
+    account = accounts[0] if accounts else {}
+    return list(account.get("walls") or []), account.get("hasMainWall")
+
+
+async def posts_by_id(c, post_ids):
+    response = await get_json(c, f"post?ids={_ids(post_ids)}") or {}
+    return normalize.posts(response, await missing_media(c, response))
+
+
+# ------------------------------------------------------------------ messages
+
+
+async def groups(c, limit=None):
+    """Every page of ``messaging/groups`` (limit/offset paging)."""
+    limit = limit or GROUPS_LIMIT
+    pages = []
+    offset = 0
+    previous = None
+    for _ in range(MAX_PAGES):
+        page = await get_json(
+            c,
+            "messaging/groups?sortOrder=1&flags=0&subscriptionTierId=&listIds="
+            f"&search=&limit={limit}&offset={offset}",
+        )
+        page = page or {}
+        data = page.get("data") or []
+        ids = [str(x.get("groupId")) for x in data]
+        # a server that ignores offset returns the same page again
+        if ids and ids == previous:
+            break
+        previous = ids
+        pages.append(page)
+        if len(data) < limit:
+            break
+        offset += limit
+    return pages
+
+
+def group_id_for(pages, account_id):
+    """The conversation with one creator, from ``messaging/groups`` pages."""
+    account_id = str(account_id)
+    for page in pages:
+        for summary in page.get("data") or []:
+            if str(summary.get("partnerAccountId")) == account_id and summary.get("groupId"):
+                return str(summary["groupId"])
+        for group in (page.get("aggregationData") or {}).get("groups") or []:
+            users = {str(u.get("userId")) for u in group.get("users") or []}
+            if account_id in users and group.get("id"):
+                return str(group["id"])
+    return None
+
+
+async def messages(c, group_id, after=None):
+    """All message dicts of one conversation, newest first (``before`` cursor)."""
+    return [
+        message
+        async for page in messages_pages(c, group_id, after=after)
+        for message in page
+    ]
+
+
+async def messages_pages(c, group_id, after=None, before=None):
+    """Message dicts of one conversation one page at a time, newest first.
+
+    The first page starts at the newest message, or with ``before`` (epoch
+    seconds) at the messages made up to then (``cursor_before``). Each later
+    page is asked for with the id of the last message of the page before it.
+    Paging stops on an empty page, or once a page reaches messages older
+    than ``after`` (epoch seconds).
+    """
+    cursor = None if before is None else cursor_before(before)
+    for _ in range(MAX_PAGES):
+        path = f"message?groupId={group_id}&limit={MESSAGES_LIMIT}"
+        if cursor:
+            path += f"&before={cursor}"
+        response = await get_json(c, path) or {}
+        page = response.get("messages") or []
+        if not page:
+            return
+        yield normalize.messages(response, await missing_media(c, response))
+        last = str(page[-1]["id"])
+        if last == cursor:
+            return
+        cursor = last
+        oldest = normalize.to_seconds(page[-1].get("createdAt"))
+        if after is not None and oldest is not None and oldest < after:
+            return
+
+
+# ------------------------------------------------------------------ purchases
+
+
+async def _orders(c, account_id):
+    """The orders response, and one creator's purchase posts built from it."""
+    response = await get_json(c, "account/media/orders/?limit=9999&offset=0") or {}
+    return response, normalize.purchases(
+        response, account_id, await missing_media(c, response)
+    )
+
+
+async def purchases(c, account_id):
+    """Purchased media of one creator (``account/media/orders/``), one post each."""
+    return (await _orders(c, account_id))[1]
+
+
+async def purchase_pages(c, account_id):
+    """One creator's purchase posts in chunks of ``ACCOUNT_MEDIA_BATCH``.
+
+    The orders endpoint answers every purchase at once, so its links are all
+    signed at that moment. The first chunk is given as answered; each later
+    chunk's accountMedia is fetched again just before the chunk is given, so
+    its links are as new as the chunk. A post the new answer leaves out
+    keeps what the orders response gave.
+    """
+    response, found = await _orders(c, account_id)
+    orders = response.get("accountMediaOrders") or []
+    for start in range(0, len(found), ACCOUNT_MEDIA_BATCH):
+        chunk = found[start : start + ACCOUNT_MEDIA_BATCH]
+        if start:
+            ids = [str(post["id"]) for post in chunk]
+            wanted = set(ids)
+            rebuilt = normalize.purchases(
+                {
+                    "accountMediaOrders": [
+                        o for o in orders if str(o.get("accountMediaId")) in wanted
+                    ],
+                    "accountMedia": await account_media(c, ids),
+                },
+                account_id,
+            )
+            by_id = {post["id"]: post for post in rebuilt}
+            chunk = [by_id.get(post["id"], post) for post in chunk]
+        yield chunk

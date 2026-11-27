@@ -1,0 +1,2222 @@
+"""Fansly livestream recording: detection, ffmpeg recording, restarts, watch mode, chat.
+
+No request goes to Fansly. API answers are synthesised from the spec, and the
+"live" HLS stream is served by a local test server from segments ffmpeg makes.
+"""
+
+import asyncio
+import contextlib
+import http.server
+import json
+import pathlib
+import shutil
+import subprocess
+import threading
+from types import SimpleNamespace
+from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlparse
+from urllib.request import ProxyHandler, build_opener, urlopen
+
+import pytest
+
+import ofscraper.commands.scraper.scraper as scraper
+import ofscraper.managers.manager as manager
+import ofscraper.utils.paths.common as common_paths
+import ofscraper.utils.settings as settings
+import ofscraper.utils.system.ffmpeg as ffmpeg_finder
+from ofscraper.sites.fansly import auth as fansly_auth
+from ofscraper.sites.fansly import live, live_api, live_chat
+
+TOKEN = "a" * 60
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Gecko/20100101 Firefox/140.0"
+STARTED_MS = 1760000000123  # 2025-10-09 08:53:20 UTC
+STAMP = "20251009_085320"
+CREATOR_A = ("100000000000000101", "creator_a")
+CREATOR_B = ("100000000000000102", "creator_b")
+CREATOR_C = ("100000000000000103", "creator_c")
+
+# the local test server is plain http; the app allows https only
+LOCAL = ("http", "https")
+
+HAVE_FFMPEG = bool(shutil.which("ffmpeg") and shutil.which("ffprobe"))
+needs_ffmpeg = pytest.mark.skipif(not HAVE_FFMPEG, reason="ffmpeg/ffprobe not on PATH")
+
+
+# ------------------------------------------------------------------ synthetic API answers
+
+def online_response(*creators):
+    return {
+        "success": True,
+        "response": {
+            "streams": [
+                {"id": f"9{aid[1:]}", "channelId": f"8{aid[1:]}", "accountId": aid,
+                 "title": f"{name} stream", "status": 2, "viewerCount": 3,
+                 "startedAt": STARTED_MS}
+                for aid, name in creators
+            ],
+            "aggregationData": {
+                "accounts": [
+                    {"id": aid, "username": name,
+                     "streaming": {"accountId": aid, "enabled": True,
+                                   "channel": {"id": f"8{aid[1:]}", "accountId": aid, "status": 2}}}
+                    for aid, name in creators
+                ]
+            },
+        },
+    }
+
+
+def channel_response(aid, playback_url, status=2):
+    return {
+        "success": True,
+        "response": {
+            "id": f"8{aid[1:]}", "accountId": aid, "chatRoomId": f"7{aid[1:]}",
+            "playbackUrl": "https://example.invalid/unauthenticated.m3u8", "status": status,
+            "stream": {"id": f"9{aid[1:]}", "historyId": "1", "channelId": f"8{aid[1:]}",
+                       "accountId": aid, "title": "a stream", "status": status,
+                       "viewerCount": 3, "startedAt": STARTED_MS, "playbackUrl": playback_url},
+        },
+    }
+
+
+MASTER = """#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=900000,RESOLUTION=1280x720,CODECS="avc1.4d401f,mp4a.40.2"
+720p30/playlist.m3u8?vt=hi
+#EXT-X-STREAM-INF:BANDWIDTH=2500000,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2"
+https://cdn.example.invalid/v1/1080p60/playlist.m3u8?vt=best
+#EXT-X-STREAM-INF:BANDWIDTH=300000,RESOLUTION=640x360,CODECS="avc1.4d401e,mp4a.40.2"
+360p30/playlist.m3u8?vt=lo
+"""
+
+
+# ------------------------------------------------------------------ fakes for the app session
+
+class FakeResponse:
+    def __init__(self, body, status=200):
+        self.body = body
+        self.status_code = status
+
+    async def json_(self):
+        return self.body
+
+    async def text_(self):
+        return self.body if isinstance(self.body, str) else json.dumps(self.body)
+
+
+class FakeClient:
+    def __init__(self, routes):
+        self.routes = routes
+        self.calls = []
+
+    @contextlib.asynccontextmanager
+    async def requests_async(self, url=None, **kwargs):
+        self.calls.append((url, kwargs.get("actions")))
+        for prefix, answer in self.routes.items():
+            if url.startswith(prefix):
+                body = answer(url) if callable(answer) else answer
+                yield FakeResponse(body)
+                return
+        raise AssertionError(f"unexpected request {url}")
+
+
+@pytest.fixture
+def fansly_settings(monkeypatch, tmp_path):
+    def apply(**values):
+        real = settings.get_settings()
+        stub = SimpleNamespace(**{**dict(real), "site": "fansly", "usernames": None,
+                                  "excluded_username": None, "live": False, "live_watch": False,
+                                  "live_interval": None, "live_max": None, "live_chat": False,
+                                  "username_search": None, "userlist": None, "blacklist": None,
+                                  **values})
+        monkeypatch.setattr(settings, "get_settings", lambda: stub)
+        return stub
+
+    monkeypatch.setattr(fansly_auth, "read_auth",
+                        lambda path=None: {"authorization_token": TOKEN, "user_agent": UA})
+    monkeypatch.setattr(common_paths, "get_save_location", lambda config=None: str(tmp_path))
+    monkeypatch.setattr(ffmpeg_finder, "get_ffmpeg", lambda: "ffmpeg")
+    return apply
+
+
+def install_session(monkeypatch, client):
+    @contextlib.asynccontextmanager
+    async def aget_ofsession(*args, **kwargs):
+        yield client
+
+    monkeypatch.setattr(manager, "Manager",
+                        SimpleNamespace(session=SimpleNamespace(aget_ofsession=aget_ofsession)))
+
+
+# ------------------------------------------------------------------ DoD 1
+
+def test_selected_live_creator_gets_a_fresh_url_and_ffmpeg_on_the_best_variant(
+        monkeypatch, tmp_path, fansly_settings):
+    fansly_settings(live=True, usernames=("creator_a",))
+    order = []
+    tokens = iter(["tok1", "tok2"])
+
+    def channel(url):
+        order.append("channel")
+        return channel_response(CREATOR_A[0], f"https://live.example.invalid/a/master.m3u8?token={next(tokens)}")
+
+    def online(url):
+        order.append("online")
+        return online_response(CREATOR_A, CREATOR_B)
+
+    def playlist(url):
+        order.append(url)
+        if "master.m3u8" in url:
+            return MASTER
+        return "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2.0,\ns1.ts\n#EXT-X-ENDLIST\n"
+
+    client = FakeClient({
+        live_api.ONLINE_URL: online,
+        live_api.channel_url(CREATOR_A[0]): channel,
+        "https://live.example.invalid/": playlist,
+        "https://cdn.example.invalid/": playlist,
+    })
+    install_session(monkeypatch, client)
+    commands = []
+
+    async def fake_ffmpeg(cmd, stop=None):
+        order.append("ffmpeg")
+        commands.append(cmd)
+        with open(cmd[-1], "wb") as f:
+            f.write(b"\0" * 32)
+        return 0
+
+    monkeypatch.setattr(live, "run_ffmpeg", fake_ffmpeg)
+    monkeypatch.setattr(live_chat, "aiohttp_connect",
+                        lambda *a, **k: pytest.fail("chat must stay off by default"))
+
+    asyncio.run(live.run(watch=False))
+
+    # online first, then a fresh channel fetch right before the master playlist and ffmpeg
+    assert order[:4] == ["online", "channel",
+                         "https://live.example.invalid/a/master.m3u8?token=tok1", "ffmpeg"]
+    assert len(commands) == 1  # creator_b is live but not selected
+    cmd = commands[0]
+    assert cmd[0] == "ffmpeg"
+    assert cmd[cmd.index("-i") + 1] == "https://cdn.example.invalid/v1/1080p60/playlist.m3u8?vt=best"
+    assert cmd[cmd.index("-c") + 1] == "copy"
+    assert "Origin: https://fansly.com" in cmd[cmd.index("-headers") + 1]
+    expected = tmp_path / "Fansly" / "creator_a" / "Livestreams" / f"creator_a_{STAMP}_live.mp4"
+    assert cmd[-1] == str(expected)
+    sidecar = json.loads(expected.with_suffix(".json").read_text(encoding="utf-8"))
+    assert sidecar["streamId"] == f"9{CREATOR_A[0][1:]}"
+    assert sidecar["channelId"] == f"8{CREATOR_A[0][1:]}"
+    assert sidecar["parts"] == [expected.name]
+    assert sidecar["chat"] is None
+    # playlists went through the CDN routing (headers only: no signing, no cookies)
+    cdn_calls = [a for u, a in client.calls if "example.invalid" in u]
+    assert cdn_calls and all(a == ["create_header"] for a in cdn_calls)
+
+
+def test_master_playlist_parsing_picks_highest_bandwidth():
+    variants = live.parse_master(MASTER, "https://live.example.invalid/a/master.m3u8?token=x")
+    assert [v["bandwidth"] for v in variants] == [900000, 2500000, 300000]
+    assert variants[0]["uri"] == "https://live.example.invalid/a/720p30/playlist.m3u8?vt=hi"
+    assert live.pick_variant(variants)["uri"].endswith("1080p60/playlist.m3u8?vt=best")
+
+
+def test_selection_follows_usernames_and_exclusions():
+    online = live_api.parse_online(online_response(CREATOR_A, CREATOR_B, CREATOR_C))
+    assert [s["username"] for s in live.select_streams(online)] == ["creator_a", "creator_b", "creator_c"]
+    assert [s["username"] for s in live.select_streams(online, ["ALL"], ["creator_b"])] == ["creator_a", "creator_c"]
+    assert [s["username"] for s in live.select_streams(online, ["Creator_C"])] == ["creator_c"]
+
+
+def test_selection_matches_account_ids():
+    online = live_api.parse_online(online_response(CREATOR_A, CREATOR_B, CREATOR_C))
+    # -u <account id> selects that creator
+    assert [s["username"] for s in live.select_streams(online, [CREATOR_B[0]])] == ["creator_b"]
+    # -eu <account id> excludes it, with or without -u
+    assert [s["username"] for s in live.select_streams(online, None, [CREATOR_B[0]])] == ["creator_a", "creator_c"]
+    assert [s["username"] for s in live.select_streams(online, ["ALL"], [CREATOR_B[0]])] == ["creator_a", "creator_c"]
+    assert live.select_streams(online, [CREATOR_B[0]], [CREATOR_B[0]]) == []
+    # names and ids mixed
+    assert [s["username"] for s in live.select_streams(online, ["creator_a", CREATOR_C[0]])] == ["creator_a", "creator_c"]
+
+
+def test_selection_matches_an_id_the_api_sent_as_a_number():
+    online = live_api.parse_online({
+        "success": True,
+        "response": {
+            "streams": [{"id": 1, "channelId": 2, "accountId": 100000000000000104, "status": 2}],
+            "aggregationData": {"accounts": [{"id": 100000000000000104, "username": "creator_d"}]},
+        },
+    })
+    assert [s["username"] for s in live.select_streams(online, ["100000000000000104"])] == ["creator_d"]
+    assert live.select_streams(online, None, ["100000000000000104"]) == []
+    # an int on the stream entry itself compares the same
+    raw = [{"accountId": 100000000000000104, "username": "creator_d"}]
+    assert live.select_streams(raw, ["100000000000000104"]) == raw
+    assert live.select_streams(raw, None, ["100000000000000104"]) == []
+
+
+def test_selection_by_name_is_unchanged_for_mixed_case_names():
+    mixed = ("100000000000000105", "MixedCreator")
+    online = live_api.parse_online(online_response(CREATOR_A, mixed))
+    for name in ("mixedcreator", "MixedCreator", "MIXEDCREATOR"):
+        assert [s["username"] for s in live.select_streams(online, [name])] == ["MixedCreator"]
+        assert [s["username"] for s in live.select_streams(online, None, [name])] == ["creator_a"]
+    assert live.select_streams(online, ["nosuchcreator"]) == []
+
+
+@pytest.mark.parametrize("watch", [False, True], ids=["live", "live-watch"])
+def test_live_and_live_watch_record_a_creator_selected_by_account_id(
+        monkeypatch, tmp_path, fansly_settings, watch):
+    fansly_settings(live=not watch, live_watch=watch, usernames=(CREATOR_B[0],))
+    client = FakeClient({
+        live_api.ONLINE_URL: online_response(CREATOR_A, CREATOR_B),
+        live_api.channel_url(CREATOR_B[0]): channel_response(
+            CREATOR_B[0], "https://live.example.invalid/b/playlist.m3u8?token=t"),
+        "https://live.example.invalid/": "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2.0,\ns1.ts\n#EXT-X-ENDLIST\n",
+    })
+    install_session(monkeypatch, client)
+    recorded = []
+
+    async def main():
+        stop = asyncio.Event()
+
+        async def fake_ffmpeg(cmd, stop_event=None):
+            recorded.append(cmd[-1])
+            with open(cmd[-1], "wb") as f:
+                f.write(b"\0" * 32)
+            if watch:
+                stop.set()  # watch mode runs until stopped
+            return 0
+
+        monkeypatch.setattr(live, "run_ffmpeg", fake_ffmpeg)
+        await asyncio.wait_for(live.run(watch=watch, stop=stop), timeout=30)
+
+    asyncio.run(main())
+    assert len(recorded) == 1
+    assert pathlib.Path(recorded[0]).parent == tmp_path / "Fansly" / "creator_b" / "Livestreams"
+
+
+# ------------------------------------------------------------------ local live HLS server
+
+@pytest.fixture(scope="module")
+def segments(tmp_path_factory):
+    if not HAVE_FFMPEG:
+        pytest.skip("ffmpeg/ffprobe not on PATH")
+    folder = tmp_path_factory.mktemp("hls")
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error",
+         "-f", "lavfi", "-i", "testsrc=size=160x90:rate=10",
+         "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
+         "-t", "6", "-c:v", "libx264", "-g", "10", "-c:a", "aac",
+         "-f", "hls", "-hls_time", "1", "-hls_list_size", "0",
+         "-hls_segment_filename", str(folder / "seg%d.ts"), str(folder / "src.m3u8")],
+        check=True, timeout=120)
+    files = sorted(folder.glob("seg*.ts"), key=lambda p: int(p.stem[3:]))
+    return [p.read_bytes() for p in files]
+
+
+class LiveHLS:
+    """A growing live playlist: one more segment per reload, then ENDLIST.
+
+    ``valid`` holds the playback tokens the master accepts. A variant token
+    listed in ``expire_after`` answers 403 after that many reloads.
+    """
+
+    def __init__(self, segs, window=3):
+        self.segs = segs
+        self.window = window
+        self.published = 2
+        self.valid = set()
+        self.expire_after = {}
+        self.reloads = {}
+        self.log = []
+        self.lock = threading.Lock()
+        server = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def _send(self, code, body=b"", ctype="application/vnd.apple.mpegurl"):
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def do_GET(self):
+                code, body, ctype = server.answer(self.path, dict(self.headers))
+                self._send(code, body, ctype)
+
+        self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
+        self.thread.start()
+        self.base = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+
+    def close(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+    def master_url(self, token):
+        return f"{self.base}/live/master.m3u8?token={token}"
+
+    def _expired(self, vt):
+        limit = self.expire_after.get(vt)
+        return limit is not None and self.reloads.get(vt, 0) > limit
+
+    def answer(self, path, headers):
+        u = urlparse(path)
+        q = {k: v[0] for k, v in parse_qs(u.query).items()}
+        with self.lock:
+            self.log.append((u.path, q, headers.get("Origin")))
+            if u.path == "/live/master.m3u8":
+                token = q.get("token")
+                if token not in self.valid:
+                    return 403, b"", "text/plain"
+                body = ("#EXTM3U\n"
+                        "#EXT-X-STREAM-INF:BANDWIDTH=200000,RESOLUTION=160x90\n"
+                        f"low.m3u8?vt={token}\n"
+                        "#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=160x90\n"
+                        f"high.m3u8?vt={token}\n")
+                return 200, body.encode(), "application/vnd.apple.mpegurl"
+            if u.path in ("/live/high.m3u8", "/live/low.m3u8"):
+                vt = q.get("vt")
+                self.reloads[vt] = self.reloads.get(vt, 0) + 1
+                if vt not in self.valid or self._expired(vt):
+                    return 403, b"", "text/plain"
+                ended = self.published >= len(self.segs)
+                n = self.published
+                self.published = min(self.published + 1, len(self.segs))
+                first = max(0, n - self.window)
+                body = ("#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n"
+                        f"#EXT-X-MEDIA-SEQUENCE:{first}\n")
+                for i in range(first, n):
+                    body += f"#EXTINF:1.0,\nseg{i}.ts?vt={vt}\n"
+                if ended:
+                    body += "#EXT-X-ENDLIST\n"
+                return 200, body.encode(), "application/vnd.apple.mpegurl"
+            if u.path.startswith("/live/seg"):
+                vt = q.get("vt")
+                if vt not in self.valid or self._expired(vt):
+                    return 403, b"", "text/plain"
+                i = int(u.path[len("/live/seg"):-len(".ts")])
+                return 200, self.segs[i], "video/mp2t"
+            return 404, b"", "text/plain"
+
+
+@pytest.fixture
+def hls(segments):
+    server = LiveHLS(segments)
+    yield server
+    server.close()
+
+
+async def http_text(url):
+    def get():
+        try:
+            with urlopen(url, timeout=10) as r:
+                return r.read().decode()
+        except HTTPError as e:
+            # an HTTPError is an open response too; Python 3.14+ warns if it isn't closed
+            e.close()
+            raise
+
+    return await asyncio.to_thread(get)
+
+
+def channel_feed(server, tokens, live_until=None):
+    """fetch_channel: each call hands out the next fresh playback token."""
+    calls = []
+
+    async def fetch_channel():
+        calls.append(len(calls) + 1)
+        token = tokens[min(len(calls), len(tokens)) - 1]
+        server.valid.add(token)
+        status = 2 if live_until is None or len(calls) <= live_until else 0
+        return live_api.parse_channel(
+            channel_response(CREATOR_A[0], server.master_url(token), status=status))
+
+    return fetch_channel, calls
+
+
+def stream_a():
+    return live_api.parse_online(online_response(CREATOR_A))[0]
+
+
+def probe(path):
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_type:format=duration",
+         "-of", "json", str(path)], capture_output=True, text=True, timeout=60, check=True)
+    return json.loads(out.stdout)
+
+
+# ------------------------------------------------------------------ DoD 2
+
+@pytest.mark.slow
+@needs_ffmpeg
+def test_growing_live_playlist_then_endlist_gives_one_playable_mp4(hls, tmp_path):
+    fetch_channel, calls = channel_feed(hls, ["t1"])
+    rec = live.LiveRecorder(stream_a(), tmp_path, fetch_channel, http_text,
+                            ffmpeg="ffmpeg", backoff=(0, 0), schemes=LOCAL)
+    sidecar = asyncio.run(asyncio.wait_for(rec.run(), timeout=120))
+
+    folder = tmp_path / "Fansly" / "creator_a" / "Livestreams"
+    mp4 = folder / f"creator_a_{STAMP}_live.mp4"
+    assert sorted(p.name for p in folder.iterdir()) == sorted([mp4.name, f"creator_a_{STAMP}_live.json"])
+    info = probe(mp4)
+    assert {s["codec_type"] for s in info["streams"]} == {"video", "audio"}
+    assert float(info["format"]["duration"]) >= 5  # all six one-second segments
+    assert sidecar["parts"] == [mp4.name]
+    assert sidecar["endReason"] == "stream ended"
+    assert json.loads((folder / f"creator_a_{STAMP}_live.json").read_text(encoding="utf-8")) == sidecar
+    assert calls == [1]
+    # only the highest-bandwidth variant was recorded
+    assert not any(p == "/live/low.m3u8" for p, _, _ in hls.log)
+    # ffmpeg sends the browser Origin with its segment requests
+    seg_origins = {origin for p, _, origin in hls.log if p.startswith("/live/seg")}
+    assert seg_origins == {"https://fansly.com"}
+
+
+# ------------------------------------------------------------------ DoD 3
+
+@pytest.mark.slow
+@needs_ffmpeg
+def test_403_mid_stream_refreshes_the_url_and_continues_into_part2(hls, tmp_path):
+    hls.expire_after = {"t1": 2}  # the first token dies after two playlist reloads
+    fetch_channel, calls = channel_feed(hls, ["t1", "t2"])
+    rec = live.LiveRecorder(stream_a(), tmp_path, fetch_channel, http_text,
+                            ffmpeg="ffmpeg", backoff=(0, 0), schemes=LOCAL)
+    sidecar = asyncio.run(asyncio.wait_for(rec.run(), timeout=120))
+
+    folder = tmp_path / "Fansly" / "creator_a" / "Livestreams"
+    part1 = folder / f"creator_a_{STAMP}_live.mp4"
+    part2 = folder / f"creator_a_{STAMP}_live_part2.mp4"
+    assert calls == [1, 2]  # one refresh
+    assert sidecar["parts"] == [part1.name, part2.name]
+    assert sidecar["endReason"] == "stream ended"
+    for part in (part1, part2):
+        assert float(probe(part)["format"]["duration"]) > 0
+
+
+@pytest.mark.slow
+@needs_ffmpeg
+def test_repeated_403_after_refresh_stops_cleanly_at_the_limit(hls, tmp_path):
+    hls.expire_after = {"t1": 2}
+    fetch_channel, calls = channel_feed(hls, ["t1", "t2"])
+    hls.expire_after["t2"] = 0  # the fresh URL is refused too
+
+    rec = live.LiveRecorder(stream_a(), tmp_path, fetch_channel, http_text,
+                            ffmpeg="ffmpeg", backoff=(0, 0), schemes=LOCAL, max_failures=3)
+    sidecar = asyncio.run(asyncio.wait_for(rec.run(), timeout=120))
+
+    folder = tmp_path / "Fansly" / "creator_a" / "Livestreams"
+    assert calls == [1, 2, 3, 4]  # first start, then three refreshes that all fail
+    assert sidecar["parts"] == [f"creator_a_{STAMP}_live.mp4"]
+    assert sidecar["endReason"] == "stopped after 3 failed attempts"
+    # no empty part files are left behind
+    assert sorted(p.name for p in folder.glob("*.mp4")) == sidecar["parts"]
+
+
+def test_restart_logic_without_ffmpeg(tmp_path):
+    """Same rules with fakes: drop -> fresh URL -> part2; not live -> stop."""
+    urls = []
+
+    async def fetch_channel():
+        n = len(urls) + 1
+        urls.append(n)
+        return live_api.parse_channel(channel_response(
+            CREATOR_A[0], f"https://live.example.invalid/m.m3u8?token=t{n}", status=2 if n < 3 else 0))
+
+    async def fetch_text(url):
+        if "m.m3u8" in url:
+            return MASTER.replace("https://cdn.example.invalid/v1/", "")
+        raise live.PlaylistError("403")  # the variant is gone after each run
+
+    async def fake_ffmpeg(cmd, stop=None):
+        with open(cmd[-1], "wb") as f:
+            f.write(b"x")
+        return 0
+
+    rec = live.LiveRecorder(stream_a(), tmp_path, fetch_channel, fetch_text,
+                            ffmpeg_runner=fake_ffmpeg, backoff=(0, 0))
+    sidecar = asyncio.run(rec.run())
+    assert urls == [1, 2, 3]
+    assert sidecar["parts"] == [f"creator_a_{STAMP}_live.mp4", f"creator_a_{STAMP}_live_part2.mp4"]
+    assert sidecar["endReason"] == "not live"
+
+
+def test_backoff_is_bounded():
+    rec = live.LiveRecorder(stream_a(), ".", None, None, backoff=(2, 30))
+    assert [rec._backoff_delay(n) for n in (1, 2, 3, 4, 5, 9)] == [2, 4, 8, 16, 30, 30]
+
+
+# ------------------------------------------------------------------ DoD 4
+
+def test_watch_mode_records_at_most_the_limit_and_starts_the_next_when_one_ends():
+    streams = live_api.parse_online(online_response(CREATOR_A, CREATOR_B, CREATOR_C))
+
+    async def scenario():
+        stop = asyncio.Event()
+        release = {s["accountId"]: asyncio.Event() for s in streams}
+        started, running, peak = [], set(), [0]
+        polls = []
+
+        async def fetch_online():
+            polls.append(1)
+            return [s for s in streams if not release[s["accountId"]].is_set()]
+
+        async def record(stream, stop_event):
+            started.append(stream["username"])
+            running.add(stream["username"])
+            peak[0] = max(peak[0], len(running))
+            await release[stream["accountId"]].wait()
+            running.discard(stream["username"])
+
+        watcher = live.LiveWatcher(fetch_online, record, max_concurrent=2, interval=1000, jitter=0)
+        task = asyncio.ensure_future(watcher.run(stop))
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert started == ["creator_a", "creator_b"]
+        assert running == {"creator_a", "creator_b"}
+
+        release[streams[0]["accountId"]].set()  # creator_a's stream ends
+        for _ in range(20):
+            await asyncio.sleep(0)
+        assert started == ["creator_a", "creator_b", "creator_c"]  # no wait for the next poll
+        assert running == {"creator_b", "creator_c"}
+        assert len(polls) == 1
+
+        for e in release.values():
+            e.set()
+        stop.set()
+        await asyncio.wait_for(task, timeout=5)
+        return peak[0]
+
+    assert asyncio.run(scenario()) == 2
+
+
+def test_watch_mode_does_not_start_a_creator_twice():
+    streams = live_api.parse_online(online_response(CREATOR_A))
+
+    async def scenario():
+        stop = asyncio.Event()
+        started = []
+
+        async def record(stream, stop_event):
+            started.append(stream["username"])
+            await stop_event.wait()
+
+        async def fetch_online():
+            return streams
+
+        watcher = live.LiveWatcher(fetch_online, record, max_concurrent=2, interval=0.01, jitter=0)
+        task = asyncio.ensure_future(watcher.run(stop))
+        await asyncio.sleep(0.2)  # many polls while creator_a is still recording
+        stop.set()
+        await asyncio.wait_for(task, timeout=5)
+        return started
+
+    assert asyncio.run(scenario()) == ["creator_a"]
+
+
+def test_defaults_match_the_brief(fansly_settings):
+    fansly_settings()
+    opts = live.options()
+    assert (opts["interval"], opts["max_concurrent"], opts["chat"]) == (60, 2, False)
+    assert live.DEFAULT_JITTER > 0
+
+
+# ------------------------------------------------------------------ DoD 5
+
+class FakeSocket:
+    def __init__(self, incoming):
+        self.incoming = asyncio.Queue()
+        for frame in incoming:
+            self.incoming.put_nowait(frame)
+        self.sent = []
+        self.closed = False
+
+    async def send(self, frame):
+        self.sent.append(frame)
+
+    async def recv(self):
+        return await self.incoming.get()
+
+    async def close(self):
+        self.closed = True
+
+
+def service_event(service_id, event):
+    return json.dumps({"t": 10000, "d": json.dumps({"serviceId": service_id, "event": json.dumps(event)})})
+
+
+def chat_frames(room):
+    msg1 = {"chatRoomMessage": {"id": "1", "chatRoomId": room, "senderId": "5", "content": "hello"}}
+    msg2 = {"chatRoomMessage": {"id": "2", "chatRoomId": room, "senderId": "6", "content": "hi again"}}
+    other_room = {"chatRoomMessage": {"id": "3", "chatRoomId": "1", "content": "elsewhere"}}
+    return [
+        json.dumps({"t": 1, "d": json.dumps({"session": {"id": "1"}})}),
+        service_event(46, msg1),
+        service_event(45, {"stream": {"id": "1"}}),  # not chat
+        service_event(46, other_room),
+        json.dumps({"t": 10001, "d": json.dumps([json.loads(service_event(46, msg2))])}),
+        json.dumps({"t": 2, "d": "{}"}),
+    ]
+
+
+def test_chat_on_sends_only_auth_and_keepalive_and_writes_jsonl(tmp_path):
+    room = "700000000000000101"
+    out = tmp_path / "chat.jsonl"
+
+    async def scenario():
+        sock = FakeSocket(chat_frames(room))
+        stop = asyncio.Event()
+
+        async def connect():
+            return sock
+
+        chat = live_chat.ChatRecorder(connect, TOKEN, ping_interval=(0.01, 0.02))
+        task = asyncio.ensure_future(chat.run({"chatRoomId": room}, out, stop))
+        await asyncio.sleep(0.15)
+        stop.set()
+        sock.incoming.put_nowait(json.dumps({"t": 2, "d": "{}"}))
+        await asyncio.wait_for(task, timeout=5)
+        return sock
+
+    sock = asyncio.run(scenario())
+    auth = json.dumps({"t": 1, "d": json.dumps({"token": TOKEN, "v": 3})})
+    assert sock.sent[0] == auth
+    assert sock.sent.count(auth) == 1
+    assert set(sock.sent) == {auth, "p"}  # nothing else: no join, alerts, likes or tips
+    assert sock.closed
+    lines = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+    assert [line["chatRoomMessage"]["content"] for line in lines] == ["hello", "hi again"]
+
+
+def test_chat_refuses_any_other_frame():
+    async def scenario():
+        chat = live_chat.ChatRecorder(None, TOKEN)
+        chat.ws = FakeSocket([])
+        for frame in ['{"t":46001,"d":"{}"}', '{"t":1,"d":"{\\"token\\":\\"other\\",\\"v\\":3}"}', "x"]:
+            with pytest.raises(live_chat.ForbiddenFrame):
+                await chat._send(frame)
+        return chat.ws.sent
+
+    assert asyncio.run(scenario()) == []
+
+
+def test_chat_off_opens_no_socket_and_on_records_beside_the_video(tmp_path):
+    async def fetch_channel():
+        n = len(calls) + 1
+        calls.append(n)
+        return live_api.parse_channel(channel_response(
+            CREATOR_A[0], "https://live.example.invalid/m.m3u8?token=t", status=2 if n == 1 else 0))
+
+    async def fetch_text(url):
+        return "#EXTM3U\n#EXTINF:2.0,\ns.ts\n"
+
+    async def fake_ffmpeg(cmd, stop=None):
+        with open(cmd[-1], "wb") as f:
+            f.write(b"x")
+        return 0
+
+    # off: the recorder has no chat, so nothing can connect
+    calls = []
+    sidecar = asyncio.run(live.LiveRecorder(stream_a(), tmp_path / "off", fetch_channel, fetch_text,
+                                            ffmpeg_runner=fake_ffmpeg, backoff=(0, 0)).run())
+    assert sidecar["chat"] is None
+    assert not list((tmp_path / "off").rglob("*_chat.jsonl"))
+
+    # on: the chat socket runs beside the recording and lands next to it
+    calls = []
+    connects = []
+    sockets = []
+
+    async def connect():
+        connects.append(1)
+        sock = FakeSocket(chat_frames(f"7{CREATOR_A[0][1:]}"))
+        sockets.append(sock)
+        return sock
+
+    async def slow_ffmpeg(cmd, stop=None):
+        await asyncio.sleep(0.1)  # let chat frames arrive while "recording"
+        return await fake_ffmpeg(cmd, stop)
+
+    chat = live_chat.ChatRecorder(connect, TOKEN, ping_interval=(0.01, 0.02))
+    sidecar = asyncio.run(live.LiveRecorder(stream_a(), tmp_path / "on", fetch_channel, fetch_text,
+                                            ffmpeg_runner=slow_ffmpeg, backoff=(0, 0), chat=chat).run())
+    assert connects == [1]
+    chat_file = tmp_path / "on" / "Fansly" / "creator_a" / "Livestreams" / f"creator_a_{STAMP}_live_chat.jsonl"
+    assert sidecar["chat"] == chat_file.name
+    assert len(chat_file.read_text(encoding="utf-8").splitlines()) == 2
+    assert set(sockets[0].sent) <= {live_chat.auth_frame(TOKEN), "p"}
+
+
+# ------------------------------------------------------------------ wiring, and DoD 6 (OnlyFans)
+
+def test_live_options_parse_and_default_off():
+    import ofscraper.utils.args.parse.group_bundles.main as main_bundle  # noqa: F401
+    from ofscraper.utils.args.parse.arguments import automatic
+
+    names = {"live", "live_watch", "live_interval", "live_max", "live_chat"}
+    import click
+
+    @click.command()
+    @automatic.live_option
+    @automatic.live_watch_option
+    @automatic.live_interval_option
+    @automatic.live_max_option
+    @automatic.live_chat_option
+    def cmd(**kwargs):
+        cmd.result = kwargs
+
+    cmd.main([], standalone_mode=False)
+    assert set(cmd.result) == names
+    assert cmd.result == {"live": False, "live_watch": False, "live_interval": None,
+                          "live_max": None, "live_chat": False}
+    cmd.main(["--live-watch", "--live-interval", "30", "--live-max", "3", "--live-chat"],
+             standalone_mode=False)
+    assert cmd.result["live_watch"] and cmd.result["live_chat"]
+    assert (cmd.result["live_interval"], cmd.result["live_max"]) == (30, 3)
+
+
+def test_fansly_live_without_actions_records_instead_of_prompting(monkeypatch, fansly_settings):
+    fansly_settings(live=True)
+    seen = []
+    monkeypatch.setattr(settings, "get_args", lambda copy=False: SimpleNamespace(
+        daemon=None, actions=[], scrape_paid=False))
+    monkeypatch.setattr(scraper, "check_auth", lambda: seen.append("auth"))
+    monkeypatch.setattr(scraper, "process_prompts", lambda: seen.append("prompts"))
+    monkeypatch.setattr(live, "run_blocking", lambda watch, runner=None: seen.append(("live", watch)))
+    scraper.scrapper()
+    assert seen == ["auth", ("live", False)]
+
+
+def test_daemon_watch_runs_beside_the_scheduler(monkeypatch, fansly_settings):
+    fansly_settings(live_watch=True)
+    seen = []
+    monkeypatch.setattr(settings, "get_args", lambda copy=False: SimpleNamespace(
+        daemon=5.0, actions=[], scrape_paid=False))
+    monkeypatch.setattr(scraper.prompts, "action_prompt", lambda: seen.append("prompt"))
+    monkeypatch.setattr(scraper, "daemon_process", lambda: seen.append("daemon"))
+    scraper.scrapper()
+    assert seen == ["daemon"]  # no action prompt needed when watching for livestreams
+
+
+def test_live_thread_stops_cleanly():
+    async def runner(watch, stop):
+        await stop.wait()
+        runner.stopped = True
+
+    t = live.LiveThread(True, runner)
+    t.start()
+    t.stop(timeout=5)
+    # stop() returns once the recording has ended; the thread itself exits
+    # just after, so wait for that before checking it (#815)
+    t.join(5)
+    assert not t.is_alive() and runner.stopped
+
+
+def test_onlyfans_profile_records_livestreams_too(monkeypatch, fansly_settings):
+    fansly_settings(site="onlyfans", live=True)
+    seen = []
+    monkeypatch.setattr(settings, "get_args", lambda copy=False: SimpleNamespace(
+        daemon=None, actions=[], scrape_paid=False))
+    monkeypatch.setattr(scraper, "process_prompts", lambda: seen.append("prompts"))
+    monkeypatch.setattr(scraper, "check_auth", lambda: seen.append("auth"))
+    monkeypatch.setattr(live, "run_blocking", lambda watch, runner=None: seen.append(("live", watch)))
+    assert live.enabled() and live.once_enabled() and not live.watch_enabled()
+    scraper.scrapper()
+    assert seen == ["auth", ("live", False)]
+
+
+def test_run_on_an_onlyfans_profile_uses_the_onlyfans_recorder(monkeypatch, fansly_settings):
+    from ofscraper.sites.onlyfans import live as onlyfans_live
+
+    fansly_settings(site="onlyfans", live=True)
+    seen = []
+
+    async def onlyfans_run(watch, stop):
+        seen.append(watch)
+
+    monkeypatch.setattr(onlyfans_live, "run", onlyfans_run)
+    asyncio.run(live.run(False, asyncio.Event()))
+    assert seen == [False]
+
+
+# ------------------------------------------------------------------ review fixes
+
+def one_part_recorder(save_location, chat=None, playback="https://live.example.invalid/m.m3u8?token=t",
+                      variants=None, fail_first=False):
+    """A recorder whose stream is live for one part, then ends."""
+    calls = []
+    commands = []
+
+    async def fetch_channel():
+        calls.append(1)
+        if fail_first and len(calls) == 1:
+            raise live.PlaylistError("channel fetch failed")
+        live_now = len(calls) == (2 if fail_first else 1)
+        return live_api.parse_channel(channel_response(CREATOR_A[0], playback, status=2 if live_now else 0))
+
+    async def fetch_text(url):
+        if variants is not None and "m.m3u8" in url:
+            return variants
+        return "#EXTM3U\n#EXTINF:2.0,\ns.ts\n"
+
+    async def fake_ffmpeg(cmd, stop=None):
+        commands.append(cmd)
+        await asyncio.sleep(0.05)
+        with open(cmd[-1], "wb") as f:
+            f.write(b"x")
+        return 0
+
+    rec = live.LiveRecorder(stream_a(), save_location, fetch_channel, fetch_text,
+                            ffmpeg_runner=fake_ffmpeg, backoff=(0, 0), chat=chat)
+    return rec, commands
+
+
+def test_restart_mid_stream_keeps_the_earlier_parts_in_the_sidecar(tmp_path):
+    # first run records part 1; the app is then restarted while the same
+    # stream is still live and the second run records part 2
+    first, _ = one_part_recorder(tmp_path)
+    asyncio.run(first.run())
+    second, _ = one_part_recorder(tmp_path)
+    sidecar = asyncio.run(second.run())
+
+    folder = tmp_path / "Fansly" / "creator_a" / "Livestreams"
+    part1, part2 = f"creator_a_{STAMP}_live.mp4", f"creator_a_{STAMP}_live_part2.mp4"
+    assert sorted(p.name for p in folder.glob("*.mp4")) == [part1, part2]
+    assert sidecar["parts"] == [part1, part2]
+    on_disk = json.loads((folder / f"creator_a_{STAMP}_live.json").read_text(encoding="utf-8"))
+    assert on_disk["parts"] == [part1, part2]
+
+
+@pytest.mark.parametrize("other_bytes", [b"another recording", b""])
+def test_a_part_taken_by_another_process_is_never_used(tmp_path, monkeypatch, other_bytes):
+    # another app process creates part 1 between the free-name check and
+    # ffmpeg's start; that file must not be written, listed or deleted
+    folder = tmp_path / "Fansly" / "creator_a" / "Livestreams"
+    taken = folder / f"creator_a_{STAMP}_live.mp4"
+    real_next = live.next_part_number
+
+    def racing_next(base, *, started_at=None):
+        n = real_next(base, started_at=started_at)
+        folder.mkdir(parents=True, exist_ok=True)
+        if not taken.exists():
+            taken.write_bytes(other_bytes)
+        return n
+
+    monkeypatch.setattr(live, "next_part_number", racing_next)
+    rec, commands = one_part_recorder(tmp_path)
+    sidecar = asyncio.run(rec.run())
+
+    assert taken.exists() and taken.read_bytes() == other_bytes
+    assert taken.name not in sidecar["parts"]
+    assert sidecar["parts"] == [f"creator_a_{STAMP}_live_part2.mp4"]
+    assert all(str(taken) not in c for c in commands)
+
+
+def test_the_part_file_exists_before_ffmpeg_starts(tmp_path):
+    seen = []
+    rec, _ = one_part_recorder(tmp_path)
+    inner = rec.ffmpeg_runner
+
+    async def checking_ffmpeg(cmd, stop=None):
+        seen.append(live.pathlib.Path(cmd[-1]).exists())
+        return await inner(cmd, stop)
+
+    rec.ffmpeg_runner = checking_ffmpeg
+    asyncio.run(rec.run())
+    assert seen == [True]
+
+
+@pytest.mark.parametrize("how", ["ffmpeg_missing", "cancelled"])
+def test_reserved_part_is_removed_when_nothing_was_recorded(tmp_path, how):
+    folder = tmp_path / "Fansly" / "creator_a" / "Livestreams"
+    rec, _ = one_part_recorder(tmp_path)
+    started = []
+
+    async def broken_ffmpeg(cmd, stop=None):
+        started.append(live.pathlib.Path(cmd[-1]).exists())
+        if how == "ffmpeg_missing":
+            raise FileNotFoundError("ffmpeg")
+        await asyncio.Event().wait()
+
+    rec.ffmpeg_runner = broken_ffmpeg
+
+    async def main():
+        task = asyncio.ensure_future(rec.run())
+        if how == "cancelled":
+            while not started:
+                await asyncio.sleep(0.01)
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(asyncio.wait_for(main(), timeout=30))
+    assert started and started[0]  # a part file was reserved
+    assert list(folder.glob("*.mp4")) == []
+
+
+@pytest.mark.parametrize("how", ["raises", "cancelled"])
+def test_a_part_with_data_is_kept_when_the_runner_fails_afterwards(tmp_path, how):
+    # e.g. ffmpeg is slow to exit after a stop, the wait times out and it is
+    # killed: what it already wrote must be kept and listed
+    folder = tmp_path / "Fansly" / "creator_a" / "Livestreams"
+    rec, _ = one_part_recorder(tmp_path)
+    wrote = []
+
+    async def ffmpeg_then_fail(cmd, stop=None):
+        with open(cmd[-1], "wb") as f:
+            f.write(b"video")
+        wrote.append(cmd[-1])
+        if how == "raises":
+            raise TimeoutError("ffmpeg did not exit")
+        await asyncio.Event().wait()
+
+    rec.ffmpeg_runner = ffmpeg_then_fail
+
+    async def main():
+        task = asyncio.ensure_future(rec.run())
+        if how == "cancelled":
+            while not wrote:
+                await asyncio.sleep(0.01)
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(asyncio.wait_for(main(), timeout=30))
+    part = folder / f"creator_a_{STAMP}_live.mp4"
+    assert part.read_bytes() == b"video"
+    sidecar = json.loads((folder / f"creator_a_{STAMP}_live.json").read_text(encoding="utf-8"))
+    assert part.name in sidecar["parts"]
+
+
+def test_claim_is_released_only_once():
+    # a second release would drop a claim another thread made in between
+    released = []
+    real_release = live.release
+    stream = stream_a()
+
+    async def main():
+        stop, wake = asyncio.Event(), asyncio.Event()
+
+        async def record(s, stop_event):
+            return None
+
+        watcher = live.LiveWatcher(None, record, interval=1000, jitter=0)
+        live.release = lambda key: (released.append(key), real_release(key))
+        try:
+            assert watcher._start(stream, stop, wake)
+            await asyncio.gather(*watcher.active.values(), return_exceptions=True)
+            await asyncio.sleep(0)
+        finally:
+            live.release = real_release
+
+    asyncio.run(main())
+    assert released == [stream["accountId"]]
+
+
+def test_one_shot_run_and_watch_thread_never_record_the_same_creator_at_once():
+    stream = stream_a()
+    in_thread = threading.Event()
+    recorded = []
+
+    async def watch_runner(watch, stop):
+        async def record(s, stop_event):
+            recorded.append("watch")
+            in_thread.set()
+            await stop_event.wait()
+
+        async def fetch_online():
+            return [stream]
+
+        await live.LiveWatcher(fetch_online, record, interval=1000, jitter=0).run(stop)
+
+    async def one_shot():
+        async def record(s, stop_event):
+            recorded.append("one-shot")
+
+        async def fetch_online():
+            return [stream]
+
+        await live.LiveWatcher(fetch_online, record, once=True).run()
+
+    thread = live.LiveThread(True, watch_runner)  # the daemon's watch thread
+    thread.start()
+    try:
+        assert in_thread.wait(5)
+        asyncio.run(asyncio.wait_for(one_shot(), timeout=5))  # the scheduled --live run
+        assert recorded == ["watch"]
+    finally:
+        thread.stop(timeout=5)
+    thread.join(5)  # the thread exits just after stop() returns (#815)
+    assert not thread.is_alive()
+    # once the watch thread's recording ended, the creator can be recorded again
+    asyncio.run(asyncio.wait_for(one_shot(), timeout=5))
+    assert recorded == ["watch", "one-shot"]
+
+
+def test_claims_are_released_when_a_recording_fails():
+    async def scenario():
+        async def record(s, stop_event):
+            raise RuntimeError("boom")
+
+        async def fetch_online():
+            return [stream_a()]
+
+        await live.LiveWatcher(fetch_online, record, once=True).run()
+
+    asyncio.run(scenario())
+    assert live.claim(CREATOR_A[0])
+    live.release(CREATOR_A[0])
+
+
+def test_daemon_live_without_actions_skips_the_action_prompt(monkeypatch, fansly_settings):
+    fansly_settings(live=True)
+    seen = []
+    monkeypatch.setattr(settings, "get_args", lambda copy=False: SimpleNamespace(
+        daemon=5.0, actions=[], scrape_paid=False))
+    monkeypatch.setattr(scraper.prompts, "action_prompt", lambda: seen.append("prompt"))
+    monkeypatch.setattr(scraper, "daemon_process", lambda: seen.append("daemon"))
+    scraper.scrapper()
+    assert seen == ["daemon"]
+
+
+@pytest.fixture
+def clean_patterns(monkeypatch):
+    import ofscraper.utils.logs.utils.sensitive as sensitive
+
+    monkeypatch.setattr(sensitive, "_USER_ADDED_PATTERNS", {})
+    monkeypatch.setattr(sensitive.paths, "get_username", lambda: None)
+
+
+def test_playback_and_variant_tokens_are_masked_in_logs(tmp_path, clean_patterns):
+    from ofscraper.utils.logs.classes.classes import SensitiveFormatter
+
+    playback_token = "eyJhbGciOi.J+payload/part=="
+    variant_token = "vt0123456789abcdef"
+    master = ("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=900000\n"
+              f"https://cdn.example.invalid/v/playlist.m3u8?vt={variant_token}\n")
+    rec, _ = one_part_recorder(tmp_path, playback=f"https://live.example.invalid/m.m3u8?token={playback_token}",
+                               variants=master)
+    asyncio.run(rec.run())
+    line = SensitiveFormatter()._filter(
+        f"failed: https://live.example.invalid/m.m3u8?token={playback_token} "
+        f"and https://cdn.example.invalid/v/playlist.m3u8?vt={variant_token}")
+    assert playback_token not in line and variant_token not in line
+    assert "example.invalid/m.m3u8" in line  # the rest of the line stays readable
+
+
+def test_ffmpeg_error_text_is_logged_without_query_strings():
+    err = "[hls @ 0x1] HTTP error 403 Forbidden for 'https://cdn.example.invalid/v/seg1.ts?vt=secret123456'"
+    out = live.strip_queries(err)
+    assert "secret123456" not in out
+    assert "https://cdn.example.invalid/v/seg1.ts?{hidden}" in out
+
+
+def test_chat_starts_on_the_next_refresh_when_the_first_channel_fetch_fails(tmp_path):
+    connects = []
+
+    async def connect():
+        connects.append(1)
+        return FakeSocket([])
+
+    chat = live_chat.ChatRecorder(connect, TOKEN, ping_interval=(0.01, 0.02))
+    rec, commands = one_part_recorder(tmp_path, chat=chat, fail_first=True)
+    sidecar = asyncio.run(rec.run())
+    assert len(commands) == 1
+    assert connects == [1]
+    assert sidecar["chat"] == f"creator_a_{STAMP}_live_chat.jsonl"
+
+
+def test_only_https_variant_urls_reach_ffmpeg(tmp_path):
+    master = ("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=900000\n"
+              "file:///etc/passwd\n")
+    rec, commands = one_part_recorder(tmp_path, variants=master)
+    sidecar = asyncio.run(rec.run())
+    assert commands == []
+    assert sidecar["parts"] == []
+
+
+# ------------------------------------------------------------------ search & logging
+
+def test_fansly_individual_search_queries_target_channel_without_following_list(
+    monkeypatch, fansly_settings
+):
+    from ofscraper.sites.fansly import constants
+
+    fansly_settings(
+        live=True,
+        usernames=("creator_a",),
+        excluded_username=[],
+        username_search="individual",
+    )
+
+    def playlist(url):
+        if "master.m3u8" in url:
+            return MASTER
+        return "#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2.0,\ns1.ts\n#EXT-X-ENDLIST\n"
+
+    client = FakeClient({
+        constants.api_url("account?usernames=creator_a"): {
+            "success": True,
+            "response": [{"id": CREATOR_A[0], "username": CREATOR_A[1]}],
+        },
+        live_api.channel_url(CREATOR_A[0]): channel_response(
+            CREATOR_A[0], "https://live.example.invalid/a/master.m3u8?token=tok1"
+        ),
+        "https://live.example.invalid/": playlist,
+        "https://cdn.example.invalid/": playlist,
+    })
+    install_session(monkeypatch, client)
+
+    recorded = []
+
+    async def fake_ffmpeg(cmd, stop=None):
+        recorded.append(cmd[-1])
+        with open(cmd[-1], "wb") as f:
+            f.write(b"\0" * 32)
+        return 0
+
+    monkeypatch.setattr(live, "run_ffmpeg", fake_ffmpeg)
+    asyncio.run(live.run(watch=False))
+
+    assert len(recorded) == 1
+    assert not any(u == live_api.ONLINE_URL for u, _ in client.calls)
+
+@pytest.mark.parametrize("search_mode", ["individual", None])
+def test_numeric_username_and_account_id_keep_both_targets(monkeypatch, fansly_settings, search_mode):
+    from ofscraper.sites.fansly import api, constants
+
+    numeric = CREATOR_B[0]
+    fansly_settings(live=True, usernames=(numeric, CREATOR_B[1]), username_search=search_mode)
+    client = FakeClient({
+        constants.api_url(f"account?usernames={numeric},{CREATOR_B[1]}"): {"success": True, "response": [
+            {"id": CREATOR_A[0], "username": numeric},
+            {"id": CREATOR_B[0], "username": CREATOR_B[1]},
+        ]},
+        constants.api_url(f"account?ids={numeric}"): {"success": True, "response": [
+            {"id": CREATOR_B[0], "username": CREATOR_B[1]},
+        ]},
+        live_api.ONLINE_URL: online_response(),
+        live_api.channel_url(CREATOR_A[0]): channel_response(CREATOR_A[0], ""),
+        live_api.channel_url(CREATOR_B[0]): channel_response(CREATOR_B[0], ""),
+    })
+    install_session(monkeypatch, client)
+
+    async def following(*args):
+        return []
+
+    monkeypatch.setattr(api, "following_ids", following)
+    polls = []
+
+    async def poll_twice(watcher, stop=None):
+        for _ in range(2):
+            polls.append(await watcher.fetch_online())
+
+    monkeypatch.setattr(live.LiveWatcher, "run", poll_twice)
+    asyncio.run(live.run(watch=False))
+    assert [[s["accountId"] for s in poll] for poll in polls] == [
+        [CREATOR_A[0], CREATOR_B[0]], [CREATOR_A[0], CREATOR_B[0]],
+    ]
+
+
+def test_fansly_list_search_ignores_unfollowed_usernames(monkeypatch, fansly_settings):
+    from ofscraper.sites.fansly import api as fansly_api
+
+    fansly_settings(live=True, usernames=("creator_c",), username_search="list")
+
+    async def fail_lookup(c, usernames):
+        pytest.fail("accounts_by_username should not run in -fl list mode")
+
+    monkeypatch.setattr(fansly_api, "accounts_by_username", fail_lookup)
+
+    client = FakeClient({
+        live_api.ONLINE_URL: online_response(CREATOR_A, CREATOR_B),
+    })
+    install_session(monkeypatch, client)
+    monkeypatch.setattr(live, "run_ffmpeg", lambda *a, **k: pytest.fail("nothing should record"))
+
+    asyncio.run(live.run(watch=False))
+    assert [u for u, _ in client.calls] == [live_api.ONLINE_URL]
+
+
+def test_fansly_auto_fallback_resolves_unfollowed_target_once_across_polls(
+    monkeypatch, fansly_settings
+):
+    from ofscraper.sites.fansly import api as fansly_api
+
+    fansly_settings(live_watch=True, usernames=("creator_c",), username_search=None)
+    lookup_calls = []
+
+    async def fake_by_username(c, usernames):
+        lookup_calls.append(list(usernames))
+        return [{"id": CREATOR_C[0], "username": CREATOR_C[1]}]
+
+    monkeypatch.setattr(fansly_api, "accounts_by_username", fake_by_username)
+
+    polls = 0
+    stop = asyncio.Event()
+
+    def channel(url):
+        nonlocal polls
+        polls += 1
+        if polls >= 3:
+            stop.set()
+        return channel_response(CREATOR_C[0], "", status=0)
+
+    client = FakeClient({
+        live_api.ONLINE_URL: online_response(CREATOR_A),
+        live_api.channel_url(CREATOR_C[0]): channel,
+    })
+    install_session(monkeypatch, client)
+
+    class FastWatcher(live.LiveWatcher):
+        def __init__(self, fetch_online, record, **kwargs):
+            super().__init__(
+                fetch_online,
+                record,
+                max_concurrent=kwargs.get("max_concurrent", 2),
+                interval=0.01,
+                jitter=0,
+                once=kwargs.get("once", False),
+            )
+
+    monkeypatch.setattr(live, "LiveWatcher", FastWatcher)
+    asyncio.run(asyncio.wait_for(live.run(watch=True, stop=stop), timeout=5))
+
+    assert lookup_calls == [["creator_c"]]
+    assert polls == 3
+
+def test_fansly_auto_fallback_asks_for_the_following_list_again_after_a_failure(
+    monkeypatch, fansly_settings
+):
+    from ofscraper.sites.fansly import api as fansly_api
+
+    fansly_settings(live_watch=True, usernames=("creator_b",), username_search=None)
+    following_calls = []
+    channel_calls = []
+
+    async def fake_by_username(c, usernames):
+        return [{"id": CREATOR_B[0], "username": CREATOR_B[1]}]
+
+    async def fake_following_ids(c, user_id):
+        following_calls.append(1)
+        if len(following_calls) == 1:
+            raise RuntimeError("following list unavailable")
+        return [CREATOR_A[0], CREATOR_B[0]]  # creator_b is followed
+
+    import ofscraper.utils.me as me_util
+
+    monkeypatch.setattr(me_util, "get_id", lambda: "999", raising=False)
+    monkeypatch.setattr(fansly_api, "accounts_by_username", fake_by_username)
+    monkeypatch.setattr(fansly_api, "following_ids", fake_following_ids)
+
+    polls = 0
+    stop = asyncio.Event()
+
+    def online(url):
+        nonlocal polls
+        polls += 1
+        if polls >= 4:
+            stop.set()
+        return online_response(CREATOR_A)
+
+    def channel_b(url):
+        channel_calls.append("creator_b")
+        return channel_response(CREATOR_B[0], "", status=0)
+
+    client = FakeClient({
+        live_api.ONLINE_URL: online,
+        live_api.channel_url(CREATOR_B[0]): channel_b,
+    })
+    install_session(monkeypatch, client)
+
+    class FastWatcher(live.LiveWatcher):
+        def __init__(self, fetch_online, record, **kwargs):
+            super().__init__(
+                fetch_online,
+                record,
+                max_concurrent=kwargs.get("max_concurrent", 2),
+                interval=0.01,
+                jitter=0,
+                once=kwargs.get("once", False),
+            )
+
+    monkeypatch.setattr(live, "LiveWatcher", FastWatcher)
+    asyncio.run(asyncio.wait_for(live.run(watch=True, stop=stop), timeout=5))
+
+    # the failed first fetch is tried again; once creator_b shows as followed,
+    # the online list covers it and its channel isn't asked any more
+    assert len(following_calls) == 2
+    assert channel_calls == ["creator_b"]
+
+
+def fast_watcher(base):
+    """``base`` (LiveWatcher) polling every 10 ms, for watch-mode tests."""
+
+    class Fast(base):
+        def __init__(self, fetch_online, record, **kwargs):
+            super().__init__(fetch_online, record, max_concurrent=kwargs.get("max_concurrent", 2),
+                             interval=0.01, jitter=0, once=kwargs.get("once", False))
+
+    return Fast
+
+
+def test_fansly_a_name_the_lookup_missed_is_looked_up_again(monkeypatch, fansly_settings):
+    from ofscraper.sites.fansly import api as fansly_api
+
+    fansly_settings(live_watch=True, usernames=("creator_c",), username_search=None)
+    lookups = []
+
+    async def fake_by_username(c, usernames):
+        lookups.append(list(usernames))
+        # empty the first time (a one-off), found after that
+        return [] if len(lookups) == 1 else [{"id": CREATOR_C[0], "username": CREATOR_C[1]}]
+
+    async def fake_following_ids(c, user_id):
+        return [CREATOR_A[0]]
+
+    import ofscraper.utils.me as me_util
+
+    monkeypatch.setattr(me_util, "get_id", lambda: "999", raising=False)
+    monkeypatch.setattr(fansly_api, "accounts_by_username", fake_by_username)
+    monkeypatch.setattr(fansly_api, "following_ids", fake_following_ids)
+    polls, channel_calls = 0, []
+    stop = asyncio.Event()
+
+    def online(url):
+        nonlocal polls
+        polls += 1
+        if polls >= 4:
+            stop.set()
+        return online_response(CREATOR_A)
+
+    def channel_c(url):
+        channel_calls.append(1)
+        return channel_response(CREATOR_C[0], "", status=0)
+
+    install_session(monkeypatch, FakeClient({
+        live_api.ONLINE_URL: online,
+        live_api.channel_url(CREATOR_C[0]): channel_c,
+    }))
+    monkeypatch.setattr(live, "LiveWatcher", fast_watcher(live.LiveWatcher))
+    asyncio.run(asyncio.wait_for(live.run(watch=True, stop=stop), timeout=5))
+    assert len(lookups) == 2  # missed once, found on the next poll, then cached
+    assert channel_calls  # and checked once found
+
+
+def test_fansly_a_creator_the_filter_lookup_missed_is_checked_again(monkeypatch, fansly_settings):
+    from ofscraper.managers.model import ModelManager
+    from ofscraper.sites.fansly import api as fansly_api
+
+    fansly_settings(live_watch=True, usernames=None, promo=False)
+    lookups = []
+
+    async def fake_by_username(c, usernames):
+        lookups.append(list(usernames))
+        return [] if len(lookups) == 1 else [{"id": CREATOR_A[0], "username": CREATOR_A[1]}]
+
+    monkeypatch.setattr(fansly_api, "accounts_by_username", fake_by_username)
+    monkeypatch.setattr(ModelManager, "filter_models", lambda self, models: list(models))
+    polls = 0
+    stop = asyncio.Event()
+
+    def online(url):
+        nonlocal polls
+        polls += 1
+        if polls >= 3:
+            stop.set()
+        return online_response(CREATOR_A)
+
+    install_session(monkeypatch, FakeClient({live_api.ONLINE_URL: online}))
+    recorded = []
+
+    class FakeRecorder:
+        def __init__(self, stream, *args, **kwargs):
+            self.stream = stream
+
+        async def run(self, stop_event):
+            recorded.append(self.stream["username"])
+            await stop_event.wait()
+
+    monkeypatch.setattr(live, "LiveRecorder", FakeRecorder)
+    monkeypatch.setattr(live, "LiveWatcher", fast_watcher(live.LiveWatcher))
+    asyncio.run(asyncio.wait_for(live.run(watch=True, stop=stop), timeout=5))
+    assert recorded == ["creator_a"]
+
+
+def test_fansly_lists_choose_nobody_and_say_so(monkeypatch, fansly_settings, caplog):
+    from ofscraper.sites.fansly import api as fansly_api
+
+    fansly_settings(live=True, usernames=None, userlist=["vip"], blacklist=["blocked"])
+
+    async def no_lookup(c, usernames):
+        pytest.fail("a list option made Fansly look creators up as a filter")
+
+    monkeypatch.setattr(fansly_api, "accounts_by_username", no_lookup)
+    install_session(monkeypatch, FakeClient({live_api.ONLINE_URL: lambda url: online_response(CREATOR_A)}))
+    recorded = []
+
+    class FakeRecorder:
+        def __init__(self, stream, *args, **kwargs):
+            self.stream = stream
+
+        async def run(self, stop_event):
+            recorded.append(self.stream["username"])
+
+    monkeypatch.setattr(live, "LiveRecorder", FakeRecorder)
+    with caplog.at_level("WARNING", logger="shared"):
+        asyncio.run(asyncio.wait_for(live.run(watch=False, stop=asyncio.Event()), timeout=5))
+    assert recorded == ["creator_a"]
+    assert caplog.text.count("don't apply to Fansly livestreams") == 1
+
+
+def test_a_failed_fallback_lookup_keeps_the_followed_live_creators(monkeypatch, fansly_settings, caplog):
+    from ofscraper.sites.fansly import api as fansly_api
+
+    fansly_settings(live=True, usernames=("creator_a", "creator_c"), username_search=None)
+
+    async def failing_lookup(c, usernames):
+        raise RuntimeError("lookup failed")
+
+    monkeypatch.setattr(fansly_api, "accounts_by_username", failing_lookup)
+    install_session(monkeypatch, FakeClient({live_api.ONLINE_URL: online_response(CREATOR_A)}))
+    recorded = []
+
+    class FakeRecorder:
+        def __init__(self, stream, *args, **kwargs):
+            self.stream = stream
+
+        async def run(self, stop_event):
+            recorded.append(self.stream["username"])
+
+    monkeypatch.setattr(live, "LiveRecorder", FakeRecorder)
+    with caplog.at_level("WARNING", logger="shared"):
+        asyncio.run(live.run(watch=False))
+    assert recorded == ["creator_a"]
+    assert "lookup failed" in caplog.text
+
+
+def test_a_failed_channel_check_keeps_the_other_live_creators(monkeypatch, fansly_settings, caplog):
+    from ofscraper.sites.fansly import api as fansly_api
+
+    fansly_settings(live=True, usernames=("creator_a", "creator_c"), username_search=None)
+
+    async def fake_by_username(c, usernames):
+        return [{"id": CREATOR_C[0], "username": CREATOR_C[1]}]
+
+    async def fake_following_ids(c, user_id):
+        return [CREATOR_A[0]]  # creator_c isn't followed, so its channel is asked
+
+    import ofscraper.utils.me as me_util
+
+    monkeypatch.setattr(me_util, "get_id", lambda: "999", raising=False)
+    monkeypatch.setattr(fansly_api, "accounts_by_username", fake_by_username)
+    monkeypatch.setattr(fansly_api, "following_ids", fake_following_ids)
+
+    def channel_c(url):
+        raise RuntimeError("channel check failed")
+
+    install_session(monkeypatch, FakeClient({
+        live_api.ONLINE_URL: online_response(CREATOR_A),
+        live_api.channel_url(CREATOR_C[0]): channel_c,
+    }))
+    recorded = []
+
+    class FakeRecorder:
+        def __init__(self, stream, *args, **kwargs):
+            self.stream = stream
+
+        async def run(self, stop_event):
+            recorded.append(self.stream["username"])
+
+    monkeypatch.setattr(live, "LiveRecorder", FakeRecorder)
+    with caplog.at_level("WARNING", logger="shared"):
+        asyncio.run(live.run(watch=False))
+    assert recorded == ["creator_a"]
+    assert "live check failed for 1 creator(s): channel check failed" in caplog.text
+
+
+def test_fansly_auto_fallback_skips_channel_polls_for_followed_offline_creators(
+    monkeypatch, fansly_settings
+):
+    from ofscraper.sites.fansly import api as fansly_api
+
+    fansly_settings(live_watch=True, usernames=("creator_b", "creator_c"), username_search=None)
+    lookup_calls = []
+    channel_calls = []
+
+    async def fake_by_username(c, usernames):
+        lookup_calls.append(list(usernames))
+        return [
+            {"id": CREATOR_B[0], "username": CREATOR_B[1]},
+            {"id": CREATOR_C[0], "username": CREATOR_C[1]},
+        ]
+
+    async def fake_following_ids(c, user_id):
+        return [CREATOR_A[0], CREATOR_B[0]]  # creator_b is followed, creator_c is not
+
+    import ofscraper.utils.me as me_util
+
+    monkeypatch.setattr(me_util, "get_id", lambda: "999", raising=False)
+    monkeypatch.setattr(fansly_api, "accounts_by_username", fake_by_username)
+    monkeypatch.setattr(fansly_api, "following_ids", fake_following_ids)
+
+    polls = 0
+    stop = asyncio.Event()
+
+    def online(url):
+        nonlocal polls
+        polls += 1
+        if polls >= 3:
+            stop.set()
+        return online_response(CREATOR_A)
+
+    def channel_c(url):
+        channel_calls.append("creator_c")
+        return channel_response(CREATOR_C[0], "", status=0)
+
+    def channel_b(url):
+        pytest.fail("followed offline creator_b should not be polled via get_channel")
+
+    client = FakeClient({
+        live_api.ONLINE_URL: online,
+        live_api.channel_url(CREATOR_B[0]): channel_b,
+        live_api.channel_url(CREATOR_C[0]): channel_c,
+    })
+    install_session(monkeypatch, client)
+
+    class FastWatcher(live.LiveWatcher):
+        def __init__(self, fetch_online, record, **kwargs):
+            super().__init__(
+                fetch_online,
+                record,
+                max_concurrent=kwargs.get("max_concurrent", 2),
+                interval=0.01,
+                jitter=0,
+                once=kwargs.get("once", False),
+            )
+
+    monkeypatch.setattr(live, "LiveWatcher", FastWatcher)
+    asyncio.run(asyncio.wait_for(live.run(watch=True, stop=stop), timeout=5))
+
+    assert lookup_calls == [["creator_b", "creator_c"]]
+    assert channel_calls == ["creator_c", "creator_c", "creator_c"]
+
+
+def test_fansly_unresolved_individual_target_warns_only_once(
+    monkeypatch, fansly_settings, caplog
+):
+    from ofscraper.sites.fansly import api as fansly_api
+
+    fansly_settings(live_watch=True, usernames=("missing_user",), username_search="individual")
+
+    async def fake_by_username(c, usernames):
+        return []
+
+    monkeypatch.setattr(fansly_api, "accounts_by_username", fake_by_username)
+    install_session(monkeypatch, FakeClient({}))
+    
+    polls = 0
+    stop = asyncio.Event()
+
+    class FastWatcher(live.LiveWatcher):
+        def __init__(self, fetch_online, record, **kwargs):
+            async def wrapped_fetch():
+                nonlocal polls
+                polls += 1
+                res = await fetch_online()
+                if polls >= 3:
+                    stop.set()
+                return res
+
+            super().__init__(
+                wrapped_fetch,
+                record,
+                max_concurrent=kwargs.get("max_concurrent", 2),
+                interval=0.01,
+                jitter=0,
+                once=kwargs.get("once", False),
+            )
+
+    monkeypatch.setattr(live, "LiveWatcher", FastWatcher)
+
+    with caplog.at_level("WARNING", logger="shared"):
+        asyncio.run(asyncio.wait_for(live.run(watch=True, stop=stop), timeout=5))
+
+    warnings = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelname == "WARNING" and "No matching creators found" in r.getMessage()
+    ]
+    assert warnings == ["No matching creators found to check for livestreams."]
+
+
+def test_fansly_live_now_does_not_repeat_while_queued(monkeypatch, fansly_settings, caplog):
+    fansly_settings(live_watch=True, live_max=1)
+    polls = 0
+    stop = asyncio.Event()
+    started = threading.Event()
+    finish = threading.Event()
+
+    def online(url):
+        nonlocal polls
+        polls += 1
+        if polls >= 3:
+            stop.set()
+        return online_response(CREATOR_A, CREATOR_B)
+
+    def channel(aid):
+        return lambda url: channel_response(aid, "https://live.example.invalid/m.m3u8?token=t")
+
+    client = FakeClient({
+        live_api.ONLINE_URL: online,
+        live_api.channel_url(CREATOR_A[0]): channel(CREATOR_A[0]),
+        live_api.channel_url(CREATOR_B[0]): channel(CREATOR_B[0]),
+        "https://live.example.invalid/": "#EXTM3U\n#EXTINF:2.0,\ns.ts\n#EXT-X-ENDLIST\n",
+    })
+    install_session(monkeypatch, client)
+
+    async def fake_ffmpeg(cmd, stop_event=None):
+        started.set()
+        await asyncio.to_thread(finish.wait, 5)
+        with open(cmd[-1], "wb") as f:
+            f.write(b"x")
+        return 0
+
+    monkeypatch.setattr(live, "run_ffmpeg", fake_ffmpeg)
+
+    class FastWatcher(live.LiveWatcher):
+        def __init__(self, fetch_online, record, **kwargs):
+            super().__init__(
+                fetch_online,
+                record,
+                max_concurrent=kwargs.get("max_concurrent", 2),
+                interval=0.01,
+                jitter=0,
+                once=kwargs.get("once", False),
+            )
+
+    monkeypatch.setattr(live, "LiveWatcher", FastWatcher)
+
+    async def main():
+        task = asyncio.ensure_future(live.run(watch=True, stop=stop))
+        await asyncio.to_thread(started.wait, 5)
+        await asyncio.sleep(0.05)
+        finish.set()
+        await asyncio.wait_for(task, timeout=5)
+
+    with caplog.at_level("INFO", logger="shared"):
+        asyncio.run(main())
+
+    live_logs = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelname == "INFO" and r.getMessage().startswith("Live now")
+    ]
+    assert live_logs == ["Live now (2): creator_a, creator_b"]
+
+
+def test_fansly_failed_polls_warn_once_per_failure_streak(monkeypatch, fansly_settings, caplog):
+    fansly_settings(live_watch=True)
+    outcomes = iter([
+        RuntimeError("network down"),
+        RuntimeError("network down"),
+        online_response(),
+        RuntimeError("network down again"),
+    ])
+    stop = asyncio.Event()
+
+    def online(url):
+        try:
+            item = next(outcomes)
+        except StopIteration:
+            stop.set()
+            return online_response()
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    install_session(monkeypatch, FakeClient({live_api.ONLINE_URL: online}))
+
+    class FastWatcher(live.LiveWatcher):
+        def __init__(self, fetch_online, record, **kwargs):
+            super().__init__(
+                fetch_online,
+                record,
+                max_concurrent=kwargs.get("max_concurrent", 2),
+                interval=0.01,
+                jitter=0,
+                once=kwargs.get("once", False),
+            )
+
+    monkeypatch.setattr(live, "LiveWatcher", FastWatcher)
+
+    with caplog.at_level("WARNING", logger="shared"):
+        asyncio.run(asyncio.wait_for(live.run(watch=True, stop=stop), timeout=5))
+
+    warnings = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelname == "WARNING" and "Fansly livestream check failed:" in r.getMessage()
+    ]
+    assert warnings == [
+        "Fansly livestream check failed: network down",
+        "Fansly livestream check failed: network down again",
+    ]
+
+
+@pytest.mark.parametrize("name", ["../escape", "a/b", "a\\b", "..", "x:y"])
+def test_api_username_is_cleaned_before_it_becomes_a_folder(tmp_path, name):
+    base = live.recording_base(tmp_path, name, STARTED_MS)
+    livestreams = base.parent
+    assert livestreams.name == "Livestreams"
+    assert livestreams.parent.parent == tmp_path / "Fansly"  # one folder level, inside Fansly
+    assert livestreams.parent.name not in ("", ".", "..")
+    assert not set("/\\:") & set(livestreams.parent.name + base.name)
+
+
+# ------------------------------------------------------------------ OFSC_PROXY (#718)
+
+PROXY = "http://127.0.0.1:3128"
+
+
+def set_proxy(monkeypatch, proxy):
+    import ofscraper.utils.of_env.of_env as of_env
+
+    real = of_env.getattr
+    monkeypatch.setattr(of_env, "getattr",
+                        lambda key, default=None: proxy if key == "PROXY" else real(key, default))
+
+
+def test_ofsc_proxy_reaches_ffmpeg_and_the_chat_socket(monkeypatch, tmp_path, fansly_settings):
+    fansly_settings(live=True, usernames=("creator_a",), live_chat=True)
+    set_proxy(monkeypatch, PROXY)
+    install_session(monkeypatch, FakeClient({
+        live_api.ONLINE_URL: online_response(CREATOR_A),
+        live_api.channel_url(CREATOR_A[0]): channel_response(
+            CREATOR_A[0], "https://live.example.invalid/a/master.m3u8?token=t"),
+        "https://live.example.invalid/": MASTER,
+        "https://cdn.example.invalid/": "#EXTM3U\n#EXTINF:2.0,\ns1.ts\n#EXT-X-ENDLIST\n",
+    }))
+    commands, proxies = [], []
+
+    async def fake_ffmpeg(cmd, stop=None, proxy=None):
+        commands.append(cmd)
+        proxies.append(proxy)
+        with open(cmd[-1], "wb") as f:
+            f.write(b"\0" * 32)
+        return 0
+
+    connected = []
+
+    def fake_connect(user_agent, proxy=None):
+        connected.append(proxy)
+
+        async def connect():
+            await asyncio.Event().wait()  # cancelled when the recording ends
+
+        return connect
+
+    monkeypatch.setattr(live, "run_ffmpeg", fake_ffmpeg)
+    monkeypatch.setattr(live_chat, "aiohttp_connect", fake_connect)
+
+    asyncio.run(live.run(watch=False))
+
+    # handed to ffmpeg through its environment, not its command line
+    assert proxies == [PROXY]
+    assert PROXY not in " ".join(map(str, commands[0]))
+    assert connected == [PROXY]
+
+
+def test_no_proxy_option_without_ofsc_proxy(tmp_path):
+    cmd = live.ffmpeg_command("ffmpeg", "https://cdn.example.invalid/p.m3u8", tmp_path / "o.mp4")
+    assert "-http_proxy" not in cmd
+
+
+SECRET_PROXY = "http://someone:Pr0xyPassw0rd@127.0.0.1:3128"
+# a stand-in for ffmpeg: writes its arguments and the proxy variables it was
+# started with, then fails with an error that names the proxy, as ffmpeg's do
+FAKE_FFMPEG = """
+import json, os, sys
+json.dump({"argv": sys.argv, "http_proxy": os.environ.get("http_proxy"),
+           "no_proxy": os.environ.get("no_proxy")}, open(sys.argv[1], "w"))
+sys.stderr.write("Error opening input: " + (os.environ.get("http_proxy") or "") + ": 407 Proxy Auth\\n")
+sys.exit(1)
+"""
+
+
+def test_the_proxy_reaches_ffmpeg_in_its_environment_not_its_arguments(tmp_path, monkeypatch, caplog):
+    import sys
+
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    seen = tmp_path / "seen.json"
+    with caplog.at_level("DEBUG", logger="shared"):
+        code = asyncio.run(live.run_ffmpeg([sys.executable, "-c", FAKE_FFMPEG, str(seen)],
+                                           proxy=SECRET_PROXY))
+    got = json.loads(seen.read_text())
+    assert code == 1
+    # other users can read a process's arguments (ps), not its environment
+    assert "Pr0xyPassw0rd" not in " ".join(got["argv"])
+    assert got["http_proxy"] == SECRET_PROXY
+    assert got["no_proxy"] is None  # every request goes through OFSC_PROXY
+    # ffmpeg's error is logged without the proxy's login
+    assert "407 Proxy Auth" in caplog.text
+    assert "Pr0xyPassw0rd" not in caplog.text and "someone" not in caplog.text
+
+
+@pytest.mark.parametrize("scheme", ["http", "socks5h", "socks5+tls", "git+ssh"])
+def test_a_login_is_hidden_whatever_the_scheme(scheme):
+    out = live.strip_queries(f"Error opening input: {scheme}://someone:Pr0xyPassw0rd@127.0.0.1:3128")
+    assert out == f"Error opening input: {scheme}://{{hidden}}@127.0.0.1:3128"
+
+
+def test_a_password_with_an_at_sign_is_hidden_whole():
+    # the login ends at the last "@" before the host, as a URL parser reads it
+    out = live.strip_queries("Error opening input: http://user:p@ss@host:8080/live.m3u8")
+    assert out == "Error opening input: http://{hidden}@host:8080/live.m3u8"
+
+
+def test_without_a_proxy_ffmpeg_keeps_the_environment_it_had(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")
+    seen = tmp_path / "seen.json"
+    asyncio.run(live.run_ffmpeg([sys.executable, "-c", FAKE_FFMPEG, str(seen)]))
+    assert json.loads(seen.read_text())["http_proxy"] == "http://127.0.0.1:9"
+
+
+def _run_with_proxy(monkeypatch, fansly_settings, proxy):
+    fansly_settings(live=True, usernames=("creator_a",), live_chat=True)
+    set_proxy(monkeypatch, proxy)
+    install_session(monkeypatch, FakeClient({
+        live_api.ONLINE_URL: online_response(CREATOR_A),
+        live_api.channel_url(CREATOR_A[0]): channel_response(
+            CREATOR_A[0], "https://live.example.invalid/a/master.m3u8?token=t"),
+        "https://live.example.invalid/": MASTER,
+        "https://cdn.example.invalid/": "#EXTM3U\n#EXTINF:2.0,\ns1.ts\n#EXT-X-ENDLIST\n",
+    }))
+    calls = []
+
+    async def fake_ffmpeg(cmd, stop=None, **kwargs):
+        calls.append(kwargs)
+        with open(cmd[-1], "wb") as f:
+            f.write(b"\0" * 32)
+        return 0
+
+    connected = []
+
+    def fake_connect(user_agent, proxy=None):
+        connected.append(proxy)
+
+        async def connect():
+            await asyncio.Event().wait()
+
+        return connect
+
+    monkeypatch.setattr(live, "run_ffmpeg", fake_ffmpeg)
+    monkeypatch.setattr(live_chat, "aiohttp_connect", fake_connect)
+    asyncio.run(live.run(watch=False))
+    return calls, connected
+
+
+def test_an_empty_ofsc_proxy_means_no_proxy(monkeypatch, tmp_path, fansly_settings):
+    calls, connected = _run_with_proxy(monkeypatch, fansly_settings, "")
+    assert calls == [{}]
+    assert connected == [None]
+
+
+@pytest.mark.parametrize("proxy", [
+    "https://someone:Pr0xyPassw0rd@127.0.0.1:3128",
+    "socks5://someone:Pr0xyPassw0rd@127.0.0.1:1080",
+    "HTTP://someone:Pr0xyPassw0rd@127.0.0.1:3128",  # ffmpeg only matches lower-case http://
+    "someone:Pr0xyPassw0rd@127.0.0.1:3128",  # no scheme
+    "http://",  # no host
+])
+def test_a_proxy_ffmpeg_cannot_use_stops_the_recording(monkeypatch, tmp_path, fansly_settings, caplog, proxy):
+    # ffmpeg would connect straight to Fansly with this proxy, so nothing is
+    # recorded and the chat socket isn't opened either
+    with caplog.at_level("WARNING", logger="shared"):
+        calls, connected = _run_with_proxy(monkeypatch, fansly_settings, proxy)
+    assert calls == []
+    assert connected == []
+    errors = [r.getMessage() for r in caplog.records if r.levelname == "ERROR" and "OFSC_PROXY" in r.getMessage()]
+    assert len(errors) == 1
+    assert "http://" in errors[0]
+    assert "Pr0xyPassw0rd" not in caplog.text
+
+
+@pytest.mark.parametrize("proxy", ["https://127.0.0.1:3128", "socks5://127.0.0.1:1080", "127.0.0.1:3128"])
+def test_ffmpeg_is_never_started_with_a_proxy_it_cannot_use(tmp_path, proxy):
+    import sys
+
+    seen = tmp_path / "seen.json"
+    with pytest.raises(ValueError):
+        asyncio.run(live.run_ffmpeg([sys.executable, "-c", FAKE_FFMPEG, str(seen)], proxy=proxy))
+    assert not seen.exists()
+
+
+def test_an_http_proxy_is_not_warned_about(monkeypatch, tmp_path, fansly_settings, caplog):
+    with caplog.at_level("WARNING", logger="shared"):
+        _run_with_proxy(monkeypatch, fansly_settings, PROXY)
+    assert "OFSC_PROXY" not in caplog.text
+
+
+class RecordingProxy:
+    """A plain-HTTP proxy that answers from the local HLS server's handler and
+    remembers each absolute URL it was asked for."""
+
+    def __init__(self, hls):
+        self.urls = []
+        proxy = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                proxy.urls.append(self.path)
+                u = urlparse(self.path)
+                code, body, ctype = hls.answer(u.path + (f"?{u.query}" if u.query else ""),
+                                               dict(self.headers))
+                self.send_response(code)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
+
+    def close(self):
+        self.httpd.shutdown()
+        self.httpd.server_close()
+
+
+@pytest.mark.slow
+@needs_ffmpeg
+def test_ffmpeg_fetches_the_live_stream_through_the_proxy(hls, tmp_path, monkeypatch):
+    # ffmpeg skips the proxy for hosts in no_proxy, which often lists 127.0.0.1
+    monkeypatch.delenv("no_proxy", raising=False)
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    direct = build_opener(ProxyHandler({}))  # the test's own playlist fetches
+
+    async def fetch_text(url):
+        def get():
+            with direct.open(url, timeout=10) as r:
+                return r.read().decode()
+
+        return await asyncio.to_thread(get)
+
+    proxy = RecordingProxy(hls)
+    try:
+        fetch_channel, _ = channel_feed(hls, ["t1"])
+        rec = live.LiveRecorder(stream_a(), tmp_path, fetch_channel, fetch_text,
+                                ffmpeg="ffmpeg", backoff=(0, 0), schemes=LOCAL, proxy=proxy.url)
+        sidecar = asyncio.run(asyncio.wait_for(rec.run(), timeout=120))
+    finally:
+        proxy.close()
+
+    assert sidecar["endReason"] == "stream ended"
+    mp4 = tmp_path / "Fansly" / "creator_a" / "Livestreams" / f"creator_a_{STAMP}_live.mp4"
+    assert float(probe(mp4)["format"]["duration"]) >= 5
+    # every playlist reload and segment ffmpeg asked for went through the proxy
+    paths = [urlparse(u).path for u in proxy.urls]
+    assert "/live/high.m3u8" in paths
+    assert sorted(p for p in paths if p.startswith("/live/seg")) == sorted(
+        f"/live/seg{i}.ts" for i in range(len(hls.segs)))
+    assert all(u.startswith(hls.base) for u in proxy.urls)
+
+
+def test_the_chat_socket_connects_through_the_proxy(monkeypatch):
+    # a host that can't resolve, so nothing reaches Fansly even without the proxy
+    monkeypatch.setattr(live_chat, "CHAT_WS_URL", "wss://chatws.example.invalid/?v=3")
+
+    async def scenario():
+        asked = []
+
+        async def handle(reader, writer):
+            asked.append((await reader.readline()).decode())
+            writer.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(handle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        try:
+            with pytest.raises(Exception):
+                await live_chat.aiohttp_connect(UA, f"http://127.0.0.1:{port}")()
+        finally:
+            server.close()
+            await server.wait_closed()
+        return asked
+
+    asked = asyncio.run(scenario())
+    assert asked == ["CONNECT chatws.example.invalid:443 HTTP/1.1\r\n"]
+
+
+def test_an_empty_proxy_connects_the_chat_socket_directly(monkeypatch):
+    async def scenario():
+        asked = []
+
+        async def handle(reader, writer):
+            asked.append((await reader.readline()).decode())
+            writer.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+            await writer.drain()
+            writer.close()
+
+        server = await asyncio.start_server(handle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        monkeypatch.setattr(live_chat, "CHAT_WS_URL", f"ws://127.0.0.1:{port}/?v=3")
+        try:
+            with pytest.raises(Exception) as raised:
+                await live_chat.aiohttp_connect(UA, "")()
+        finally:
+            server.close()
+            await server.wait_closed()
+        return asked, raised.value
+
+    asked, error = asyncio.run(scenario())
+    assert not isinstance(error, ValueError)
+    assert asked == ["GET /?v=3 HTTP/1.1\r\n"]
+
+
+
+
+def test_fansly_live_options_enforces_sitename_when_omitted(monkeypatch, tmp_path):
+    import ofscraper.utils.config.file as config_file
+
+    cfg = {
+        "live_options": {
+            "save_location": str(tmp_path / "streams"),
+            "dir_format": "{model_username}/VODs",
+            "file_format": "{model_username}_{date}",
+        },
+        "type_options": {},
+    }
+    monkeypatch.setattr(config_file, "open_config", lambda: cfg)
+
+    # Without {sitename} in dir_format or file_format, /Fansly is still enforced
+    assert live.recording_base(tmp_path, "creator_a", STARTED_MS) == (
+        tmp_path / "streams" / "Fansly" / "creator_a" / "VODs" / f"creator_a_{STAMP}"
+    )
+
+    # With {sitename} present, no duplicate Fansly folder is added
+    cfg["live_options"]["dir_format"] = "{sitename}/{model_username}/VODs"
+    assert live.recording_base(tmp_path, "creator_a", STARTED_MS) == (
+        tmp_path / "streams" / "Fansly" / "creator_a" / "VODs" / f"creator_a_{STAMP}"
+    )
+
+    # type_options.livestreams takes precedence over live_options
+    cfg["type_options"] = {
+        "livestreams": {
+            "save_location": str(tmp_path / "nvme_live"),
+            "dir_format": "{sitename}/custom/{model_username}",
+        }
+    }
+    assert live.recording_base(tmp_path, "creator_a", STARTED_MS) == (
+        tmp_path / "nvme_live" / "Fansly" / "custom" / "creator_a" / f"creator_a_{STAMP}"
+    )
+
+
+@pytest.mark.parametrize("field", ["model_id", "modelid"])
+def test_live_path_uses_stream_account_id_without_cached_models(monkeypatch, tmp_path, fansly_settings, field):
+    import ofscraper.utils.config.file as config_file
+
+    fansly_settings(live=True, anon=True)
+    monkeypatch.setattr(manager, "Manager", manager.mainManager())
+    cfg_path = tmp_path / "config.json"
+    cfg_path.write_text(json.dumps({"live_options": {
+        "dir_format": "{" + field + "}", "file_format": "{date}"}}), encoding="utf-8")
+    monkeypatch.setattr(config_file, "open_config", lambda: json.loads(cfg_path.read_text(encoding="utf-8")))
+
+    async def channel():
+        return {"live": True}
+
+    async def text(url):
+        raise AssertionError("No playlist request expected")
+
+    async def record(channel, stop):
+        return True, False
+
+    stream = {"username": "test_creator", "accountId": "123", "startedAt": STARTED_MS}
+    recorder = live.LiveRecorder(stream, tmp_path, channel, text)
+    monkeypatch.setattr(recorder, "_record_part", record)
+    asyncio.run(recorder.run())
+    assert recorder.base.parent == tmp_path / "Fansly" / "123"
+
+
+@pytest.mark.parametrize("system", ["Linux", "Darwin"])
+@pytest.mark.parametrize("file_format", [
+    "a" * 300 + "_{date}", "a" * 229 + "{date}", "a" * 228 + "{date}x",
+], ids=["shortened-base", "shortened-part", "text-after-date"])
+def test_a_shortened_name_leaves_room_for_later_parts_and_the_sidecars(
+    tmp_path, monkeypatch, fansly_settings, system, file_format,
+):
+    import ofscraper.utils.config.file as config_file
+    import ofscraper.utils.paths.paths as paths
+
+    fansly_settings(trunicate=True)
+    config = {"live_options": {"dir_format": "recordings", "file_format": file_format}}
+    monkeypatch.setattr(config_file, "open_config", lambda: config)
+    # Exercise both production truncators on every test host.
+    limit = 255
+    real_getenv = paths.of_env.getattr
+    overrides = {"LINUX_MAX_FILE_NAME_BYTES": limit, "MAC_MAX_PATH": limit, "UTF": "utf-8"}
+    monkeypatch.setattr(paths.platform, "system", lambda: system)
+    monkeypatch.setattr(paths.of_env, "getattr", lambda key, *a, **kw:
+                        overrides[key] if key in overrides else real_getenv(key, *a, **kw))
+    first_start = live.utc_start(STARTED_MS)
+    later_start = live.utc_start(STARTED_MS + 1_000)
+    base = live.recording_base(tmp_path, "test_creator", first_start)
+    later = live.recording_base(tmp_path, "test_creator", later_start)
+    assert live.sidecar_path(base) != live.sidecar_path(later)
+    assert live.chat_path(base) != live.chat_path(later)
+    assert len(live.chat_path(base).name.encode("utf-8")) == limit
+    for n in (1, 99, 100, 1000, 10_000):
+        part = live.part_path(base, n, started_at=first_start)
+        assert part.name.endswith(".mp4" if n == 1 else f"_part{n}.mp4")
+        assert len(part.name.encode("utf-8")) <= limit, part.name
+        assert part != live.part_path(later, n, started_at=later_start)
+        if file_format.endswith("{date}x"):
+            assert STAMP + "x" in part.name
+    for sidecar in (live.sidecar_path(base), live.chat_path(base)):
+        assert len(sidecar.name.encode("utf-8")) <= limit, sidecar.name
+    if file_format.endswith("{date}x"):
+        monkeypatch.setattr(live, "next_part_number", lambda base, *, started_at: 1000)
+        for started_ms, expected in (
+            (STARTED_MS, live.part_path(base, 1000, started_at=first_start)),
+            (STARTED_MS + 1_000, live.part_path(later, 1000, started_at=later_start)),
+        ):
+            recorder, _ = one_part_recorder(tmp_path)
+            recorder.stream["startedAt"] = started_ms
+            sidecar = asyncio.run(recorder.run())
+            assert sidecar["parts"] == [expected.name]
+
+
+@pytest.mark.parametrize("system", ["Linux", "Darwin"])
+def test_a_shortened_default_name_keeps_one_start_time_and_live(
+    tmp_path, monkeypatch, fansly_settings, system,
+):
+    """The default file name ends in "_live", after the start time: a cut
+    for the chat file's room keeps both, once each."""
+    import ofscraper.utils.config.file as config_file
+    import ofscraper.utils.paths.paths as paths
+
+    fansly_settings(trunicate=True)
+    config = {"live_options": {"dir_format": "recordings"}}
+    monkeypatch.setattr(config_file, "open_config", lambda: config)
+    limit = 255
+    real_getenv = paths.of_env.getattr
+    overrides = {"LINUX_MAX_FILE_NAME_BYTES": limit, "MAC_MAX_PATH": limit, "UTF": "utf-8"}
+    monkeypatch.setattr(paths.platform, "system", lambda: system)
+    monkeypatch.setattr(paths.of_env, "getattr", lambda key, *a, **kw:
+                        overrides[key] if key in overrides else real_getenv(key, *a, **kw))
+    start = live.utc_start(STARTED_MS)
+
+    base = live.recording_base(tmp_path, "a" * 240, start)
+
+    assert base.name.count(STAMP) == 1, base.name
+    assert base.name.endswith(f"{STAMP}_live"), base.name
+    assert len(live.chat_path(base).name.encode("utf-8")) <= limit

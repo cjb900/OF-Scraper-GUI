@@ -1,0 +1,50 @@
+import os
+import ofscraper.utils.const as const
+
+
+def load_dynamic_rules_config():
+    """
+    Loads dynamic rules configuration from environment variables with default values.
+
+    Returns:
+        A dictionary containing all loaded dynamic rules configuration settings.
+    """
+    config = {}
+
+    # --- Dynamic Rules Configuration ---
+    # DYNAMIC_RULE_MANUAL: JSON object containing custom OnlyFans dynamic signing rules, used when `dynamic-mode-default` is `manual`.
+    config["DYNAMIC_RULE_MANUAL"] = os.getenv("OFSC_DYNAMIC_RULE_MANUAL", None)
+
+    # DYNAMIC_OPTIONS: Dynamic rule sources shown in the interactive config menu.
+    # Default: ["digitalcriminals", "manual", "generic", "xagler", "rafa"]
+    dynamic_options_env = os.getenv("OFSC_DYNAMIC_OPTIONS")
+    if dynamic_options_env:
+        config["DYNAMIC_OPTIONS"] = [
+            opt.strip() for opt in dynamic_options_env.split(",")
+        ]
+    else:
+        config["DYNAMIC_OPTIONS"] = const.DYNAMIC_OPTIONS
+
+
+    # DYNAMIC_OPTIONS_ALL: Accepted values (including aliases) when validating `advanced_options.dynamic-mode-default`.
+    #
+    # This list is derived from DYNAMIC_OPTIONS, so it should be built after DYNAMIC_OPTIONS is set.
+    dynamic_options_all_env = os.getenv("OFSC_DYNAMIC_OPTIONS_ALL")
+    if dynamic_options_all_env:
+        config["DYNAMIC_OPTIONS_ALL"] = [
+            opt.strip() for opt in dynamic_options_all_env.split(",")
+        ]
+    else:
+        # Build default from base DYNAMIC_OPTIONS plus hardcoded aliases
+        config["DYNAMIC_OPTIONS_ALL"] = config["DYNAMIC_OPTIONS"] + [
+            "digitalcriminals",
+            "manual",
+            "generic",
+            *const.DYNAMIC_ALIASES,
+        ]
+
+    # DYNAMIC_RULE_DEFAULT: Default for `advanced_options.dynamic-mode-default` when unset or invalid.
+    # Default: "digital"
+    config["DYNAMIC_RULE_DEFAULT"] = os.getenv("OFSC_DYNAMIC_RULE_DEFAULT", "digital")
+
+    return config

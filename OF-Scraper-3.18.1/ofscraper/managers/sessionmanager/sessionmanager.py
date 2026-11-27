@@ -1,0 +1,1093 @@
+import asyncio
+import functools
+import logging
+import sys
+import threading
+from contextlib import contextmanager
+import time
+import ssl
+import contextlib
+import traceback
+import weakref
+from typing import Optional, Dict, Union, AsyncGenerator, Any, Generator
+from urllib.parse import parse_qs, urlsplit
+
+import arrow
+import httpx
+import tenacity
+import aiohttp
+from tenacity import AsyncRetrying, Retrying, retry_if_exception, retry_if_not_exception_type
+
+import ofscraper.main.close.exit_status as exit_status
+import ofscraper.sites as sites
+import ofscraper.sites.fansly.address as fansly_address
+import ofscraper.managers.sessionmanager.refusing as refusing
+import ofscraper.managers.sessionmanager.addresses as addresses
+import ofscraper.sites.fansly.headers as fansly_headers
+import ofscraper.utils.auth.request as auth_requests
+import ofscraper.utils.host_allowlist as host_allowlist
+import ofscraper.utils.of_env.of_env as of_env
+from ofscraper.utils.auth.utils.warning.print import print_auth_warning
+from ofscraper.utils.logs.utils.sensitive import hide_link, hide_links
+import ofscraper.utils.settings as settings
+from ofscraper.managers.sessionmanager.cert import (
+    create_custom_ssl_context,
+    load_certifi_if_no_ca_certs,
+)
+
+# Constants for request actions
+TOO_MANY = "too_many"
+AUTH = "auth"
+FORBIDDEN = "forbidden"
+FORCED_NEW = "get_new_sign"
+SIGN = "get_sign"
+COOKIES = "get_cookies_str"
+HEADERS = "create_header"
+
+# A backoff that decays below this many seconds ends (drops to *_MIN_SLEEP)
+BACKOFF_FLOOR = 0.5
+
+# httpx request extension holding a request's redirect guard; httpx copies a
+# request's extensions to each redirect it follows
+LOGIN_GUARD = "ofscraper_login_guard"
+
+# connections that have answered before
+_answered = weakref.WeakSet()
+
+
+class _Response(refusing.Response):
+    """A kept connection whose network path died (a VPN reconnected) takes a
+    request and never answers. On a connection used before, a GET's answer
+    must start within a third of the read timeout, not all of it (#636).
+    Other methods aren't capped: they may not be safe to send twice."""
+
+    async def start(self, connection):
+        protocol = connection.protocol
+        if (
+            self.method == "GET"
+            and protocol in _answered
+            and protocol.read_timeout
+        ):
+            cap = asyncio.timeout(protocol.read_timeout / 3)
+            try:
+                async with cap:
+                    await super().start(connection)
+            except TimeoutError:
+                if not cap.expired():
+                    raise
+                raise aiohttp.SocketTimeoutError(
+                    "Timeout on reading data from socket"
+                ) from None
+        else:
+            await super().start(connection)
+        _answered.add(protocol)
+        return self
+
+
+def _run_login_guard(request):
+    """httpx request event hook: runs before the first request and each redirect."""
+    guard = request.extensions.get(LOGIN_GUARD)
+    if guard:
+        guard(request)
+
+
+def is_provided_exception_number(exception: Exception, *numbers: int) -> bool:
+    """Utility to check if an exception's status code matches given numbers."""
+    status_code = None
+    if isinstance(exception, aiohttp.ClientResponseError):
+        status_code = getattr(exception, "status_code", None) or getattr(
+            exception, "status", None
+        )
+    elif isinstance(exception, httpx.HTTPStatusError):
+        status_code = getattr(exception.response, "status_code", None)
+    return status_code in numbers
+
+
+def is_signed_cdn_url(url) -> bool:
+    """True for a signed link to a file on OnlyFans' or Fansly's CDN."""
+    if not url:
+        return False
+    parsed = urlsplit(str(url))
+    host = parsed.hostname or ""
+    # Fansly's CDN links are signed the same way, and Fansly sometimes
+    # gives out one signed for another address (#683)
+    return (
+        host.endswith((".onlyfans.com", ".fansly.com"))
+        and host.split(".")[0].startswith("cdn")
+        and {"Policy", "Signature", "Key-Pair-Id"}.issubset(parse_qs(parsed.query))
+    )
+
+
+def is_signed_cdn_forbidden(exception: Exception) -> bool:
+    """Retrying a rejected signed CDN URL cannot renew its credentials."""
+    try:
+        if not is_provided_exception_number(exception, 403):
+            return False
+        if isinstance(exception, aiohttp.ClientResponseError):
+            url = exception.request_info.real_url
+        else:
+            url = exception.request.url
+        # Use the actual request URL, including separately supplied params. Do not
+        # classify API 403s or depend on CloudFront's optional error body/headers.
+        return is_signed_cdn_url(url)
+    except Exception:
+        # Exception request metadata may be absent or raise when accessed.
+        return False
+
+
+def _reuses_connections(url) -> bool:
+    """True for the file hosts (cdn*.fansly.com, cdn*.onlyfans.com), whose
+    requests may reuse a kept-alive connection.
+
+    aiohttp reuses a connection only for a request with the same SSL setting
+    object as the one that opened it, and every other request gets a new
+    context, so a new connection. That stays so for the API hosts. On
+    Fansly a refused link moves the API host's requests to another of its
+    addresses (#555), which a kept-alive connection would bypass.
+
+    A kept-alive connection stays on one address of its host. When an
+    address of OnlyFans' file host refuses good links, the connections to
+    it are closed as they come up for use (#620, ``refusing.Request``)."""
+    try:
+        host = urlsplit(str(url)).hostname or ""
+    except ValueError:
+        return False
+    return host.endswith((".fansly.com", ".onlyfans.com")) and host.split(".")[
+        0
+    ].startswith("cdn")
+
+
+def _request_ssl(url, new_context):
+    """The ssl argument of an aiohttp request to url. True means the
+    connector's own context, built from the same setting when the session
+    was created, so the TLS handshake is the same."""
+    return True if _reuses_connections(url) else new_context()
+
+
+class BareSession:
+    @staticmethod
+    @contextmanager
+    def get_bare_session(*args, **kwargs):
+        with httpx.stream(*args, **kwargs) as response:
+            response.raise_for_status()
+            response.read()
+            yield response
+
+
+class SessionSleep:
+    """
+    Manages dynamic sleep intervals to handle API rate-limiting.
+    """
+
+    def __init__(
+        self,
+        sleep: Optional[float] = None,
+        min_sleep: Optional[int] = None,
+        difmin: Optional[int] = None,
+        max_sleep: Optional[float] = None,
+        decay_threshold: Optional[float] = None,
+        decay_factor: Optional[float] = None,
+        increase_factor: Optional[float] = None,
+        error_name: Optional[float] = None,
+    ):
+        # _last_date: when the wait last changed. _last_error: when the last
+        # error came in, counted or not. _last_raise: when an error last
+        # raised the wait.
+        self._last_date = arrow.now()
+        self._last_error = arrow.get(0)
+        self._last_raise = arrow.now()
+        self._last_request_time = arrow.get(
+            0
+        )  # <-- NEW: Tracks when the API was last hit
+        # One asyncio.Lock per event loop: ofscraper runs async code in several
+        # loops, and a single asyncio.Lock binds to the first loop that waits on it
+        self._alocks = {}
+        self._alocks_guard = threading.Lock()
+        self._lock = threading.Lock()
+        self._init_sleep = (
+            sleep if sleep is not None else of_env.getattr("SESSION_SLEEP_INIT")
+        )
+        self._min_sleep = (
+            min_sleep if min_sleep is not None else of_env.getattr("SESSION_MIN_SLEEP")
+        )
+        self._sleep = self._min_sleep
+        self._difmin = (
+            difmin
+            if difmin is not None
+            else of_env.getattr("SESSION_SLEEP_INCREASE_TIME_DIFF")
+        )
+        self._max_sleep = (
+            max_sleep if max_sleep is not None else of_env.getattr("SESSION_SLEEP_MAX")
+        )
+        self._increase_factor = (
+            increase_factor
+            if increase_factor is not None
+            else of_env.getattr("SESSION_SLEEP_INCREASE_FACTOR")
+        )
+        self._decay_threshold = (
+            decay_threshold
+            if decay_threshold is not None
+            else of_env.getattr("SESSION_SLEEP_DECAY_THRESHOLD")
+        )
+        self._decay_factor = (
+            decay_factor
+            if decay_factor is not None
+            else of_env.getattr("SESSION_SLEEP_DECAY_FACTOR")
+        )
+        self.error_name = error_name or ""
+
+    def _maybe_decay_sleep(self):
+        if not self._sleep or self._sleep <= self._min_sleep:
+            return
+        # The wait shrinks only after a quiet spell: errors that came in while
+        # it could not rise yet still show the limit is in force
+        quiet_since = max(self._last_date, self._last_error)
+        if (arrow.now() - quiet_since).total_seconds() > self._decay_threshold:
+            new_sleep = self._sleep / self._decay_factor
+            # Dividing never reaches 0, so end the backoff once it gets small
+            if new_sleep < BACKOFF_FLOOR:
+                new_sleep = self._min_sleep
+            self._sleep = max(self._min_sleep, new_sleep)
+            self._last_date = arrow.now()
+            logging.getLogger("shared").debug(
+                f"[{self.error_name}] Sleep decay => Reducing sleep to [{self._sleep:.2f} seconds]"
+            )
+
+    @property
+    def _alock(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        # Not self._lock: do_sleep holds that through time.sleep
+        with self._alocks_guard:
+            lock = self._alocks.get(loop)
+            if lock is None:
+                # Not a WeakKeyDictionary: a lock that has been waited on
+                # holds its loop, so the entry would never expire. @run
+                # never closes its loops, so drop the locks of every loop
+                # that isn't running: none of its tasks is inside the lock,
+                # and the loop gets a new one if it runs again.
+                for old in [x for x in self._alocks if not x.is_running()]:
+                    del self._alocks[old]
+                lock = self._alocks[loop] = asyncio.Lock()
+        return lock
+
+    async def async_do_sleep(self, pace=True):
+        async with self._alock:
+            self._maybe_decay_sleep()
+
+            # 1. Backoff mode (We hit an error, take a long nap)
+            if self._sleep and self._sleep > self._min_sleep:
+                logging.getLogger("shared").debug(
+                    f"SessionSleep: Backoff [{self._sleep:.2f}s] due to {self.error_name} errors"
+                )
+                await asyncio.sleep(self._sleep)
+                self._last_request_time = arrow.now()
+                return True
+
+            # 2. Pacing mode (Ensure we don't hit the API too fast)
+            elif pace and self._min_sleep and self._min_sleep > 0:
+                time_since_last = (
+                    arrow.now() - self._last_request_time
+                ).total_seconds()
+                wait_time = self._min_sleep - time_since_last
+
+                if wait_time > 0:
+                    logging.getLogger("shared").debug(
+                        f"SessionSleep: Pacing [{wait_time:.2f}s] due to {self.error_name} limit"
+                    )
+                    await asyncio.sleep(wait_time)
+
+                self._last_request_time = arrow.now()
+                return True
+
+            self._last_request_time = arrow.now()
+            return False
+
+    def do_sleep(self, pace=True):
+        with self._lock:
+            self._maybe_decay_sleep()
+
+            # 1. Backoff mode
+            if self._sleep and self._sleep > self._min_sleep:
+                logging.getLogger("shared").debug(
+                    f"SessionSleep: Backoff [{self._sleep:.2f}s] due to {self.error_name} errors"
+                )
+                time.sleep(self._sleep)
+                self._last_request_time = arrow.now()
+                return True
+
+            # 2. Pacing mode
+            elif pace and self._min_sleep and self._min_sleep > 0:
+                time_since_last = (
+                    arrow.now() - self._last_request_time
+                ).total_seconds()
+                wait_time = self._min_sleep - time_since_last
+                if wait_time > 0:
+                    logging.getLogger("shared").debug(
+                        f"SessionSleep: Pacing [{wait_time:.2f}s] due to {self.error_name} limit"
+                    )
+                    time.sleep(wait_time)
+                self._last_request_time = arrow.now()
+                return True
+
+            self._last_request_time = arrow.now()
+            return False
+
+    def toomany_req(self, sent_at=None):
+        """
+        Records a rate-limit error. sent_at is when the failed request went
+        out: a request sent after the wait was last raised was still refused
+        at the current pace, so the wait rises without waiting out the window.
+        Errors from requests sent before that are one burst and count once.
+        """
+        log = logging.getLogger("shared")
+        now = arrow.now()
+        self._last_error = now
+        # A sleep at the minimum gap is pacing, not backoff: "not self._sleep"
+        # alone never fired when the gap is above 0
+        if not self._sleep or self._sleep <= self._min_sleep:
+            start = self._init_sleep if self._init_sleep > 0 else 1
+            # backoff mode needs a sleep above the gap
+            if start <= self._min_sleep:
+                start = self._min_sleep * self._increase_factor
+            self._sleep = min(start, self._max_sleep)
+            log.debug(
+                f"SessionSleep: Backoff triggered => setting sleep to starting value: [{self._sleep:.2f} seconds] due to {self.error_name} error"
+            )
+        elif not (sent_at is not None and sent_at > self._last_raise) and (
+            (now - self._last_raise).total_seconds() < self._difmin
+        ):
+            log.debug(
+                f"SessionSleep: Backoff => not changing sleep [{self._sleep:.2f} seconds], it was raised less than {self._difmin}s ago"
+            )
+            return
+        else:
+            new_sleep = self._sleep * self._increase_factor
+            self._sleep = min(new_sleep, self._max_sleep)
+            log.debug(
+                f"SessionSleep: Backoff => increasing sleep by factor x{self._increase_factor} to: [{self._sleep:.2f} seconds] due to {self.error_name} error"
+            )
+        self._last_date = self._last_raise = arrow.now()
+
+    def reset_sleep(self):
+        self._sleep = self._min_sleep
+        self._last_date = self._last_raise = arrow.now()
+
+    async def async_toomany_req(self, sent_at=None):
+        async with self._alock:
+            self.toomany_req(sent_at)
+
+    @property
+    def sleep(self) -> Optional[float]:
+        return self._sleep
+
+    @sleep.setter
+    def sleep(self, val: float) -> None:
+        self._sleep = val
+
+
+class sessionManager:
+    """
+    Manages HTTP sessions, handling pooling, signing, retries, and dual backoff systems.
+    """
+
+    def __init__(
+        self,
+        connect_timeout: Optional[int] = None,
+        total_timeout: Optional[int] = None,
+        read_timeout: Optional[int] = None,
+        pool_timeout: Optional[int] = None,
+        limit: Optional[int] = None,
+        keep_alive: Optional[int] = None,
+        keep_alive_exp: Optional[int] = None,
+        proxy: Optional[str] = None,
+        proxy_auth: Optional[Dict] = None,
+        sem_count: Optional[int] = None,
+        retries: Optional[int] = None,
+        wait_min: Optional[int] = None,
+        wait_max: Optional[int] = None,
+        log: Optional[logging.Logger] = None,
+        sem: Optional[asyncio.Semaphore] = None,
+        sync_sem_count: Optional[int] = None,
+        sync_sem: Optional[threading.Semaphore] = None,
+        forbidden_sleeper: Optional[SessionSleep] = None,
+        rate_limit_sleeper: Optional[SessionSleep] = None,
+        rate_limit_sleep: Optional[float] = None,
+        rate_limit_difmin: Optional[int] = None,
+        rate_limit_max_sleep: Optional[float] = None,
+        rate_limit_decay_threshold: Optional[float] = None,
+        rate_limit_decay_factor: Optional[float] = None,
+        rate_limit_increase_factor: Optional[float] = None,
+        forbidden_sleep: Optional[float] = None,
+        forbidden_difmin: Optional[int] = None,
+        forbidden_max_sleep: Optional[float] = None,
+        forbidden_decay_threshold: Optional[float] = None,
+        forbidden_decay_factor: Optional[float] = None,
+        forbidden_increase_factor: Optional[float] = None,
+    ):
+        self._connect_timeout = (
+            connect_timeout
+            if connect_timeout is not None
+            else of_env.getattr("CONNECT_TIMEOUT")
+        )
+        self._total_timeout = (
+            total_timeout
+            if total_timeout is not None
+            else of_env.getattr("TOTAL_TIMEOUT")
+        )
+        # 0 means no limit (None), wherever it comes from: aiohttp reads 0
+        # that way, but httpx reads 0 as "fail at once"
+        self._read_timeout = (
+            read_timeout
+            if read_timeout is not None
+            else of_env.getattr("OF_READ_TIMEOUT")
+        ) or None
+        self._pool_connect_timeout = (
+            pool_timeout
+            if pool_timeout is not None
+            else of_env.getattr("POOL_CONNECT_TIMEOUT")
+        )
+        self._connect_limit = (
+            limit if limit is not None else of_env.getattr("MAX_CONNECTIONS")
+        )
+        self._keep_alive = (
+            keep_alive if keep_alive is not None else of_env.getattr("KEEP_ALIVE")
+        )
+        self._keep_alive_exp = (
+            keep_alive_exp
+            if keep_alive_exp is not None
+            else of_env.getattr("KEEP_ALIVE_EXP")
+        )
+        self._proxy = proxy if proxy is not None else of_env.getattr("PROXY")
+        # refusing.times_left() when hosts were last looked up from nothing
+        self._addresses_left = refusing.times_left()
+        self._sem = sem or asyncio.BoundedSemaphore(
+            sem_count
+            if sem_count is not None
+            else of_env.getattr("SESSION_MANAGER_SEM_DEFAULT")
+        )
+        self._sync_sem = sync_sem or threading.Semaphore(
+            sync_sem_count
+            if sync_sem_count is not None
+            else of_env.getattr("SESSION_MANAGER_SYNC_SEM_DEFAULT")
+        )
+        self._retries = (
+            retries
+            if retries is not None
+            else of_env.getattr("OF_NUM_RETRIES_SESSION_DEFAULT")
+        )
+        self._wait_min = (
+            wait_min
+            if wait_min is not None
+            else of_env.getattr("OF_MIN_WAIT_SESSION_DEFAULT")
+        )
+        self._wait_max = (
+            wait_max
+            if wait_max is not None
+            else of_env.getattr("OF_MAX_WAIT_SESSION_DEFAULT")
+        )
+        self._log = log or logging.getLogger("shared")
+
+        if rate_limit_sleeper:
+            self._rate_limit_sleeper = rate_limit_sleeper
+        else:
+            self._rate_limit_sleeper = SessionSleep(
+                sleep=rate_limit_sleep,
+                difmin=rate_limit_difmin,
+                max_sleep=rate_limit_max_sleep,
+                decay_threshold=rate_limit_decay_threshold,
+                decay_factor=rate_limit_decay_factor,
+                increase_factor=rate_limit_increase_factor,
+            )
+
+        if forbidden_sleeper:
+            self._forbidden_sleeper = forbidden_sleeper
+        else:
+            self._forbidden_sleeper = SessionSleep(
+                sleep=(
+                    forbidden_sleep
+                    if forbidden_sleep is not None
+                    else of_env.getattr("SESSION_403_SLEEP_INIT")
+                ),
+                min_sleep=of_env.getattr("SESSION_403_MIN_SLEEP"),
+                difmin=(
+                    forbidden_difmin
+                    if forbidden_difmin is not None
+                    else of_env.getattr("SESSION_403_SLEEP_INCREASE_TIME_DIFF")
+                ),
+                max_sleep=(
+                    forbidden_max_sleep
+                    if forbidden_max_sleep is not None
+                    else of_env.getattr("SESSION_403_SLEEP_MAX")
+                ),
+                decay_threshold=(
+                    forbidden_decay_threshold
+                    if forbidden_decay_threshold is not None
+                    else of_env.getattr("SESSION_403_SLEEP_DECAY_THRESHOLD")
+                ),
+                decay_factor=(
+                    forbidden_decay_factor
+                    if forbidden_decay_factor is not None
+                    else of_env.getattr("SESSION_403_SLEEP_DECAY_FACTOR")
+                ),
+                increase_factor=(
+                    forbidden_increase_factor
+                    if forbidden_increase_factor is not None
+                    else of_env.getattr("SESSION_403_SLEEP_INCREASE_FACTOR")
+                ),
+            )
+        self._session: Union[httpx.AsyncClient, httpx.Client, None] = None
+        self._async: bool = True
+        self._last_auth_warn_date = arrow.now()
+
+    def print_auth_warning(self, E: Exception):
+        if (arrow.now() - self._last_auth_warn_date).total_seconds() > of_env.getattr(
+            "AUTH_WARNING_TIMEOUT"
+        ):
+            print_auth_warning(E)
+            self._last_auth_warn_date = arrow.now()
+
+    def _handle_error(self, E: Exception, exceptions: list, sent_at=None):
+        if is_signed_cdn_forbidden(E):
+            return
+        if TOO_MANY in exceptions and is_provided_exception_number(E, 429, 504, 503):
+            self._rate_limit_sleeper.toomany_req(sent_at)
+        elif FORBIDDEN in exceptions and is_provided_exception_number(E, 403):
+            self.print_auth_warning(E)
+            self._forbidden_sleeper.toomany_req()
+        elif AUTH in exceptions and is_provided_exception_number(E, 400, 401):
+            self.print_auth_warning(E)
+            time.sleep(8)
+
+    async def _async_handle_error(self, E: Exception, exceptions: list, sent_at=None):
+        if is_signed_cdn_forbidden(E):
+            return
+        if TOO_MANY in exceptions and is_provided_exception_number(E, 429, 504, 503):
+            await self._rate_limit_sleeper.async_toomany_req(sent_at)
+        elif FORBIDDEN in exceptions and is_provided_exception_number(E, 403):
+            self.print_auth_warning(E)
+            await self._forbidden_sleeper.async_toomany_req()
+        elif AUTH in exceptions and is_provided_exception_number(E, 400, 401):
+            self.print_auth_warning(E)
+            await asyncio.sleep(8)
+
+    def _get_ssl_context(self):
+        """
+        Translates the user's config into the required SSL format.
+        Tiers: 'false' -> False, 'default' -> standard SSLContext, 'custom' -> custom context.
+        """
+        ssl_setting = str(settings.get_settings().ssl_verify).lower()
+
+        # Tier 1: Disabled
+        if ssl_setting in {"false", "0", "none", ""}:
+            return False
+
+        # Tier 2: Default SSL (Standard)
+        elif ssl_setting == "default":
+            ssl_context = ssl.create_default_context()
+            load_certifi_if_no_ca_certs(ssl_context)
+            ssl_context.post_handshake_auth = True
+            return ssl_context
+
+        # Tier 3: Custom (Fingerprint hardening)
+        else:
+            return create_custom_ssl_context()
+
+    def _set_session(self, async_=True):
+        if self._session:
+            return
+
+        ssl_context = self._get_ssl_context()
+
+        if async_:
+            # the connector doesn't close a resolver it was given. The
+            # outermost keeps each host's addresses for a while, in place of
+            # aiohttp's own cache (see use_dns_cache below)
+            self._resolver = addresses.Resolver(
+                refusing.Resolver(fansly_address.Resolver())
+            )
+            # how long an idle connection is kept, as for the sync client
+            # below (#627); aiohttp's own default is 15. Kept for no time
+            # means closed after use: given 0, aiohttp would never close an
+            # idle connection (#637)
+            idle = (
+                {"keepalive_timeout": self._keep_alive_exp}
+                if self._keep_alive_exp > 0
+                else {"force_close": True}
+            )
+            self._session = aiohttp.ClientSession(
+                # which connection a refusal came over (#620)
+                # and the answer on a kept connection doesn't wait (#636)
+                response_class=_Response,
+                connector=aiohttp.TCPConnector(
+                    limit=self._connect_limit,
+                    **idle,
+                    ssl=ssl_context,  # Passed to TCPConnector
+                    # which address a host's requests go to (Fansly, #683)
+                    resolver=self._resolver,
+                    # aiohttp's own address cache is off. Clearing it,
+                    # which we do on purpose (#683, #620), fails the
+                    # requests waiting on a lookup with a KeyError (#622,
+                    # aio-libs/aiohttp#14427). addresses.Resolver keeps the
+                    # addresses instead, until an aiohttp release has the fix
+                    use_dns_cache=False,
+                ),
+                timeout=aiohttp.ClientTimeout(
+                    total=self._total_timeout,
+                    connect=self._connect_timeout,
+                    sock_connect=self._pool_connect_timeout,
+                    sock_read=self._read_timeout,
+                ),
+                # no request over a connection to an address that was left
+                request_class=refusing.Request,
+            )
+        else:
+            self._session = httpx.Client(
+                http2=True,
+                proxy=self._proxy,
+                verify=ssl_context,  # Added verify param to support HTTPX sync fallback
+                limits=httpx.Limits(
+                    max_keepalive_connections=self._keep_alive,
+                    max_connections=self._connect_limit,
+                    keepalive_expiry=self._keep_alive_exp,
+                ),
+                # a redirect to a host outside the list gets no login
+                event_hooks={"request": [_run_login_guard]},
+            )
+        self._async = async_
+        return self._session
+
+    async def __aenter__(self):
+        self._set_session(async_=True)
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self._session:
+            await self._session.__aexit__(exc_type, exc_val, exc_tb)
+            await self._resolver.close()
+
+    def _offer_to_leave_address(self, E, r):
+        """Give the error for a refused signed link on OnlyFans' file host
+        the way to stop using the address that refused it:
+        ``E.leave_address()`` (#620).
+
+        Whether the address is at fault is the caller's to find out: a link
+        that ran out is refused the same way (#462). Not through a proxy,
+        where the connection is the proxy's, and not on Fansly, which has
+        its own handling of refused links (#683)."""
+        if (
+            getattr(r, "status_code", None) != 403
+            or self._proxy
+            or sites.is_fansly()
+            or not is_signed_cdn_url(r.url)
+        ):
+            return
+        E.leave_address = functools.partial(self._leave_refusing_address, r)
+
+    def _leave_refusing_address(self, r):
+        if refusing.leave(r):
+            self._log.debug(
+                "an address of the file host refused a link that is still"
+                " good: not using that address again"
+            )
+
+    def _drop_left_addresses(self):
+        """Look hosts up again when an address was left since this session
+        last did: its saved addresses may still hold it (#620). Another
+        session can have left it."""
+        left = refusing.times_left()
+        if left != self._addresses_left:
+            self._addresses_left = left
+            self.clear_dns_cache()
+
+    def clear_dns_cache(self):
+        """Resolve hosts again on the next request (async sessions)."""
+        resolver = getattr(self, "_resolver", None)
+        if resolver is not None:
+            resolver.clear()
+
+    def __enter__(self):
+        self._set_session(async_=False)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._session:
+            self._session.__exit__(exc_type, exc_val, exc_tb)
+        time.sleep(1)
+
+    def _create_headers(self, headers, url, sign, forced):
+        headers = headers or {}
+        if sites.is_fansly():
+            # Fansly: token and signed bundle on API calls only, never on CDN
+            # files; no OnlyFans headers or signing at all
+            headers.update(fansly_headers.make_headers(url))
+            return headers
+        headers.update(auth_requests.make_headers())
+        if sign:
+            auth_requests.create_sign(url, headers)
+        return headers
+
+    def _create_cookies(self):
+        if sites.is_fansly():
+            return None
+        return auth_requests.add_cookies()
+
+    def _wait_before_request(self):
+        # A 403 backoff applies even when the rate-limit sleeper waited; the
+        # 403 pacing gap only when the rate-limit sleeper didn't pace
+        paced = self._rate_limit_sleeper.do_sleep()
+        self._forbidden_sleeper.do_sleep(pace=not paced)
+
+    async def _async_wait_before_request(self):
+        paced = await self._rate_limit_sleeper.async_do_sleep()
+        await self._forbidden_sleeper.async_do_sleep(pace=not paced)
+
+    def reset_sleep(self):
+        self._rate_limit_sleeper.reset_sleep()
+        self._forbidden_sleeper.reset_sleep()
+
+    def _stop_after(self, retries, exceptions):
+        """
+        Stops after `retries` attempts, or after RATE_LIMIT_NUM_TRIES when the
+        last failure was a 429 the backoff handles: the wait before each new
+        attempt grows, and the usual few attempts end before it can outlast
+        the limit.
+        """
+        rate_limit_tries = of_env.getattr("RATE_LIMIT_NUM_TRIES")
+
+        def stop(retry_state):
+            limit = retries
+            outcome = retry_state.outcome
+            if (
+                TOO_MANY in exceptions
+                and outcome is not None
+                and outcome.failed
+                and is_provided_exception_number(outcome.exception(), 429)
+            ):
+                limit = max(retries, rate_limit_tries)
+            return retry_state.attempt_number >= limit
+
+        return stop
+
+    @contextlib.contextmanager
+    def requests(
+        self,
+        url=None,
+        method="get",
+        headers=None,
+        cookies=None,
+        json=None,
+        params=None,
+        redirects=True,
+        data=None,
+        retries=None,
+        wait_min=None,
+        wait_max=None,
+        log=None,
+        total_timeout=None,
+        connect_timeout=None,
+        pool_connect_timeout=None,
+        read_timeout=None,
+        actions: Optional[list] = None,
+        exceptions: Optional[list] = None,
+        **kwargs: Any,
+    ) -> Generator[httpx.Response, None, None]:
+        actions = actions or []
+        exceptions = exceptions or []
+        log = log or self._log
+        retries = retries if retries is not None else self._retries
+        wait_min = wait_min if wait_min is not None else self._wait_min
+        wait_max = wait_max if wait_max is not None else self._wait_max
+        # what the caller sent; the rest is the login the session adds
+        caller_headers = {k.lower() for k in (headers or {})}
+
+        for _ in Retrying(
+            # no dynamic rule: every rule source was already tried, so a retry
+            # would only ask them all again
+            retry=retry_if_not_exception_type(
+                (KeyboardInterrupt, SystemExit, auth_requests.DynamicRuleUnavailable)
+            )
+            & retry_if_exception(lambda e: not is_signed_cdn_forbidden(e)),
+            stop=self._stop_after(retries, exceptions),
+            wait=tenacity.wait.wait_random(min=wait_min, max=wait_max),
+            before=lambda x: (
+                log.debug(f"[bold]attempt: {x.attempt_number}[bold] for {hide_link(url)}")
+                if x.attempt_number > 1
+                else None
+            ),
+            reraise=True,
+        ):
+            r = None
+            with self._sync_sem:
+                with _:
+                    sent_at = None
+                    try:
+                        self._wait_before_request()
+                        sent_at = arrow.now()
+
+                        if (
+                            SIGN in actions
+                            or FORCED_NEW in actions
+                            or HEADERS in actions
+                        ):
+                            headers = self._create_headers(
+                                headers, url, SIGN in actions, FORCED_NEW in actions
+                            )
+                        if COOKIES in actions:
+                            cookies = self._create_cookies()
+                        login = [
+                            k
+                            for k in (headers or {})
+                            if k.lower() not in caller_headers
+                        ]
+                        # a redirect to a host outside the list gets no login
+                        guard = {}
+                        if redirects and login and not sites.is_fansly():
+                            guard["extensions"] = {
+                                LOGIN_GUARD: host_allowlist.drop_login_on_redirect_sync(
+                                    url, login
+                                )
+                            }
+
+                        r = self._httpx_funct(
+                            method,
+                            url=url,
+                            follow_redirects=redirects,
+                            params=params,
+                            cookies=cookies,
+                            headers=headers,
+                            json=json,
+                            data=data,
+                            timeout=httpx.Timeout(
+                                total_timeout or self._total_timeout,
+                                # the TLS handshake counts as connect time:
+                                # None here let a stalled handshake hang forever
+                                connect=connect_timeout or self._connect_timeout,
+                                pool=pool_connect_timeout or self._pool_connect_timeout,
+                                read=read_timeout or self._read_timeout,
+                            ),
+                            **guard,
+                        )
+                        if not r.ok and r.status_code != 404:
+                            error_text = r.text_()
+                            log.debug(f"[bold]failed: [bold] {hide_link(r.url)}")
+                            log.debug(f"[bold]status: [bold] {r.status_code}")
+                            log.debug(f"[bold]response text [/bold]: {error_text}")
+                            log.debug(f"response headers {dict(r.headers)}")
+                            log.debug(f"requests headers {dict(r.request.headers)}")
+
+                            if (
+                                r.status_code == 503
+                                and "maintenance" in error_text.lower()
+                            ):
+                                log.warning(
+                                    "🚨 OnlyFans is currently undergoing maintenance! Aborting to prevent IP ban."
+                                )
+                                print("OnlyFans Maintenance detected.", file=sys.stderr)
+                                raise SystemExit(exit_status.UNAVAILABLE)
+
+                            r.raise_for_status()
+
+                    except Exception as E:
+                        self._log.traceback_(hide_links(E))
+                        self._log.traceback_(hide_links(traceback.format_exc()))
+                        self._handle_error(E, exceptions, sent_at)
+                        raise E
+        yield r
+
+    @contextlib.asynccontextmanager
+    async def requests_async(
+        self,
+        url: str = None,
+        method: str = "get",
+        headers: dict = None,
+        cookies: dict = None,
+        json: dict = None,
+        params: dict = None,
+        data: dict = None,
+        wait_min: float = None,
+        wait_max: float = None,
+        retries: bool = None,
+        redirects: bool = True,
+        total_timeout: bool = None,
+        connect_timeout: float = None,
+        pool_connect_timeout: float = None,
+        read_timeout: float = None,
+        actions: Optional[list] = None,
+        exceptions: Optional[list] = None,
+        **kwargs,
+    ) -> AsyncGenerator[httpx.Response, None]:
+        actions = actions or []
+        exceptions = exceptions or []
+        retries = retries if retries is not None else self._retries
+        wait_min = wait_min if wait_min is not None else self._wait_min
+        wait_max = wait_max if wait_max is not None else self._wait_max
+
+        # The retry loop only gets the response. The caller's code runs after
+        # it, at the yield below: an error there (e.g. a read timeout while
+        # streaming) must not land inside tenacity's attempt, which swallows
+        # every exception and would start a new request and yield again,
+        # leaving both responses' connections open.
+        r = None
+        # what the caller sent; the rest is the login the session adds
+        caller_headers = {k.lower() for k in (headers or {})}
+        async for _ in AsyncRetrying(
+            stop=self._stop_after(retries, exceptions),
+            wait=tenacity.wait_random(min=wait_min, max=wait_max),
+            # a cancel (Ctrl+C, a timeout around the call) stops the request:
+            # tenacity's attempt swallows it, so it must not count as a failure.
+            # No dynamic rule: every rule source was already tried
+            retry=retry_if_not_exception_type(
+                (
+                    KeyboardInterrupt,
+                    SystemExit,
+                    asyncio.CancelledError,
+                    auth_requests.DynamicRuleUnavailable,
+                )
+            )
+            & retry_if_exception(lambda e: not is_signed_cdn_forbidden(e)),
+            reraise=True,
+            before_sleep=lambda retry_state: (
+                self._log.debug(
+                    f"Request failed for {hide_link(url)}. Retrying in {retry_state.next_action.sleep:.2f}s (Attempt {retry_state.attempt_number + 1})"
+                )
+            ),
+        ):
+            with _:
+                await self._sem.acquire()
+                sent_at = None
+                try:
+                    await self._async_wait_before_request()
+                    self._drop_left_addresses()
+                    sent_at = arrow.now()
+                    if SIGN in actions or FORCED_NEW in actions or HEADERS in actions:
+                        headers = self._create_headers(
+                            headers, url, SIGN in actions, FORCED_NEW in actions
+                        )
+                    if COOKIES in actions:
+                        cookies = self._create_cookies()
+                    login = [
+                        k for k in (headers or {}) if k.lower() not in caller_headers
+                    ]
+                    # a redirect to a host outside the list gets no login
+                    guard = {}
+                    if redirects and login and not sites.is_fansly():
+                        guard["middlewares"] = (
+                            host_allowlist.drop_login_on_redirect(url, login),
+                        )
+
+                    r = await self._aio_funct(
+                        method,
+                        url,
+                        timeout=aiohttp.ClientTimeout(
+                            total=total_timeout or self._total_timeout,
+                            connect=connect_timeout or self._connect_timeout,
+                            sock_connect=pool_connect_timeout
+                            or self._pool_connect_timeout,
+                            sock_read=read_timeout or self._read_timeout,
+                        ),
+                        headers=headers,
+                        cookies=cookies,
+                        allow_redirects=redirects,
+                        proxy=self._proxy,
+                        params=params,
+                        json=json,
+                        data=data,
+                        ssl=_request_ssl(url, self._get_ssl_context),
+                        **guard,
+                    )
+
+                    # a 416 to a ranged request is an answer, not a failure:
+                    # the caller decides what to do with the part on disk
+                    range_refused = r.status_code == 416 and "Range" in (headers or {})
+                    if not r.ok and r.status_code != 404 and not range_refused:
+                        error_text = await r.text_()
+                        self._log.debug(f"[bold]failed: [bold] {hide_link(r.url)}")
+                        self._log.debug(f"[bold]status: [bold] {r.status_code}")
+                        self._log.debug(f"[bold]response text [/bold]: {error_text}")
+                        self._log.debug(f"response headers {dict(r.headers)}")
+                        if r.status_code == 503 and "maintenance" in error_text.lower():
+                            self._log.warning(
+                                "🚨 OnlyFans is currently undergoing maintenance! Aborting to prevent IP ban."
+                            )
+                            print("OnlyFans Maintenance detected.", file=sys.stderr)
+                            raise SystemExit(exit_status.UNAVAILABLE)
+                        r.raise_for_status()
+                except Exception as E:
+                    if r is not None:
+                        self._offer_to_leave_address(E, r)
+                        r.close()
+                        r = None
+                    await self._async_handle_error(E, exceptions, sent_at)
+                    raise E
+                finally:
+                    self._sem.release()
+
+        try:
+            yield r
+        except BaseException:
+            # unread data stays in the socket buffer until the connection closes
+            r.close()
+            raise
+        else:
+            r.release()
+
+    @property
+    def sleep(self):
+        return self._rate_limit_sleeper.sleep
+
+    @sleep.setter
+    def sleep(self, val):
+        self._rate_limit_sleeper.sleep = val
+
+    @property
+    def proxy(self) -> Optional[str]:
+        """The proxy this session's requests go through, if any."""
+        return self._proxy
+
+    def _httpx_funct(self, method, follow_redirects=httpx.USE_CLIENT_DEFAULT, **kwargs):
+        # Same as Client.request(), minus its deprecation warning for
+        # per-request cookies: build_request merges them with the client's
+        # cookies for this request only, without touching the client's jar
+        request = self._session.build_request(method.upper(), **kwargs)
+        self._send_request_cookies_once(
+            request, kwargs.get("cookies"), kwargs.get("headers")
+        )
+        t = self._session.send(request, follow_redirects=follow_redirects)
+        t.ok = not t.is_error
+        t.json_ = t.json
+        t.text_ = lambda: t.text
+        t.status = t.status_code
+        t.iter_chunked = t.iter_bytes
+        t.read_ = t.read
+        return t
+
+    def _send_request_cookies_once(self, request, cookies, headers=None):
+        """
+        The client's jar keeps the cookies the server sets. build_request adds
+        the request's own cookies next to them, so once the server set a
+        `sess`, each request sent two. Like aiohttp, send only the request's
+        cookie of a name; the jar itself and its other cookies stay as they are.
+        A Cookie header the caller wrote is sent as written, as httpx does.
+        """
+        if not cookies or "cookie" not in request.headers:
+            return
+        if "cookie" in httpx.Headers(headers or {}):
+            return
+        merged = httpx.Cookies(self._session.cookies)
+        for name in cookies:
+            merged.delete(name)
+        merged.update(cookies)
+        del request.headers["cookie"]
+        merged.set_cookie_header(request)
+
+    async def _aio_funct(self, method, *args, **kwargs):
+        r = await self._session._request(method, *args, **kwargs)
+        r.text_ = r.text
+        r.json_ = r.json
+        r.iter_chunked = r.content.iter_chunked
+        r.iter_chunks = r.content.iter_chunks
+        r.request = r.request_info
+        r.status_code = r.status
+        r.read_ = r.content.read
+        r.eof = r.content.at_eof
+        return r

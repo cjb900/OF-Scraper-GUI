@@ -1,0 +1,327 @@
+name: Build and Package
+
+on:
+  push:
+    # Pushes to main build the binaries as a check. A version tag (e.g. 3.15.1)
+    # also publishes them as that version's release; path filters don't apply
+    # to tag pushes.
+    branches:
+      - main
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+    # doc-only changes don't need a build or test run
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'media/**'
+      - 'LICENSE*'
+      - '.github/ISSUE_TEMPLATE/**'
+
+permissions:
+  contents: read # Required for git checkout and gh CLI to read workflow runs
+
+jobs:
+  generate_version:
+    name: Generate Version Info
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+      GITHUB_REF: ${{ github.ref }}
+      GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      sanitized_version: ${{ steps.version.outputs.SANITIZED_VERSION }}
+      short_hash: ${{ steps.version.outputs.SHORT_HASH }}
+      long_hash: ${{ steps.version.outputs.LONG_HASH }}
+      commit_timestamp: ${{ steps.version.outputs.COMMIT_TIMESTAMP }}
+      base_version: ${{ steps.version.outputs.BASE_VERSION }}
+      push_type: ${{ steps.version.outputs.PUSH_TYPE }}
+      is_newer_than_last_successful_run: ${{ steps.version.outputs.IS_NEWER_THAN_LAST_SUCCESSFUL_RUN }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # Essential for git merge-base to compare full history
+          fetch-tags: true
+
+      - name: Make script executable
+        run: chmod +x ./scripts/commit_version.sh
+      - name: Generate Version and Git Info
+        id: version # This step runs your commit_version.sh script
+        run: ./scripts/commit_version.sh
+
+  build_binaries:
+    name: Build on ${{ matrix.os }}
+    needs: [generate_version]
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            artifact_suffix: linux
+            shell: bash
+          - os: windows-latest
+            artifact_suffix: windows
+            shell: pwsh
+          - os: macos-latest
+            artifact_suffix: macos
+            shell: bash
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: 3.15.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Set Version Environment Variables
+        shell: bash
+        run: |
+          echo "HATCH_VCS_PRETEND_VERSION=${{ needs.generate_version.outputs.version }}" >> $GITHUB_ENV
+
+      - name: Install Dependencies and Build Tools
+        shell: bash
+        run: |
+          uv venv
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            . .venv/Scripts/activate
+          else
+            source .venv/bin/activate
+          fi
+          uv sync --verbose --extra ffmpeg --extra dev
+
+      - name: Set UTF-8 environment (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          echo "PYTHONUTF8=1" >> $env:GITHUB_ENV
+          echo "PYTHONLEGACYWINDOWSSTDIO=utf8" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Build Executable using Spec Files (One-File)
+        id: build_onefile
+        shell: bash
+        continue-on-error: true
+        run: |
+          SANITIZED_VERSION="${{ needs.generate_version.outputs.sanitized_version }}"
+          EXE_NAME="ofscraper_${{ matrix.artifact_suffix }}_${SANITIZED_VERSION}"
+
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            source .venv/Scripts/activate
+            EXE_EXT=".exe"
+          else
+            source .venv/bin/activate
+            EXE_EXT=""
+          fi
+
+          echo "Building one-file executable from specs/onefile.spec..."
+          pyinstaller specs/onefile.spec
+          mv dist/ofscraper_file${EXE_EXT} dist/${EXE_NAME}${EXE_EXT}
+          echo "one_file_path=dist/${EXE_NAME}${EXE_EXT}" >> $GITHUB_OUTPUT
+          echo "one_file_name=${EXE_NAME}${EXE_EXT}" >> $GITHUB_OUTPUT
+
+      - name: Verify offline tools in One-File executable
+        if: steps.build_onefile.outcome == 'success'
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          # The tool list comes from ofscraper/commands/tools.py, so a new tool is
+          # checked without editing this step. Every tool is tried before the step
+          # fails, so one log shows all the tools the bundle is missing.
+          # A throwaway HOME keeps --help away from any real config.
+          # tr drops the \r that Python on Windows writes before the newline, which
+          # $() would otherwise leave on the last tool name.
+          EXE="${{ steps.build_onefile.outputs.one_file_path }}"
+          TOOLS=$(PYTHONPATH=. .venv/${{ runner.os == 'Windows' && 'Scripts/python.exe' || 'bin/python' }} -c "import ofscraper.commands.tools as t; print(' '.join(t.TOOLS))" | tr -d '\r')
+          SMOKE_HOME="$RUNNER_TEMP/ofscraper-smoke-home"
+          mkdir -p "$SMOKE_HOME"
+          failed=""
+          for tool in $TOOLS; do
+            echo "::group::ofscraper $tool --help"
+            if HOME="$SMOKE_HOME" USERPROFILE="$SMOKE_HOME" "$EXE" "$tool" --help; then
+              echo "ok: $tool"
+            else
+              failed="$failed $tool"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -z "$TOOLS" ]; then
+            echo "::error::no offline tools found in ofscraper/commands/tools.py"
+            exit 1
+          fi
+          if [ -n "$failed" ]; then
+            echo "::error::offline tools failed in the one-file executable:$failed"
+            exit 1
+          fi
+
+      - name: Upload One-File Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build_onefile.outputs.one_file_name }}
+          path: ${{ steps.build_onefile.outputs.one_file_path }}
+          if-no-files-found: ignore
+
+      - name: Build and Zip One-Dir Bundle
+        id: build_onedir_zip
+        shell: bash
+        continue-on-error: true
+        run: |
+          SANITIZED_VERSION="${{ needs.generate_version.outputs.sanitized_version }}"
+          DIR_NAME="ofscraper_${{ matrix.artifact_suffix }}_dir"
+          ZIP_NAME="ofscraper_${{ matrix.artifact_suffix }}_${SANITIZED_VERSION}.zip"
+
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            source .venv/Scripts/activate
+          else
+            source .venv/bin/activate
+          fi
+
+          echo "Building one-dir bundle from specs/onedir.spec..."
+          pyinstaller specs/onedir.spec
+          mv dist/ofscraper_dir dist/${DIR_NAME}
+
+          echo "Zipping one-dir build..."
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            powershell -Command "Compress-Archive -Path dist/${DIR_NAME} -DestinationPath dist/${ZIP_NAME} -Force"
+          else
+            zip -r "dist/${ZIP_NAME}" "dist/${DIR_NAME}"
+          fi
+          echo "zip_path=dist/${ZIP_NAME}" >> $GITHUB_OUTPUT
+          echo "zip_name=${ZIP_NAME}" >> $GITHUB_OUTPUT
+          echo "dir_path=dist/${DIR_NAME}" >> $GITHUB_OUTPUT
+          echo "dir_name=dist/${DIR_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Upload Zipped One-Dir Artifact
+        if: success() && steps.build_onedir_zip.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build_onedir_zip.outputs.zip_name }}
+          path: ${{ steps.build_onedir_zip.outputs.zip_path }}
+          if-no-files-found: ignore
+
+      - name: Upload One-Dir Folder (if zip failed)
+        if: failure() && steps.build_onedir_zip.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build_onedir_zip.outputs.dir_name }}
+          path: ${{ steps.build_onedir_zip.outputs.dir_path }}
+          if-no-files-found: ignore
+
+  publish_release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build_binaries, generate_version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to create/update GitHub Releases
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts/
+
+      - name: List downloaded files for debugging
+        run: ls -R artifacts
+
+      - name: Create or Update Release
+        uses: ncipollo/release-action@v1.21.0
+        with:
+          artifacts: artifacts/*/*
+          tag: ${{ github.ref_name }}
+          name: ${{ needs.generate_version.outputs.version }}
+          generateReleaseNotes: true
+          allowUpdates: true
+          prerelease: false
+          makeLatest: true
+
+  build_pypi_dist:
+    name: Build PyPI Packages
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [generate_version]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Build sdist and wheel
+        env:
+          # the plain tag version (e.g. 3.16.2); plugins.py would add +g<hash>
+          HATCH_VCS_PRETEND_VERSION: ${{ needs.generate_version.outputs.version }}
+        run: uv build --python 3.15
+
+      - name: Check the version is the plain tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          EXPECTED="${TAG#v}"
+          for f in dist/*; do echo "built: $f"; done
+          WHEELS=(dist/ofscraper-*-py3-none-any.whl)
+          SDISTS=(dist/ofscraper-*.tar.gz)
+          if [ ${#WHEELS[@]} -ne 1 ] || [ ! -f "${WHEELS[0]}" ] || [ ${#SDISTS[@]} -ne 1 ] || [ ! -f "${SDISTS[0]}" ]; then
+            echo "::error::expected one ofscraper wheel and one sdist"; exit 1
+          fi
+          BUILT=$(unzip -p "${WHEELS[0]}" '*.dist-info/METADATA' | sed -n 's/^Version: //p' | tr -d '\r')
+          NAME=$(unzip -p "${WHEELS[0]}" '*.dist-info/METADATA' | sed -n 's/^Name: //p' | tr -d '\r')
+          echo "name: $NAME, version: $BUILT, tag: $TAG"
+          if [ "$NAME" != "ofscraper" ]; then
+            echo "::error::package name is '$NAME', not 'ofscraper'"; exit 1
+          fi
+          case "$BUILT" in
+            *+*) echo "::error::version '$BUILT' has a local part, which PyPI rejects"; exit 1 ;;
+          esac
+          if [ "$BUILT" != "$EXPECTED" ]; then
+            echo "::error::version '$BUILT' doesn't match tag '$TAG'"; exit 1
+          fi
+          if [ "${SDISTS[0]}" != "dist/ofscraper-${EXPECTED}.tar.gz" ]; then
+            echo "::error::sdist '${SDISTS[0]}' doesn't match tag '$TAG'"; exit 1
+          fi
+
+      - name: Check the wheel installs and runs
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          uv venv --python 3.11 "$RUNNER_TEMP/smoke"
+          uv pip install --python "$RUNNER_TEMP/smoke" dist/*.whl
+          OUTPUT=$("$RUNNER_TEMP/smoke/bin/ofscraper" --version)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -qF "${TAG#v}"
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v7
+        with:
+          name: pypi-dist
+          path: dist/
+          if-no-files-found: error
+
+  publish_pypi:
+    name: Publish to PyPI
+    if: startsWith(github.ref, 'refs/tags/') && github.repository == 'datawhores/OF-Scraper'
+    needs: [build_pypi_dist, publish_release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v8
+        with:
+          name: pypi-dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.14.3
+        with:
+          user: __token__
+          password: ${{ secrets.pypi }}
