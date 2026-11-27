@@ -229,6 +229,31 @@ def test_model_list_needs_fansly_credentials_not_onlyfans_ones(monkeypatch, fans
         model_fetch._fetch_subscription_models_locked(userlist=None, timeout_sec=1)
 
 
+@pytest.mark.parametrize("userlist,expected", [(["Test"], ["test"]), (None, [])])
+def test_model_list_uses_my_lists_not_the_last_scrapes_creators(
+    monkeypatch, fansly, userlist, expected
+):
+    # h12: the list names were dropped, and the fetch went by the run's
+    # settings, which still held the last scrape's creator
+    import ofscraper.sites.fansly.auth as fansly_auth
+    from ofscraper.gui.utils import model_fetch
+    from ofscraper.sites.fansly import scrape as fansly_scrape
+
+    good = fansly_auth.empty()
+    good.update(authorization_token="t" * 60, user_agent="Mozilla/5.0 " + "x" * 40)
+    monkeypatch.setattr(fansly_auth, "read_auth", lambda: good)
+    calls = []
+
+    async def get_models(usernames=None, c=None, userlists=None, blacklists=None):
+        calls.append((usernames, userlists))
+        return [{"id": 1, "username": "on_the_list", "name": "On"}]
+
+    monkeypatch.setattr(fansly_scrape, "get_models", get_models)
+    out = model_fetch._fetch_subscription_models_locked(userlist=userlist, timeout_sec=5)
+    assert calls == [([], expected)]
+    assert [m["username"] for m in out] == ["on_the_list"]
+
+
 # --- pages --------------------------------------------------------------------------------------
 
 @pytest.fixture(scope="module")

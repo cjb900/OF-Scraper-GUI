@@ -391,8 +391,6 @@ def _fetch_subscription_models_locked(
                 + ". Please fill in your Fansly credentials first."
             )
         breadcrumb("auth_ok", f"path={fansly_auth.auth_path()} site=fansly")
-        # Fansly has no user lists: the followed creators come from the site
-        userlist = None
     else:
         _check_onlyfans_auth(common_paths, auth_dict_mod, breadcrumb)
 
@@ -401,7 +399,23 @@ def _fetch_subscription_models_locked(
 
     breadcrumb("api_phase_enter", f"mode={'userlist' if ul else 'all_subs'}")
     try:
-        if ul:
+        if site_context.is_fansly():
+            # the My lists names from the first page, or every followed and
+            # subscribed creator. Passed explicitly: the run's settings can
+            # still hold the last scrape's creators (a fetch then returned
+            # only those) and the list names were dropped here (h12)
+            from ofscraper.sites.fansly import scrape as fansly_scrape
+
+            async def _do_fetch_fansly():
+                breadcrumb("api_get_models_start", f"fansly lists={len(ul)}")
+                out = await fansly_scrape.get_models(usernames=[], userlists=ul)
+                breadcrumb("api_get_models_done", f"raw={len(out or [])}")
+                return out
+
+            breadcrumb("coro_run_start", f"timeout={timeout}")
+            data = _run_coro(_do_fetch_fansly(), timeout)
+            breadcrumb("coro_run_done", f"raw={len(data or [])}")
+        elif ul:
             import ofscraper.data.api.subscriptions.lists as _lists_mod
 
             async def _do_fetch_list():
