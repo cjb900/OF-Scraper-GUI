@@ -96,11 +96,13 @@ def test_logged_out_session_asks_for_auth_in_the_cli(me_replies, caplog):
 
 
 def test_logged_out_session_is_auth_failed_in_the_gui(me_replies, caplog):
-    # GUI scrapes log "Auth Failed" and carry on, as for a 401
+    # GUI scrapes log "Auth Failed" and end the run, as for a 401 (h15:
+    # carrying on ended in a raw 401 a minute later)
     me_replies.args.gui = True
     me_replies({"isAuth": False})
     with caplog.at_level(logging.INFO, logger="shared"):
-        assert checkers.check_auth() is None
+        with pytest.raises(checkers.LoginRejected):
+            checkers.check_auth()
     assert "Auth Failed" in caplog.text
     assert me_replies.prompts == []
 

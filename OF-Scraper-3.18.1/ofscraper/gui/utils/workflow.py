@@ -3982,6 +3982,12 @@ class GUIWorkflow:
                     app_signals.log_message.emit(
                         "ERROR", f"Scraper failed on run #{run_count}: {e}"
                     )
+                    # the run failed (e.g. "Couldn't check the auth" offline):
+                    # History said "ok" and only the log said why. A daemon
+                    # goes on to its next run; a single run says it in a box
+                    self._last_run_failed = True
+                    if not self._daemon_enabled:
+                        app_signals.error_occurred.emit("Scraper Error", str(e))
                     app_signals.log_message.emit(
                         "DEBUG", traceback.format_exc()
                     )

@@ -240,8 +240,10 @@ def test_rejected_auth_still_asks_for_auth(offline, caplog, status):
 def test_rejected_auth_in_the_gui_is_still_auth_failed(offline, caplog, status):
     offline.args.gui = True
     offline.me = status
+    # it ends the run (h15: returning let the run go on until a raw 401)
     with caplog.at_level(logging.INFO, logger="shared"):
-        assert checkers.check_auth() is None
+        with pytest.raises(checkers.LoginRejected, match="Authentication page"):
+            checkers.check_auth()
     assert "Auth Failed" in caplog.text
     assert offline.prompts == []
 

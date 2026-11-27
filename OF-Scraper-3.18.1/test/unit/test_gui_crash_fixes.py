@@ -195,3 +195,16 @@ def test_check_mode_sends_scraping_finished_once():
     assert re.search(r"self\._run_check_mode\(\)\n(\s+#[^\n]*\n)*\s+_finished_sent = True\n\s+return", body)
     checker = inspect.getsource(__import__("ofscraper.commands.check", fromlist=["gui_checker"]).gui_checker)
     assert "scraping_finished.emit()" in checker
+
+
+def test_a_failed_run_is_marked_and_shown():
+    # offline, "Couldn't check the auth" ended the run, but History said "ok"
+    # and only the log said why (h15)
+    from ofscraper.gui.utils import workflow
+
+    src = inspect.getsource(workflow)
+    i = src.index('log.error(f"Scraper error on run #{run_count}: {e}")')
+    block = src[i:i + 1200]
+    assert "self._last_run_failed = True" in block
+    assert 'app_signals.error_occurred.emit("Scraper Error", str(e))' in block
+    assert "if not self._daemon_enabled:" in block

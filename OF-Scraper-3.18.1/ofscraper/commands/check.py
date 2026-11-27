@@ -49,7 +49,12 @@ from ofscraper.db.operations_.media import (
     batch_mediainsert,
     get_media_post_files_downloaded,
 )
-from ofscraper.utils.checkers import AuthCheckLeft, AuthCheckUnavailable, check_auth
+from ofscraper.utils.checkers import (
+    AuthCheckLeft,
+    AuthCheckUnavailable,
+    LoginRejected,
+    check_auth,
+)
 from ofscraper.utils.context.run_async import run
 from ofscraper.scripts.after_download_action_script import after_download_action_script
 import ofscraper.managers.manager as manager
@@ -485,7 +490,7 @@ def _checker():
             purchase_checker()
         elif settings.get_settings().command == "story_check":
             stories_checker()
-    except (AuthCheckUnavailable, AuthCheckLeft):
+    except (AuthCheckUnavailable, AuthCheckLeft, LoginRejected):
         # the auth check runs in gather_rows now; its errors were never
         # logged as tracebacks
         raise

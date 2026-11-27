@@ -82,7 +82,18 @@ def check_auth(include_main_menu=False):
     if sites.is_fansly():
         import ofscraper.sites.fansly.auth as fansly_auth
 
-        fansly_auth.load()
+        if getattr(settings.get_args(), "gui", False):
+            # the GUI asks for the auth on its Authentication page: load()
+            # prompted in the terminal behind it (or failed for want of one)
+            missing = fansly_auth.problems(fansly_auth.read_auth())
+            if missing:
+                raise LoginRejected(
+                    "The Fansly auth is missing or incomplete ("
+                    + "; ".join(missing)
+                    + "). Enter it on the Authentication page."
+                )
+        else:
+            fansly_auth.load()
     while status != "UP":
         status, message = init.auth_status()
         if status == "UNAVAILABLE":
@@ -98,10 +109,15 @@ def check_auth(include_main_menu=False):
             # before any prompt: in a daemon under Docker's tty: true a
             # prompt waits forever, so at least the wait is announced
             alerts.failing(alerts.LOGIN, f"{_site_label()} rejected the login; update the auth")
-            # In GUI mode skip interactive prompts; the GUI auth dialog handles re-auth
+            # In GUI mode skip interactive prompts: the auth is updated on the
+            # Authentication page. Returning here let the run carry on with
+            # the refused login until a raw 401 ended it (h15); end the pass
             if getattr(settings.get_args(), "gui", False):
                 log.debug("GUI mode: skipping interactive auth prompt on auth failure")
-                return
+                raise LoginRejected(
+                    f"{_site_label()} rejected the login. Update the auth on the"
+                    " Authentication page, then start the scrape again."
+                )
             try:
                 if sites.is_fansly():
                     fansly_auth.make_auth()
