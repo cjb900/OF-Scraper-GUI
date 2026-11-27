@@ -434,3 +434,23 @@ def test_the_developer_panels_token_is_masked(running):
         assert control.values["token"] not in listed
     finally:
         dialog.close()
+
+
+def test_lists_skip_hidden_rows_and_tick_checkbox_items(running):
+    from PyQt6.QtCore import Qt
+
+    window, control = running
+    models = QtWidgets.QListWidget()
+    for name in ("alice", "melodymarksx", "carol"):
+        item = QtWidgets.QListWidgetItem(name)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Unchecked)
+        models.addItem(item)
+    models.item(0).setHidden(True)  # a search left it out
+    window._pages["scraper"].layout().addWidget(models)
+    handle = json.loads(_text(_tool(control, "list_controls", kinds=["list"])))["controls"][0]["handle"]
+    items = json.loads(_text(_tool(control, "read", control=handle)))["items"]
+    assert [i["text"] for i in items] == ["melodymarksx", "carol"]
+    assert items[0]["checked"] is False
+    assert "ticked" in _text(_tool(control, "select", control=handle, option="melodymarksx"))
+    assert models.item(1).checkState() == Qt.CheckState.Checked

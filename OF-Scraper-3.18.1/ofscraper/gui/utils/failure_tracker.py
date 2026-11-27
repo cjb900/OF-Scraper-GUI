@@ -51,6 +51,24 @@ def record_download_failure(
         _failures.append(entry)
 
 
+def clear_failure(media_id: Any, username: str = "") -> bool:
+    """Forget a failure that a later attempt of the same item fixed (the
+    retry after the links are refreshed), so the summary lists only what is
+    still missing. True when one was removed."""
+    if media_id is None or media_id == "":
+        return False
+    user = (username or "").strip().lower()
+    with _lock:
+        for i, existing in enumerate(_failures):
+            if str(existing.get("media_id")) != str(media_id):
+                continue
+            if user and str(existing.get("username") or "").strip().lower() not in (user, "unknown"):
+                continue
+            del _failures[i]
+            return True
+    return False
+
+
 def get_failures() -> list[dict[str, Any]]:
     """Return a copy of recorded failures for this scrape."""
     with _lock:
@@ -77,8 +95,17 @@ def failure_count_for_user(username: str) -> int:
 
 def _on_item_finished(ele=None, username=None, result=None, reason=None, **_):
     """ofscraper's item_finished event: a failed download goes into the
-    post-run summary, and its row's cart cell shows [failed]."""
-    if result != "failed" or ele is None:
+    post-run summary, and its row's cart cell shows [failed]. A later
+    success of the same item (the retry) takes it out again."""
+    if ele is None:
+        return
+    if result in ("downloaded", "skipped"):
+        try:
+            clear_failure(getattr(ele, "id", None), username or getattr(ele, "username", "") or "")
+        except Exception:
+            pass
+        return
+    if result != "failed":
         return
     try:
         record_download_failure(

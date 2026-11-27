@@ -356,7 +356,16 @@ class GuiTools:
             lines = w.toPlainText().splitlines()
             return {"lines": len(lines), "text": "\n".join(lines[-max(1, int(max_rows)):])}
         if isinstance(w, QListWidget):
-            return {"items": [w.item(i).text() for i in range(w.count())]}
+            items = []
+            for i in range(w.count()):
+                item = w.item(i)
+                if item.isHidden():  # left out by a search box
+                    continue
+                entry = {"row": i, "text": item.text()}
+                if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                    entry["checked"] = item.checkState() == Qt.CheckState.Checked
+                items.append(entry)
+            return {"items": items}
         return self._describe(w, _kind(w) or type(w).__name__)
 
     def read_log(self, lines=60):
@@ -526,10 +535,19 @@ class GuiTools:
             return f"opened the {texts[idx]!r} tab"
         if isinstance(w, QListWidget):
             for i in range(w.count()):
-                if option_l in w.item(i).text().lower():
-                    self._later(lambda i=i: w.setCurrentRow(i))
-                    return f"chose {w.item(i).text()!r}"
-            raise ToolError(f"{option!r} isn't in the list")
+                item = w.item(i)
+                if item.isHidden() or option_l not in item.text().lower():
+                    continue
+                if item.flags() & Qt.ItemFlag.ItemIsUserCheckable:
+                    # a list of checkboxes (Select Models): choosing ticks it
+                    def tick(i=i, item=item):
+                        w.setCurrentRow(i)
+                        item.setCheckState(Qt.CheckState.Checked)
+                    self._later(tick)
+                    return f"ticked {_short(item.text(), 60)!r}"
+                self._later(lambda i=i: w.setCurrentRow(i))
+                return f"chose {_short(item.text(), 60)!r}"
+            raise ToolError(f"{option!r} isn't in the list (or is hidden by its search box)")
         if isinstance(w, QTableWidget):
             try:
                 row = int(option)
