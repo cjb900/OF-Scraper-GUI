@@ -486,10 +486,13 @@ Open **Manage DBs** and choose the **PostgreSQL** tab.
 - **Already-downloaded checks stay per creator**, just as with the files. Media is never skipped because another creator has it.
 - **Merging user_data.db files still works only on `user_data.db` files.** It doesn't see anything scraped since the switch.
 - **Your `user_data.db` files are never changed or deleted.** They aren't used while PostgreSQL is on; keep them as a backup from before the switch.
-- **Driver.** PostgreSQL needs a driver (psycopg). The Docker image includes it. On a pip, pipx or uv install, use **Install driver** on the tab. The standalone `.exe` can't use PostgreSQL. Upgrading with the GUI patch script keeps the driver. If pipx or uv can't be found, the tab shows the command to run yourself. The button installs the driver the same way ofscraper was installed:
-  - pipx: `pipx inject ofscraper "psycopg[binary,pool]>=3.3.9,<3.4"`
-  - uv: `uv pip install --python <ofscraper's python> "psycopg[binary,pool]>=3.3.9,<3.4"`
-  - pip: `python -m pip install "psycopg[binary,pool]>=3.3.9,<3.4"`
+- **Driver.** PostgreSQL needs a driver (psycopg). Since 3.18.1 it's installed with ofscraper on most systems (Windows, macOS, and Linux on common processors), and the Docker image includes it; the tab's status line says whether it's there. The standalone `.exe` can't use PostgreSQL. Where the driver is missing, use **Install driver** on the tab. It installs the driver the same way ofscraper was installed, and if pipx or uv can't be found, it shows the command to run yourself:
+  - pipx: `pipx inject ofscraper "psycopg[binary,pool]>=3.3.9"`
+  - uv: `uv pip install --python <ofscraper's python> "psycopg[binary,pool]>=3.3.9"`
+  - pip: `python -m pip install "psycopg[binary,pool]>=3.3.9"`
+
+  Upgrading with the GUI patch script keeps the driver.
+- **If the server can't be reached when the GUI starts**, the GUI opens anyway and the log says why (the command line stops instead). Scrapes stop with the same reason until the server is back, or until you change or turn off PostgreSQL on this tab.
 
 **Turning it on**
 1. **Connection.** Enter the host, port, database, user and password, then click **Test connection**. **Save and use PostgreSQL** tests the connection again and saves it. Before asking, it checks what the server already holds: on a server that already has your creators (set up from another computer, or earlier), it says so, and how many of your `user_data.db` files are for creators it doesn't have yet.

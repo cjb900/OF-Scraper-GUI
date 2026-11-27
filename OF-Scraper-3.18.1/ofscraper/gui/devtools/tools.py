@@ -202,6 +202,10 @@ class GuiTools:
             for w in [top, *top.findChildren(QWidget)]:
                 if not _alive(w) or not w.isVisible():
                     continue
+                # a dialog owned by the main window is its own window: its
+                # controls are listed under it, not again under the owner
+                if w.window() is not top:
+                    continue
                 kind = _kind(w)
                 if kind is None or (kinds and kind not in kinds):
                     continue

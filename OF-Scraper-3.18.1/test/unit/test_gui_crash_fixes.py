@@ -183,3 +183,15 @@ def test_host_records_how_a_sites_window_ended(crumbs):
     assert "child_exit | site=onlyfans pid=42 code=1 status=crash" in line
     src = inspect.getsource(site_host._define_classes)
     assert '_host_breadcrumb(\n                "child_exit"' in src
+
+
+def test_check_mode_sends_scraping_finished_once():
+    # check.gui_checker sends it; the thread's finally sent a second one
+    from ofscraper.gui.utils import workflow
+
+    src = inspect.getsource(workflow)
+    body = src[src.index("    def _run_scraper_thread(self):"):]
+    body = body[: body.index("\n    def ", 10)]
+    assert re.search(r"self\._run_check_mode\(\)\n(\s+#[^\n]*\n)*\s+_finished_sent = True\n\s+return", body)
+    checker = inspect.getsource(__import__("ofscraper.commands.check", fromlist=["gui_checker"]).gui_checker)
+    assert "scraping_finished.emit()" in checker

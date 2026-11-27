@@ -10,7 +10,7 @@ You need:
 
 - **PostgreSQL 15 or newer.** The examples use 17.
 - **A database and a login that owns it.** The scraper creates its own tables, in one schema per site (`onlyfans`, `fansly`).
-- **The driver on the OF-Scraper side.** The GUI's Docker image has it. On a pip, pipx or uv install, use **Install driver** on the **Manage DBs → PostgreSQL** tab. The standalone `.exe` can't use PostgreSQL.
+- **The driver on the OF-Scraper side.** Since 3.18.1 it's installed with ofscraper on most systems, and the GUI's Docker image has it. Where it's missing, use **Install driver** on the **Manage DBs → PostgreSQL** tab. The standalone `.exe` can't use PostgreSQL.
 
 Pick one way to run the server:
 

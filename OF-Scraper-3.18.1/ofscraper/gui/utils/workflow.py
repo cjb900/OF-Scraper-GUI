@@ -3417,6 +3417,8 @@ class GUIWorkflow:
             # Check mode: one-shot run — no daemon loop
             if bool(self._selected_actions & self._CHECK_MODES):
                 self._run_check_mode()
+                # check.gui_checker (or its error path) sent scraping_finished
+                _finished_sent = True
                 return
 
             # Metadata: one-shot run — no daemon loop, nothing to download

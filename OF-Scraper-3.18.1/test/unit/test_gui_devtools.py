@@ -454,3 +454,17 @@ def test_lists_skip_hidden_rows_and_tick_checkbox_items(running):
     assert items[0]["checked"] is False
     assert "ticked" in _text(_tool(control, "select", control=handle, option="melodymarksx"))
     assert models.item(1).checkState() == Qt.CheckState.Checked
+
+
+def test_a_dialog_owned_by_the_window_is_listed_once(running):
+    window, control = running
+    dialog = QtWidgets.QDialog(window)
+    dialog.setWindowTitle("Download failures")
+    QtWidgets.QVBoxLayout(dialog).addWidget(QtWidgets.QPushButton("Add failures to cart"))
+    dialog.show()
+    try:
+        listed = json.loads(_text(_tool(control, "list_controls", text="Add failures to cart")))
+        assert listed["count"] == 1
+        assert listed["controls"][0]["window"] == "Download failures"
+    finally:
+        dialog.close()
