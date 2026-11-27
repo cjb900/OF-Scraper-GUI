@@ -20,6 +20,8 @@ import ofscraper.utils.of_env.of_env as of_env
 import ofscraper.utils.config.file as config_file
 import ofscraper.utils.config.naming_check as naming_check
 import ofscraper.utils.config.utils.wrapper as wrapper
+import ofscraper.utils.const as const  # noqa: F401
+from ofscraper.utils.config.path_norm import strip_path_quotes  # noqa: F401
 
 # auto_update_config rebuilds config.json from these getters and writes it
 # back, so each must return what belongs in the file. Environment fallbacks
@@ -28,16 +30,6 @@ import ofscraper.utils.config.utils.wrapper as wrapper
 # _first, _first_set, _value and _truthy_value are the lookups most getters
 # share; the reference builder (scripts/reference/build_reference.py) reads
 # their arguments to list each key's older names and environment default.
-
-
-def strip_path_quotes(val):
-    # Windows "Copy as path" wraps paths in double quotes, which then end up
-    # literally inside the json string
-    if isinstance(val, str):
-        val = val.strip()
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
-            val = val[1:-1].strip()
-    return val
 
 
 # the paths _lookup() is asked for while this is a set: auto_update_config
@@ -65,6 +57,14 @@ def _lookup(config, path):
         return config.get(key)
     values = config.get(section)
     return values.get(key) if isinstance(values, dict) else None
+
+
+def _note_reads(*paths):
+    """Record paths a getter reads without _lookup() (the GUI patch's
+    settings and their older top-level names), so the config rewrite's notes
+    don't call them unread."""
+    if _reads is not None:
+        _reads.update(paths)
 
 
 def _first(config, *paths):
@@ -298,6 +298,121 @@ def get_ssl_verify(config=None):
     return val if val is not None else of_env.getattr("SSL_VALIDATION_DEFAULT")
 
 
+def _sanitize_file_extension(val, default: str) -> str:
+    """Strip leading dots; keep alnum only; fall back to *default* if empty."""
+    s = "".join(c for c in str(val or "").strip().lstrip(".").lower() if c.isalnum())
+    return s or default
+
+
+def _file_options_dict(config):
+    if not isinstance(config, dict):
+        return {}
+    fo = config.get("file_options")
+    return fo if isinstance(fo, dict) else {}
+
+
+def _legacy_override_all(config) -> bool:
+    """Pre–per-type flag: single override_file_extensions enabled all media types."""
+    fo = _file_options_dict(config)
+    val = config.get("override_file_extensions") if isinstance(config, dict) else None
+    if val is None:
+        val = fo.get("override_file_extensions")
+    return bool(val)
+
+
+def _get_per_type_ext_override(config, key: str) -> bool:
+    """Per-mediatype override; falls back to legacy global override_file_extensions."""
+    _note_reads(key, f"file_options.{key}", "override_file_extensions", "file_options.override_file_extensions")
+    if config is False or not isinstance(config, dict):
+        return False
+    fo = _file_options_dict(config)
+    if key in fo or key in config:
+        val = config.get(key) if key in config else None
+        if val is None:
+            val = fo.get(key)
+        return bool(val)
+    # Any per-type key present ⇒ already migrated; missing type stays off
+    siblings = (
+        "override_image_extension",
+        "override_video_extension",
+        "override_audio_extension",
+    )
+    if any(s in fo or s in config for s in siblings):
+        return False
+    return _legacy_override_all(config)
+
+
+@wrapper.config_reader
+def get_override_file_extensions(config=None):
+    """True if any mediatype extension override is on (incl. legacy global flag)."""
+    if config is False:
+        return False
+    if not isinstance(config, dict):
+        return False
+    return (
+        get_override_image_extension(config=config)
+        or get_override_video_extension(config=config)
+        or get_override_audio_extension(config=config)
+    )
+
+
+@wrapper.config_reader
+def get_override_image_extension(config=None):
+    return _get_per_type_ext_override(config, "override_image_extension")
+
+
+@wrapper.config_reader
+def get_override_video_extension(config=None):
+    return _get_per_type_ext_override(config, "override_video_extension")
+
+
+@wrapper.config_reader
+def get_override_audio_extension(config=None):
+    return _get_per_type_ext_override(config, "override_audio_extension")
+
+
+@wrapper.config_reader
+def get_image_extension(config=None):
+    _note_reads("image_extension", "file_options.image_extension")
+    if config is False:
+        return "jpg"
+    if not isinstance(config, dict):
+        return "jpg"
+    fo = _file_options_dict(config)
+    val = config.get("image_extension")
+    if val is None:
+        val = fo.get("image_extension")
+    return _sanitize_file_extension(val, "jpg")
+
+
+@wrapper.config_reader
+def get_video_extension(config=None):
+    _note_reads("video_extension", "file_options.video_extension")
+    if config is False:
+        return "mp4"
+    if not isinstance(config, dict):
+        return "mp4"
+    fo = _file_options_dict(config)
+    val = config.get("video_extension")
+    if val is None:
+        val = fo.get("video_extension")
+    return _sanitize_file_extension(val, "mp4")
+
+
+@wrapper.config_reader
+def get_audio_extension(config=None):
+    _note_reads("audio_extension", "file_options.audio_extension")
+    if config is False:
+        return "mp3"
+    if not isinstance(config, dict):
+        return "mp3"
+    fo = _file_options_dict(config)
+    val = config.get("audio_extension")
+    if val is None:
+        val = fo.get("audio_extension")
+    return _sanitize_file_extension(val, "mp3")
+
+
 @wrapper.config_reader
 def get_after_action_script(config=None):
     return _value(
@@ -306,6 +421,7 @@ def get_after_action_script(config=None):
         "after_action_script",
         "advanced_options.after_action_script",
         "script_options.after_action_script",
+        "scripts_options.after_action_script",
     )
 
 
@@ -318,6 +434,7 @@ def get_post_script(config=None):
         "advanced_options.post_script",
         "scripts.post_script",
         "script_options.post_script",
+        "scripts_options.post_script",
     )
 
 
@@ -340,6 +457,7 @@ def get_naming_script(config=None):
         "advanced_options.naming_script",
         "scripts.naming_script",
         "script_options.naming_script",
+        "scripts_options.naming_script",
     )
 
 
@@ -352,6 +470,7 @@ def get_skip_download_script(config=None):
         "advanced_options.skip_download_script",
         "scripts.skip_download_script",
         "script_options.skip_download_script",
+        "scripts_options.skip_download_script",
     )
 
 
@@ -364,6 +483,7 @@ def get_after_download_script(config=None):
         "advanced_options.after_download_script",
         "scripts.after_download_script",
         "script_options.after_download_script",
+        "scripts_options.after_download_script",
     )
 
 
@@ -437,6 +557,18 @@ def get_ffmpeg(config=None):
 @wrapper.config_reader
 def get_discord(config=None):
     return _value(config, "DISCORD_DEFAULT", "discord")
+
+
+@wrapper.config_reader
+def get_discord_avatars(config=None):
+    """Post creator avatars to Discord (they show as large pictures); off
+    unless "discord_avatars" is true."""
+    if config is False:
+        return False
+    value = _first_set(config, "discord_avatars")
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
 
 
 @wrapper.config_reader
@@ -617,6 +749,78 @@ def get_dynamic_configured(config=None):
 
 
 @wrapper.config_reader
+def get_api_path(config=None):
+    """OnlyFans API path prefix (default ``/api2/v2``)."""
+    _note_reads("api_path", "advanced_options.api_path")
+    from ofscraper.utils.api_path import DEFAULT_API_PATH, normalize_api_path
+
+    if config is False:
+        return DEFAULT_API_PATH
+    value = config.get("api_path")
+    if value is None and isinstance(config.get("advanced_options"), dict):
+        value = config.get("advanced_options", {}).get("api_path")
+    return normalize_api_path(value)
+
+
+@wrapper.config_reader
+def get_dynamic_rules_manual(config=None):
+    """Manual signing-rules JSON text (Dynamic Mode ``manual``)."""
+    _note_reads("dynamic_rules_manual", "advanced_options.dynamic_rules_manual")
+    from ofscraper.utils.dynamic_rules_manual import normalize_manual_rules_json
+
+    if config is False:
+        return ""
+    value = config.get("dynamic_rules_manual")
+    if value is None and isinstance(config.get("advanced_options"), dict):
+        value = config.get("advanced_options", {}).get("dynamic_rules_manual")
+    if value is None:
+        return ""
+    return normalize_manual_rules_json(value)
+
+
+@wrapper.config_reader
+def get_dynamic_rules_url(config=None):
+    """Custom signing-rules JSON URL (Dynamic Mode ``generic``)."""
+    _note_reads("dynamic_rules_url", "advanced_options.dynamic_rules_url")
+    from ofscraper.utils.dynamic_rules_url import normalize_dynamic_rules_url
+
+    if config is False:
+        return ""
+    value = config.get("dynamic_rules_url")
+    if value is None and isinstance(config.get("advanced_options"), dict):
+        value = config.get("advanced_options", {}).get("dynamic_rules_url")
+    return normalize_dynamic_rules_url(value)
+
+
+@wrapper.config_reader
+def get_media_host_suffixes(config=None):
+    """Extra media/DRM CDN host suffixes (comma-separated)."""
+    _note_reads("media_host_suffixes", "advanced_options.media_host_suffixes")
+    from ofscraper.utils.media_host_suffixes import normalize_media_host_suffixes
+
+    if config is False:
+        return ""
+    value = config.get("media_host_suffixes")
+    if value is None and isinstance(config.get("advanced_options"), dict):
+        value = config.get("advanced_options", {}).get("media_host_suffixes")
+    return normalize_media_host_suffixes(value)
+
+
+@wrapper.config_reader
+def get_api_endpoint_overrides(config=None):
+    """Per-endpoint URL overrides (dict of of_env key → URL template)."""
+    _note_reads("api_endpoint_overrides", "advanced_options.api_endpoint_overrides")
+    from ofscraper.utils.api_endpoint_overrides import normalize_endpoint_overrides_dict
+
+    if config is False:
+        return {}
+    value = config.get("api_endpoint_overrides")
+    if value is None and isinstance(config.get("advanced_options"), dict):
+        value = config.get("advanced_options", {}).get("api_endpoint_overrides")
+    return normalize_endpoint_overrides_dict(value)
+
+
+@wrapper.config_reader
 def get_part_file_clean(config=None):
     if config is False:
         return of_env.getattr("RESUME_DEFAULT")
@@ -790,6 +994,34 @@ def get_verify_all_integrity(config=None):
         "verify_all_integrity",
         "download_options.verify_all_integrity",
     )
+
+
+@wrapper.config_reader
+def get_drm_duration_match_threshold(config=None):
+    """Minimum actual/expected duration ratio for DRM (and optional) integrity checks.
+
+    Default 0.98 (98%). Values > 1 are treated as percents (e.g. 98 → 0.98).
+    """
+    _note_reads("drm_duration_match_threshold", "download_options.drm_duration_match_threshold")
+    default = 0.98
+    if config is False:
+        return default
+    raw = config.get("drm_duration_match_threshold")
+    if raw is None and isinstance(config.get("download_options"), dict):
+        raw = config.get("download_options", {}).get("drm_duration_match_threshold")
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if value <= 0:
+        return default
+    if value > 1.0 and value <= 100:
+        value = value / 100.0
+    if value > 1.0:
+        return default
+    return value
 
 
 @wrapper.config_reader

@@ -131,9 +131,9 @@ def get_request_auth():
     source = None
     # (source, error) for each source that gave no usable rule
     failures = []
-    if of_env.getattr("DYNAMIC_RULE_MANUAL") and dynamic in {"manual"}:
+    if _manual_rule_content() and dynamic in {"manual"}:
         source = "manual"
-    elif of_env.getattr("DYNAMIC_GENERIC_URL") and dynamic in {"generic"}:
+    elif _generic_rule_url() and dynamic in {"generic"}:
         source = "generic"
     elif (dynamic) in {"xagler", "rafa", "digitalcriminals"}:
         source = dynamic
@@ -186,8 +186,50 @@ def get_request_auth():
     return auth
 
 
-def get_request_auth_dynamic_rule_manual():
+def _config_value(getter):
+    """A GUI setting from config.json (advanced_options), or None."""
+    try:
+        import ofscraper.utils.config.data as config_data
+
+        return getattr(config_data, getter)()
+    except Exception:
+        return None
+
+
+def _manual_rule_content():
+    """The manual rule: OFSC_DYNAMIC_RULE_MANUAL, else the rule pasted in the
+    config (GUI: Dynamic Mode manual), else None."""
     content = of_env.getattr("DYNAMIC_RULE_MANUAL")
+    if content:
+        return content
+    from ofscraper.utils.dynamic_rules_manual import load_manual_rules_dict
+
+    return load_manual_rules_dict(None, _config_value("get_dynamic_rules_manual")) or None
+
+
+def _generic_rule_url():
+    """The generic rule's URL: OF_DYNAMIC_GENERIC_URL, else the config's
+    (GUI: Dynamic Mode generic), else None."""
+    from ofscraper.utils.dynamic_rules_url import resolve_dynamic_rules_url
+
+    return resolve_dynamic_rules_url(
+        of_env.getattr("DYNAMIC_GENERIC_URL"), _config_value("get_dynamic_rules_url")
+    ) or None
+
+
+def invalidate_auth_cache():
+    """Clear in-memory + disk signing-rule cache so the next request re-fetches rules."""
+    global curr_auth, last_check
+    curr_auth = None
+    last_check = None
+    try:
+        cache.set("api_onlyfans_sign", None)
+    except Exception:
+        pass
+
+
+def get_request_auth_dynamic_rule_manual():
+    content = _manual_rule_content()
     # OFSC_DYNAMIC_RULE_MANUAL arrives as text: the rule's JSON
     if isinstance(content, str):
         try:
@@ -212,7 +254,7 @@ def get_request_auth_generic():
     ) as c:
 
         with c.requests(
-            of_env.getattr("DYNAMIC_GENERIC_URL"),
+            _generic_rule_url(),
         ) as r:
             content = r.json_()
             return request_auth_helper_picker(content)
@@ -307,6 +349,10 @@ def check_rule(content):
 
 def request_auth_helper_picker(content):
     check_rule(content)
+    token = content.get("app_token") or content.get("app-token")
+    if token:
+        import os
+        os.environ["APP_TOKEN"] = str(token)
     if content.get("suffix"):
         return request_auth_helper(content)
     else:
@@ -348,15 +394,43 @@ def make_anon_headers():
 
 
 def make_login_headers():
+    import re
     auth = auth_file.read_auth()
+    user_agent = auth.get("user_agent") or of_env.getattr("ANON_USERAGENT")
+    x_bc = auth.get("x-bc") or generate_xbc(user_agent)
+    
     headers = {
         "accept": "application/json, text/plain, */*",
         "app-token": of_env.getattr("APP_TOKEN"),
-        "user-id": auth["auth_id"],
-        "x-bc": auth["x-bc"],
+        "user-id": auth.get("auth_id", ""),
+        "x-bc": x_bc,
         "referer": "https://onlyfans.com",
-        "user-agent": auth["user_agent"],
+        "user-agent": user_agent,
     }
+
+    if "Chrome" in user_agent or "Chromium" in user_agent:
+        chrome_version = "120"
+        match = re.search(r"Chrome/(\d+)", user_agent)
+        if match:
+            chrome_version = match.group(1)
+        
+        platform_name = "Windows"
+        if "Linux" in user_agent:
+            platform_name = "Linux"
+        elif "Macintosh" in user_agent or "Mac OS" in user_agent:
+            platform_name = "macOS"
+
+        headers.update({
+            "sec-ch-ua": f'"Not_A Brand";v="8", "Chromium";v="{chrome_version}", "Google Chrome";v="{chrome_version}"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": f'"{platform_name}"',
+            "accept-language": "en-US,en;q=0.9",
+        })
+    else:
+        headers.update({
+            "accept-language": "en-US,en;q=0.5",
+        })
+
     return headers
 
 
@@ -364,16 +438,26 @@ def add_cookies():
     if settings.get_settings().anon:
         return None
     auth = auth_file.read_auth()
-    cookies = {}
-    cookies.update({"sess": auth["sess"]})
-    cookies.update({"auth_id": auth["auth_id"]})
-    cookies.update({"auth_uid_": auth["auth_uid"] or auth["auth_id"]})
+    # Match stock OF-Scraper: only sess / auth_id / auth_uid_.
+    # Do NOT synthesize auth_uid_<id> from auth_id — that cookie is a real
+    # 2FA token in the browser; forging it with auth_id can trigger HTTP 400.
+    cookies = {
+        "sess": auth.get("sess") or "",
+        "auth_id": auth.get("auth_id") or "",
+        "auth_uid_": (auth.get("auth_uid") or auth.get("auth_id") or ""),
+    }
     return cookies
 
 
 def get_cookies_str():
     auth = auth_file.read_auth()
-    return f"auth_id={auth['auth_id']};sess={auth['sess']};"
+    # Stock string omits auth_uid_; include auth_uid_ only (never auth_uid_<id>).
+    parts = [
+        f"auth_id={auth.get('auth_id') or ''}",
+        f"sess={auth.get('sess') or ''}",
+        f"auth_uid_={auth.get('auth_uid') or auth.get('auth_id') or ''}",
+    ]
+    return ";".join(parts) + ";"
 
 
 def create_sign(link, headers):
@@ -418,22 +502,31 @@ def create_login_sign(link, headers):
     return headers
 
 
-def generate_xbc():
+def generate_xbc(user_agent=None):
     """Generates a token based on current time, random numbers, and user agent.
 
     Returns:
       A string containing the generated token.
     """
+    if not user_agent:
+        try:
+            auth = auth_file.read_auth()
+            user_agent = auth.get("user_agent")
+        except Exception:
+            user_agent = None
+    if not user_agent:
+        user_agent = of_env.getattr("ANON_USERAGENT")
+
     parts = [
         int(time.time() * 1000),  # Milliseconds since epoch
         int(1e12 * random.random()),
         int(1e12 * random.random()),
-        # Assuming you have a way to get the user agent string
-        # Replace this with your logic to retrieve the user agent
-        of_env.getattr("ANON_USERAGENT"),
+        user_agent,
     ]
     msg = ".".join(
         [base64.b64encode(str(p).encode("utf-8")).decode("utf-8") for p in parts]
     )
     token = hashlib.sha1(msg.encode("utf-8"), usedforsecurity=False).hexdigest()
     return token
+
+

@@ -4,6 +4,7 @@ import ofscraper.data.api.init as init
 import ofscraper.sites as sites
 import ofscraper.utils.auth.file as auth_file
 import ofscraper.utils.auth.make as make
+import ofscraper.utils.settings as settings
 import ofscraper.utils.interactive as interactive
 
 log = logging.getLogger("shared")
@@ -97,6 +98,10 @@ def check_auth(include_main_menu=False):
             # before any prompt: in a daemon under Docker's tty: true a
             # prompt waits forever, so at least the wait is announced
             alerts.failing(alerts.LOGIN, f"{_site_label()} rejected the login; update the auth")
+            # In GUI mode skip interactive prompts; the GUI auth dialog handles re-auth
+            if getattr(settings.get_args(), "gui", False):
+                log.debug("GUI mode: skipping interactive auth prompt on auth failure")
+                return
             try:
                 if sites.is_fansly():
                     fansly_auth.make_auth()

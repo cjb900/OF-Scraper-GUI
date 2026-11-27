@@ -227,6 +227,13 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(dm, "after_download_script", noop)
     monkeypatch.setattr(dm, "skip_download_script", no_skip)
     monkeypatch.setattr(dm.system, "check_free_size", lambda *a: True)
+    # plugin events, recorded instead of reaching any installed plugin
+    from ofscraper.plugins.manager import plugin_manager
+
+    plugin_events = []
+    monkeypatch.setattr(
+        plugin_manager, "dispatch_event", lambda name, *args: plugin_events.append((name, *args))
+    )
     ffmpeg_runs, ffmpeg_procs, ffmpeg_cwds, ffmpeg_timeouts = [], [], [], []
     if FFMPEG:
         monkeypatch.setattr(stream_mod, "get_ffmpeg", lambda: FFMPEG)
@@ -245,7 +252,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.setattr(stream_mod, "_run_process", counting_run, raising=False)
     # the test hook for the local http server; real runs allow https only
     monkeypatch.setattr(video, "ALLOWED_SCHEMES", ("https", "http"), raising=False)
-    yield SimpleNamespace(out=out_dir, temp=temp_dir, marks=marks, stub=stub,
+    yield SimpleNamespace(out=out_dir, temp=temp_dir, marks=marks, stub=stub, plugin_events=plugin_events,
                           ffmpeg_runs=ffmpeg_runs, ffmpeg_procs=ffmpeg_procs,
                           ffmpeg_cwds=ffmpeg_cwds, ffmpeg_timeouts=ffmpeg_timeouts)
     pool.shutdown(wait=True)
@@ -548,6 +555,8 @@ def test_hls_stream_is_copied_into_one_playable_mp4(env, tmp_path):
     mark_id, kw = env.marks[0]
     assert mark_id == ele.id and kw["downloaded"] is True and kw["hashdata"]
     assert pathlib.Path(kw["filepath"]) == out and kw["size"] == out.stat().st_size
+    # plugins are told about a stream video, as about any other download
+    assert env.plugin_events == [("on_item_downloaded", ele, str(out))]
 
 
 # ------------------------------------------------------------------ DoD 4

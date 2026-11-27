@@ -42,14 +42,14 @@ def set_directory(path: Path):
 
 
 def temp_cleanup():
+    if not of_env.getattr("BATCH_TEMPFILE_CLEANUP"):
+        return
     from ofscraper.commands.scraper.actions.download import stop
 
     if stop.requested.is_set():
         return
     if dry_run.active():
         return  # a dry run deletes nothing
-    if not of_env.getattr("BATCH_TEMPFILE_CLEANUP"):
-        return
     if not settings.get_settings().auto_resume:
         log.info("Cleaning up temp files\n\n")
         root = data.get_TempDir()
@@ -103,24 +103,62 @@ def _longest_fitting(text, size, max_size):
     return text[:low]
 
 
+# NTFS limit for one file or folder name, in UTF-16 units
+WINDOWS_MAX_NAME_CHARS = 255
+
+_long_paths_enabled = None
+
+
+def windows_long_paths_enabled():
+    """True when this Python process may use paths over 260 characters.
+
+    RtlAreLongPathsEnabled checks both the LongPathsEnabled registry setting
+    and the program's manifest, so it's only True when long paths really work.
+    """
+    global _long_paths_enabled
+    if _long_paths_enabled is None:
+        try:
+            import ctypes
+
+            fn = ctypes.windll.ntdll.RtlAreLongPathsEnabled
+            fn.restype = ctypes.c_ubyte
+            _long_paths_enabled = bool(fn())
+        except Exception:
+            _long_paths_enabled = False
+        log.debug(f"Windows long paths enabled: {_long_paths_enabled}")
+    return _long_paths_enabled
+
+
+def windows_path_length(text):
+    """Length as Windows counts it: UTF-16 code units (an emoji counts 2)."""
+    return get_string_byte_size_windows(text) // 2
+
+
 def _windows_truncateHelper(path, keep_suffix=""):
     # read by Windows' rules whatever system this runs on (the same thing on
     # Windows), so the tests check it on Linux too
     path = pathlib.PureWindowsPath(ntpath.normpath(path))
-    limit = of_env.getattr("WINDOWS_MAX_PATH_BYTES")
-    if get_string_byte_size_windows(path) <= limit:
-        return pathlib.Path(str(path))
     dir = path.parent
-    file, ext = _split_ext(path.name, keep_suffix)
-    # the whole path counts: the folder, the separator after it (a drive or
-    # share root such as C:\ already ends with one), the extension
-    sep = "" if str(dir).endswith(ntpath.sep) else ntpath.sep
-    max_bytes = (
-        limit
-        - get_string_byte_size_windows(dir)
-        - get_string_byte_size_windows(sep)
-        - get_string_byte_size_windows(ext)
-    )
+    if windows_long_paths_enabled():
+        # long paths on: only the name itself is limited (255 units)
+        if windows_path_length(path.name) <= WINDOWS_MAX_NAME_CHARS:
+            return pathlib.Path(str(path))
+        file, ext = _split_ext(path.name, keep_suffix)
+        max_bytes = 2 * WINDOWS_MAX_NAME_CHARS - get_string_byte_size_windows(ext)
+    else:
+        limit = of_env.getattr("WINDOWS_MAX_PATH_BYTES")
+        if get_string_byte_size_windows(path) <= limit:
+            return pathlib.Path(str(path))
+        file, ext = _split_ext(path.name, keep_suffix)
+        # the whole path counts: the folder, the separator after it (a drive or
+        # share root such as C:\ already ends with one), the extension
+        sep = "" if str(dir).endswith(ntpath.sep) else ntpath.sep
+        max_bytes = (
+            limit
+            - get_string_byte_size_windows(dir)
+            - get_string_byte_size_windows(sep)
+            - get_string_byte_size_windows(ext)
+        )
     name = _longest_fitting(file, get_string_byte_size_windows, max_bytes)
     if not ext:
         # Windows drops trailing spaces and dots from a name

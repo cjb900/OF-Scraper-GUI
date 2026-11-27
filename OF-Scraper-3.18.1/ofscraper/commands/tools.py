@@ -111,15 +111,24 @@ TOOLS = {
 }
 
 
+# the offline tool running now, or None: these skip the normal startup, so
+# code they share with a scrape must not parse the scraper's options
+# (the GUI patch's default save folder checks it)
+RUNNING = None
+
+
 def run(name, argv):
     """Run offline tool ``name`` with ``argv`` and return its exit code (or None)."""
+    global RUNNING
     loader, _summary = TOOLS[name]
     entry = loader()
     saved_argv = sys.argv
     sys.argv = [f"ofscraper {name}", *argv]
+    RUNNING = name
     try:
         return entry(list(argv))
     finally:
+        RUNNING = None
         sys.argv = saved_argv
 
 

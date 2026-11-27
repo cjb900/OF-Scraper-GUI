@@ -279,7 +279,7 @@ class Media(base.base):
     def formatted_date(self):
         date_val = self._media.get("createdAt") or self._media.get("postedAt")
         if date_val:
-            return arrow.get(date_val).format("YYYY-MM-DD HH:mm:ss")
+            return arrow.get(date_val).to("local").format("YYYY-MM-DD HH:mm:ss")
         return None
 
     @property
@@ -429,7 +429,7 @@ class Media(base.base):
         filename = re.sub(r"\.mpd$", "", filename_part)
 
         if self.responsetype == "Profile":
-            date_str = arrow.get(self.date or 0).format("YYYY_MM_DD")
+            date_str = arrow.get(self.date or 0).to("local").format("YYYY_MM_DD")
             return f"{filename}_{date_str}"
         return filename
 
@@ -519,14 +519,17 @@ class Media(base.base):
         if not self.mpd:
             return None
         responsetype = self.post.responsetype.lower()
-        if responsetype in ["timeline", "archived", "pinned", "posts", "streams"]:
+        raw = str(self.post.post.get("responseType") or "").lower()
+        if raw == "message":
+            # a message's key always comes from the message endpoint
+            responsetype = "message"
+        elif responsetype in ["timeline", "archived", "pinned", "posts", "streams"]:
             responsetype = "post"
         elif responsetype in ["messages", "message"]:
             responsetype = "message"
         else:
             # purchased items can be timeline posts or PPV messages; the raw
             # responseType says which DRM endpoint OnlyFans expects
-            raw = str(self.post.post.get("responseType") or "").lower()
             responsetype = "post" if raw == "post" else "message"
         return of_env.getattr("LICENCE_URL").format(self.id, responsetype, self.post_id)
 
@@ -606,7 +609,7 @@ class Media(base.base):
         so the caption was no longer cut at textlength words."""
         # an undated item falls back to 0 (1970), as its file name does
         if self.responsetype != "Profile":
-            date_str = arrow.get(self.date or 0).format(data.get_date())
+            date_str = arrow.get(self.date or 0).to("local").format(data.get_date())
             post = self._post
             if not post.text:
                 # no caption: the post id, as before
@@ -618,7 +621,7 @@ class Media(base.base):
             if caption.replace(sep, "").strip():
                 return caption
             return self.file_cleanup(self.filename or date_str)
-        date_str = arrow.get(self.date or 0).format()
+        date_str = arrow.get(self.date or 0).to("local").format()
         return self.file_cleanup(f"{date_str} {self.text or self.filename}")
 
     @async_cached_property

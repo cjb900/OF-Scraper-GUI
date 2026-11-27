@@ -12,6 +12,7 @@ def get_current_config_schema(config: dict = None) -> dict:
         ): data.get_main_profile(config=config),
         "metadata": data.get_metadata(config=config),
         "discord": data.get_discord(config=config),
+        "discord_avatars": data.get_discord_avatars(config=config),
         "file_options": {
             "save_location": common_paths.get_save_location(config=config),
             "dir_format": data.get_dirformat(config=config),
@@ -21,6 +22,18 @@ def get_current_config_schema(config: dict = None) -> dict:
             "date": data.get_date(config=config),
             "text_type_default": data.get_textType(config=config),
             "truncation_default": data.get_truncation(config=config),
+            "override_image_extension": data.get_override_image_extension(
+                config=config
+            ),
+            "override_video_extension": data.get_override_video_extension(
+                config=config
+            ),
+            "override_audio_extension": data.get_override_audio_extension(
+                config=config
+            ),
+            "image_extension": data.get_image_extension(config=config),
+            "video_extension": data.get_video_extension(config=config),
+            "audio_extension": data.get_audio_extension(config=config),
             "filename_collision": data.get_filename_collision(config=config),
         },
         "live_options": {
@@ -35,6 +48,9 @@ def get_current_config_schema(config: dict = None) -> dict:
             "system_free_min": data.get_system_freesize(config=config),
             "max_post_count": data.get_max_post_count(config=config),
             "verify_all_integrity": data.get_verify_all_integrity(config=config),
+            "drm_duration_match_threshold": data.get_drm_duration_match_threshold(
+                config=config
+            ),
         },
         "binary_options": {
             "ffmpeg": data.get_ffmpeg(config=config),
@@ -57,6 +73,11 @@ def get_current_config_schema(config: dict = None) -> dict:
         },
         "advanced_options": {
             "dynamic-mode-default": data.get_dynamic(config=config),
+            "api_path": data.get_api_path(config=config),
+            "dynamic_rules_manual": data.get_dynamic_rules_manual(config=config),
+            "dynamic_rules_url": data.get_dynamic_rules_url(config=config),
+            "media_host_suffixes": data.get_media_host_suffixes(config=config),
+            "api_endpoint_overrides": data.get_api_endpoint_overrides(config=config),
             "skip_unavailable_content": data.get_skip_unavailable_content(
                 config=config
             ),

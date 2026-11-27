@@ -43,7 +43,7 @@ def post_date(date, fallback, name, ele):
                 f"{name} has no date, {'using its media date' if date else 'using 1970-01-01'}"
                 " for {date} in its file and folder names"
             )
-    return arrow.get(date)
+    return arrow.get(date).to("local")
 
 
 # can't be in a folder or file name on Windows; a slash would add a folder
@@ -59,12 +59,13 @@ def path_safe_label(label):
 
 
 def site_save_location():
-    """Save location; Fansly runs use ``<save location>/Fansly``.
+    """Save location; Fansly runs use ``<save location>/Fansly``, except with
+    the GUI's own Fansly config.json, whose save location is Fansly's alone.
 
     OnlyFans gets the configured value unchanged (same type, no Path round trip).
     """
     location = common_paths.get_save_location()
-    if sites.is_fansly():
+    if sites.is_fansly() and not _own_fansly_config():
         return str(pathlib.Path(location, sites.site_name()))
     return location
 
@@ -108,9 +109,24 @@ def default_media_root(save_location=None, dir_format=None, file_format=None, *,
     dir_fmt = dir_format if dir_format is not None else data.get_dirformat()
     file_fmt = file_format if file_format is not None else data.get_fileformat()
     site = site_name or sites.site_name()
-    if site.lower() == sites.FANSLY and not (_names_site(dir_fmt) or _names_site(file_fmt)):
+    if (
+        site.lower() == sites.FANSLY
+        and not (_names_site(dir_fmt) or _names_site(file_fmt))
+        and not _own_fansly_config()
+    ):
         return pathlib.Path(base, site)
     return pathlib.Path(base)
+
+
+def _own_fansly_config() -> bool:
+    """The GUI's own Fansly config.json: its save location is Fansly's alone,
+    so Fansly files don't get a Fansly folder inside it."""
+    try:
+        from ofscraper.gui import site_context
+
+        return site_context.uses_own_fansly_config()
+    except Exception:
+        return False
 
 
 def _type_settings(type_keys):
@@ -183,6 +199,15 @@ def _add_aliases(variables):
 
 
 DEFAULT_LIVE_DIR_FORMAT = "{sitename}/{model_username}/Livestreams"
+# the GUI's own Fansly config: its save location is Fansly's already
+_OWN_CONFIG_LIVE_DIR_FORMAT = "{model_username}/Livestreams"
+
+
+def _default_live_dir(site_name=None):
+    site = site_name or sites.site_name()
+    if site.lower() == sites.FANSLY and _own_fansly_config():
+        return _OWN_CONFIG_LIVE_DIR_FORMAT
+    return DEFAULT_LIVE_DIR_FORMAT
 DEFAULT_LIVE_FILE_FORMAT = "{model_username}_{date}_live"
 
 
@@ -227,7 +252,7 @@ def live_recording_path(
         )
         # the default names, but still the save location the settings choose
         default = media_templates(
-            (), save_location=live_save_location(save_location), dir_format=DEFAULT_LIVE_DIR_FORMAT,
+            (), save_location=live_save_location(save_location), dir_format=_default_live_dir(site_name),
             file_format=DEFAULT_LIVE_FILE_FORMAT, site_name=site_name,
         )
         path = _live_path(*default, **context)
@@ -278,7 +303,7 @@ def live_templates(save_location=None, site_name=None):
     return media_templates(
         LIVE_TYPE_KEYS,
         save_location=live_save_location(save_location),
-        dir_format=data.get_live_dirformat() or DEFAULT_LIVE_DIR_FORMAT,
+        dir_format=data.get_live_dirformat() or _default_live_dir(site_name),
         file_format=data.get_live_fileformat() or DEFAULT_LIVE_FILE_FORMAT,
         site_name=site_name,
     )
@@ -340,6 +365,35 @@ def final_path(path, *, keep_suffix=""):
     return pathlib.Path(os.path.normpath(path))
 
 
+def _confined(path, roots, label):
+    """``path`` if it is inside one of ``roots``, else ValueError (logged).
+    Naming scripts and templates (absolute ones, ``..``) must not put files
+    outside the folders the settings save to."""
+    first = None
+    for root in roots:
+        if not root:
+            continue
+        try:
+            return pathlib.Path(common_paths.assert_path_under_root(path, root, label=label))
+        except ValueError as e:
+            first = first or e
+    if first is None:
+        return pathlib.Path(path)
+    log.error(str(first))
+    raise first
+
+
+def _save_roots(*extra):
+    """Every folder files may be saved under: the save location, the
+    live_options and type_options ones, and ``extra``."""
+    roots = list(extra)
+    try:
+        roots.extend(common_paths.get_save_locations().values())
+    except Exception:
+        roots.append(common_paths.get_save_location())
+    return roots
+
+
 class basePlaceholder:
     def __init__(self) -> None:
         self._ele = None
@@ -389,6 +443,12 @@ class tempFilePlaceholder(basePlaceholder):
         #     file=f"{''.join(random.choice(string.ascii_letters + string.digits) for _ in range(6))}{file}"
         script_name = await naming_script(dir, file, self._ele, self._placeholder.templates()[1:])
         self._tempfilepath = final_path(script_name or pathlib.Path(dir, file))
+        # Temp files must stay under the temp folder (or a save folder)
+        self._tempfilepath = _confined(
+            self._tempfilepath,
+            _save_roots(data.get_TempDir(), self._placeholder.templates()[0]),
+            "temp download path",
+        )
         return self
 
     @basePlaceholder.async_wrapper
@@ -546,7 +606,29 @@ class Placeholders(basePlaceholder):
         self._metadata = None
         self._filepath = None
         self._ele = ele
-        self._ext = ext
+        self._ext = self._maybe_override_ext(ele, ext)
+
+    @staticmethod
+    def _maybe_override_ext(ele, ext):
+        """Remap filename {ext} only when that mediatype's override flag is on.
+
+        Does not convert bytes — only the extension token used in File Format.
+        External naming_script (if set) still owns the final path when it returns one.
+        """
+        try:
+            mt = str(getattr(ele, "mediatype", None) or "").strip().lower()
+            if mt in {"images", "image"}:
+                if data.get_override_image_extension():
+                    return data.get_image_extension()
+            elif mt in {"videos", "video"}:
+                if data.get_override_video_extension():
+                    return data.get_video_extension()
+            elif mt in {"audios", "audio"}:
+                if data.get_override_audio_extension():
+                    return data.get_audio_extension()
+        except Exception:
+            pass
+        return ext
 
     def type_keys(self):
         return media_type_keys(self._ele)
@@ -558,6 +640,10 @@ class Placeholders(basePlaceholder):
         if not script_name:
             file = self._fit_text(dir, file)
         self._filepath = final_path(script_name or pathlib.Path(dir, file))
+        # Naming scripts / absolute templates must stay under a save folder
+        self._filepath = _confined(
+            self._filepath, _save_roots(self.templates()[0]), "download path"
+        )
         return self
 
     def _fit_text(self, dir, file):
@@ -700,6 +786,7 @@ class Placeholders(basePlaceholder):
             f"modelid:{model_id}  mediadir placeholders {list(filter(lambda x:x[0] in set(list(self._variables.keys())),list(locals().items())))}"
         )
         final_path = _template_folder(root, _safe_format(dir_fmt, self._variables))
+        final_path = _confined(final_path, [root], "media directory")
         log.trace(f"final mediadir path {final_path}")
         self._mediadir = final_path
         self._mediadir.mkdir(parents=True, exist_ok=True) if create else None
@@ -884,10 +971,16 @@ class Textholders(basePlaceholder):
         return (ele.responsetype, ele.modified_responsetype, "text")
 
     async def init(self, create=True):
-        dir = await self.getmediadir(create=create)
+        # the name first, so a format error can't leave an empty post folder
+        dir = await self.getmediadir(create=False)
         file = await self.createfilename()
+        if create and dir:
+            pathlib.Path(dir).mkdir(parents=True, exist_ok=True)
         script_name = await naming_script(dir, file, self._ele, self.templates()[1:])
         self._filepath = final_path(script_name or pathlib.Path(dir, file))
+        self._filepath = _confined(
+            self._filepath, _save_roots(self.templates()[0]), "text download path"
+        )
         return self
 
     def add_price_variables(self, username):
@@ -987,6 +1080,7 @@ class Textholders(basePlaceholder):
         )
 
         final_path = _template_folder(root, _safe_format(dir_fmt, self._variables))
+        final_path = _confined(final_path, [root], "media directory")
         log.trace(f"final mediadir path {final_path}")
         self._mediadir = final_path
         self._mediadir.mkdir(parents=True, exist_ok=True) if create else None
@@ -1009,26 +1103,36 @@ class Textholders(basePlaceholder):
             f"model_id:{model_id}  filename placeholders {list(filter(lambda x:x[0] in set(list(self._variables.keys())),list(locals().items())))}"
         )
         out = None
-        if ele.responsetype.capitalize() == "Profile":
+        if getattr(settings.get_settings(), "text_filename_from_post", False):
+            # GUI: name the .txt from the caption, cut to text_length, for
+            # every area (file_cleanup has put in space_replacer)
+            text = ele.file_sanitized_text or ""
+            text = ele.text_trunicate(text) if text else ""
+            out = f"{text}.{ext}" if text else f"{ele.id}.{ext}"
+        elif ele.responsetype.capitalize() == "Profile":
             # file_cleanup has put in space_replacer
             text = ele.file_sanitized_text
             out = f"{text}.{ext}"
         else:
             file_format = file_fmt
-            fields = parse_safe(file_format)
-            if "text" in fields and any(k in fields for k in _CAPTION_NAMES):
-                # a text file's {filename} is its caption, as {text} is: with
-                # both in the name the caption would be there twice, so
-                # {filename} is left out
-                variables = {
-                    **self._variables,
-                    **dict.fromkeys(_CAPTION_NAMES, _LEFT_OUT),
-                }
-                out = _without_left_out(
-                    file_format, variables, str(self._variables["file_name"])
-                )
-            else:
-                out = file_format.format(**self._variables)
+            try:
+                fields = parse_safe(file_format)
+                if "text" in fields and any(k in fields for k in _CAPTION_NAMES):
+                    # a text file's {filename} is its caption, as {text} is:
+                    # with both in the name the caption would be there twice,
+                    # so {filename} is left out
+                    variables = {
+                        **self._variables,
+                        **dict.fromkeys(_CAPTION_NAMES, _LEFT_OUT),
+                    }
+                    out = _without_left_out(
+                        file_format, variables, str(self._variables["file_name"])
+                    )
+                else:
+                    out = file_format.format(**self._variables)
+            except (KeyError, ValueError, IndexError, AttributeError) as e:
+                log.debug(f"Text file format failed ({e}); using {{post_id}}.{{ext}}")
+                out = f"{ele.id}.{ext}"
         log.debug(f"final filename path {out}")
         self._filename = _safe_name(out, file_fmt, self._variables)
         return self._filename

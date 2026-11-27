@@ -64,3 +64,17 @@ def _restore_subcommands():
     for section, commands in sections:
         section.commands.clear()
         section.commands.update(commands)
+
+
+@pytest.fixture(autouse=True)
+def _database_url_not_kept():
+    """of_env caches the environment it loaded. A PostgreSQL live test that
+    loads it while OFSC_DATABASE_URL is set left the address cached after the
+    variable was removed, so later tests in that worker used PostgreSQL. Drop
+    such a cache after each test; the next read loads it again."""
+    yield
+    import ofscraper.utils.of_env as of_env_pkg
+
+    cached = of_env_pkg._cached_settings or {}
+    if cached.get("OFSC_DATABASE_URL") and not os.environ.get("OFSC_DATABASE_URL"):
+        of_env_pkg._cached_settings = None

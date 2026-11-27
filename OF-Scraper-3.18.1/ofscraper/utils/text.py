@@ -172,7 +172,7 @@ async def _write_text(ele):
 
         # captions often contain emoji, which Windows' default code page
         # (cp1252) can't encode before Python 3.15
-        async with aiofiles.open(filepath, "w", encoding="utf-8") as p:
+        async with aiofiles.open(filepath, "w", encoding="utf-8", newline="\n") as p:
             await p.write(content)
 
         await after_download_script(filepath)

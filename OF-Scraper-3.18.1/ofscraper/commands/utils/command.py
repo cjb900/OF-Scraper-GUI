@@ -131,7 +131,9 @@ class CommandManager:
         log.warning(progress_str.format(count=count + 1, length=length))
         log.warning(data_str.format(name=username))
         if of_env.getattr("SHOW_AVATAR") and avatar:
-            log.warning(avatar_str.format(avatar=avatar))
+            log.warning(
+                avatar_str.format(avatar=avatar), extra={"discord_avatar": avatar}
+            )
         progress_updater.activity.update_task(
             description=area_str.format(
                 areas=",".join(final_post_areas), name=username, active=active
@@ -158,7 +160,9 @@ class CommandManager:
             and avatar
             and settings.get_settings().userfirst
         ):
-            log.warning(avatar_str.format(avatar=avatar))
+            log.warning(
+                avatar_str.format(avatar=avatar), extra={"discord_avatar": avatar}
+            )
 
     @property
     def run_action(self):

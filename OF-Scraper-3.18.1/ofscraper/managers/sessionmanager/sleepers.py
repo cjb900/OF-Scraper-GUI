@@ -123,5 +123,24 @@ class Sleeper:
             self._subscription_forbidden = self._create_sleeper("SUBSCRIPTION_SESSION_403", "SUBSCRIPTION_SESSION_403")
         return self._subscription_forbidden
 
+    def reset(self):
+        """Reset all cached sleepers so they're recreated fresh in the next event loop.
+        Must be called at the start of each GUI scraping run to avoid cross-loop Lock errors
+        when the GUI spawns a new thread (and therefore a new asyncio event loop) per run."""
+        self._rate_limit = None
+        self._forbidden = None
+        self._download_rate_limit = None
+        self._download_forbidden = None
+        self._cdm_rate_limit = None
+        self._cdm_forbidden = None
+        self._like_rate_limit = None
+        self._like_forbidden = None
+        self._metadata_rate_limit = None
+        self._metadata_forbidden = None
+        self._discord_rate_limit = None
+        self._discord_forbidden = None
+        self._subscription_rate_limit = None
+        self._subscription_forbidden = None
+
 # Create a single, global instance of the manager that can be imported elsewhere
 sleepers = Sleeper()

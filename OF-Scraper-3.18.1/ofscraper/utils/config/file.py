@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import pathlib
 import re
 
@@ -13,12 +14,48 @@ import ofscraper.utils.console as console_
 import ofscraper.utils.encoding as encoding
 import ofscraper.utils.of_env.of_env as of_env
 import ofscraper.utils.paths.common as common_paths
+from ofscraper.utils.config.path_norm import (
+    normalize_config_paths_for_os,
+    normalize_windows_path,
+)
 
 console = console_.get_shared_console()
 log = logging.getLogger("shared")
 
+# open_config() reads config.json once and keeps it until the file changes
+# (its path, size or modified time), so a fix made in an editor, or another
+# config path, is read again
+_cached_config = None
+_cached_stamp = None
+
+
+def _config_stamp():
+    try:
+        path = common_paths.get_config_path()
+        stat = pathlib.Path(path).stat()
+        return (str(path), stat.st_mtime_ns, stat.st_size)
+    except Exception:
+        return None
+
+
+__all__ = [
+    "normalize_config_paths_for_os",
+    "normalize_windows_path",
+    "make_config",
+    "make_config_original",
+    "open_config",
+    "config_string",
+    "write_config",
+    "auto_update_config",
+    "json_loads",
+    "unwrap",
+    "NotAnObjectError",
+]
+
 
 def make_config(config=False):
+    global _cached_config
+    _cached_config = None
     if config is False:
         # a new file holds the built-in defaults, not environment values
         with of_env.builtin_defaults():
@@ -91,11 +128,27 @@ def checked(configText):
 
 
 def open_config():
+    global _cached_config, _cached_stamp
+    if _cached_config is not None:
+        stamp = _config_stamp()
+        if stamp is not None and stamp == _cached_stamp:
+            return _cached_config
+        _cached_config = None
+
     import ofscraper.utils.config.utils.context as config_context
 
     with config_context.config_context():
         configText = config_string()
-        return unwrap(json_loads(configText))
+        _cached_config = unwrap(json_loads(configText))
+        # the prompts above may have rewritten the file: stamp what was read
+        _cached_stamp = _config_stamp()
+
+        # Support dynamic metadata directory override via environment variable
+        metadata_override = os.getenv("OFSC_METADATA_OVERRIDE")
+        if metadata_override:
+            _cached_config["metadata"] = metadata_override
+
+        return _cached_config
 
 
 def config_string():
@@ -104,9 +157,12 @@ def config_string():
 
 
 def write_config(updated_config):
+    global _cached_config
+    _cached_config = None
     if isinstance(updated_config, str):
         updated_config = json_loads(updated_config)
     updated_config = unwrap(updated_config)
+    normalize_config_paths_for_os(updated_config)
     p = common_paths.get_config_path()
     if not p.parent.is_dir():
         p.parent.mkdir(parents=True, exist_ok=True)

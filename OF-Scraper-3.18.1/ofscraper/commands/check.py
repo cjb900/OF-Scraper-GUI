@@ -4,6 +4,7 @@ from ofscraper.commands.scraper.actions.download import stop
 import ofscraper.utils.system.system as system
 import inspect
 import logging
+import pathlib
 import re
 import threading
 import time
@@ -66,6 +67,10 @@ ROWS = {}
 POST_ROWS = []
 MEDIA_KEY = ["id", "postid", "username"]
 check_user_dict = defaultdict(dict)
+_msg_check_filter = "paid_only"  # "paid_only" | "free_only" | "all"
+# GUI "Compare with files on disk": a downloaded item whose file is gone shows
+# as not downloaded
+_disk_check = False
 # the thread that downloads what the table sends; one for the whole session
 _download_worker = None
 # set while that thread works on a batch, from taking the rows to its cleanup
@@ -1183,6 +1188,9 @@ def thread_starters(ROWS_):
 
 
 def start_table(ROWS_, POST_ROWS_=None):
+    # GUI mode must not launch the Textual TUI — gui_checker emits data_replace instead.
+    if getattr(settings.get_args(), "gui", False):
+        return
     loop = system.new_event_loop()
     asyncio.set_event_loop(loop)
     ROWS = ROWS_
@@ -1243,6 +1251,22 @@ async def row_gather(username, model_id):
     global ROWS, POST_ROWS
     # with each file's directory and filename, for opening its folder (#424)
     downloaded = get_media_post_files_downloaded(model_id=model_id, username=username)
+    if _disk_check:
+        missing = missing_downloaded_files(downloaded)
+        if missing:
+            log.info(
+                f"[{username}] {len(missing)} downloaded item(s) not found on disk; "
+                "shown as not downloaded"
+            )
+        for key in missing:
+            downloaded.pop(key, None)
+    # Without allow-dupes a media is downloaded once, for whichever post came
+    # first; the same media in another post (often a second paid message)
+    # won't be downloaded again, so it counts as downloaded there too
+    downloaded_by_media = {}
+    if not settings.allow_dupes():
+        for (media_id, _post_id), files in downloaded.items():
+            downloaded_by_media.setdefault(media_id, files)
 
     m_id = str(model_id)
     collection = check_user_dict[m_id].get("collection")
@@ -1289,8 +1313,11 @@ async def row_gather(username, model_id):
                 f"Check table: media {ele.id} in post {ele.post_id} has no date"
             )
         is_unlocked = unlocked_helper(ele)
-        is_downloaded = (ele.id, ele.post_id) in downloaded
-        directory, filename = downloaded.get((ele.id, ele.post_id), (None, None))
+        files = downloaded.get((ele.id, ele.post_id)) or downloaded_by_media.get(
+            ele.id
+        )
+        is_downloaded = files is not None
+        directory, filename = files or (None, None)
         post_media_len = len(ele._post.post_media)
         dl_type = download_type_helper(ele)  # Calculate once for efficiency
 
@@ -1333,6 +1360,7 @@ async def row_gather(username, model_id):
             }
         )
 
+    log.info(check_totals(username, out))
     ROWS = ROWS or []
     ROWS.extend(out)
 
@@ -1347,3 +1375,157 @@ async def row_gather(username, model_id):
             posts_list, username=username, model_id=model_id, start_index=len(POST_ROWS) + 1
         )
     )
+
+
+def check_totals(username, rows):
+    """One line per creator: how much of what the site lists is downloaded.
+    Locked items (not bought) can't be downloaded, so they count apart."""
+    parts = []
+    for kind in sorted({r["mediatype"] for r in rows}):
+        of_kind = [r for r in rows if r["mediatype"] == kind]
+        done = sum(1 for r in of_kind if r["downloaded"])
+        locked = sum(1 for r in of_kind if not r["downloaded"] and not r["unlocked"])
+        part = f"{kind.lower()} {done}/{len(of_kind)}"
+        if locked:
+            part += f" ({locked} locked)"
+        parts.append(part)
+    done = sum(1 for r in rows if r["downloaded"])
+    locked = sum(1 for r in rows if not r["downloaded"] and not r["unlocked"])
+    return (
+        # no brackets round the name: the log file reads [name] as markup
+        f"Check for {username}: {len(rows)} items, {done} downloaded, "
+        f"{len(rows) - done - locked} not downloaded, {locked} locked"
+        + (f"; {', '.join(parts)}" if parts else "")
+    )
+
+
+def missing_downloaded_files(paths: dict) -> set:
+    """Keys of downloaded media whose recorded file isn't on disk. A row with
+    no recorded file name can't be checked and is left as downloaded."""
+    missing = set()
+    for key, (directory, filename) in paths.items():
+        if not filename:
+            continue
+        path = pathlib.Path(filename)
+        if not path.is_absolute():
+            path = pathlib.Path(directory or "", filename)
+        if not path.is_file():
+            missing.add(key)
+    return missing
+
+
+def msg_row_is_paid(row) -> bool:
+    """A paid/PPV message or purchase, or a locked one."""
+    return str(row.get("price", "Free")) != "Free" or not row.get("unlocked", True)
+
+
+def filter_message_rows(rows, msg_filter):
+    """Apply the GUI's Check messages filter: paid_only, free_only or all."""
+    if msg_filter == "paid_only":
+        return [r for r in rows if msg_row_is_paid(r)]
+    if msg_filter == "free_only":
+        return [r for r in rows if not msg_row_is_paid(r)]
+    return list(rows)
+
+
+def _normalize_rows_for_gui(rows):
+    """Normalize check.py ROWS list for the GUI data table.
+
+    The GUI table expects ``number`` to be a string and ``index`` to be set.
+    check.py stores ``number`` as an int — convert here so the table renders
+    correctly without touching any of the check.py internal logic.
+    """
+    result = []
+    for i, row in enumerate(rows or []):
+        normalized = dict(row)
+        normalized["number"] = str(row.get("number", i + 1))
+        if "index" not in normalized:
+            normalized["index"] = i
+        if normalized.get("download_cart") == "Not Unlocked":
+            # Media you haven't bought: show it the way a normal scrape does
+            # (grey "Locked", can't be added to the cart, Downloaded N/A).
+            # The TUI keeps its own "Not Unlocked" label.
+            normalized["download_cart"] = "Locked"
+            normalized["downloaded"] = "N/A"
+            normalized["unlocked"] = "Locked"
+        result.append(normalized)
+    return result
+
+
+def gui_checker(check_mode, msg_filter="paid_only", disk_check=False):
+    """GUI-compatible entry point for check modes.
+
+    Runs the appropriate data-fetch runner, then emits the collected rows via
+    ``app_signals.data_replace`` instead of launching the Textual TUI.
+    ``app.app`` is patched so that any subsequent ``update_cell_state()`` calls
+    (triggered when the user sends downloads) emit ``app_signals.cell_update``
+    instead of trying to update a TUI widget.
+
+    Args:
+        check_mode: one of "post_check", "msg_check", "paid_check", "story_check"
+        msg_filter: controls which messages appear in msg_check —
+            "paid_only" (default): paid/PPV and locked only, hides free messages
+            "free_only": free messages only, hides paid/PPV content
+            "all": all messages, no filtering
+    """
+    global _msg_check_filter, _disk_check
+    _msg_check_filter = msg_filter
+    _disk_check = bool(disk_check)
+    from ofscraper.gui.signals import app_signals
+    import ofscraper.classes.table.app as _tui_app
+
+    # Patch the TUI app so update_cell_state emits GUI signals
+    class _GUICheckCellAdapter:
+        def __call__(self, *args, **kwargs):
+            # Belt-and-suspenders if something still invokes app.app(...)
+            return None
+
+        def update_cell_state(self, key, state, color=None):
+            try:
+                app_signals.cell_update.emit(str(key), "download_cart", str(state))
+                # Mirror Textual InputApp: downloaded/skipped also flip Downloaded=True
+                if str(state) in ("[downloaded]", "[skipped]"):
+                    app_signals.cell_update.emit(str(key), "downloaded", "True")
+            except Exception:
+                pass
+
+        def __bool__(self):
+            return True
+
+    _tui_app.app = _GUICheckCellAdapter()
+
+    # Reset global state from any previous check run
+    global ALL_MEDIA
+    reset_table_data()
+    ALL_MEDIA = {}
+    process_user_batch.counter = 0
+
+    if _no_fansly_stories(check_mode):
+        app_signals.scraping_finished.emit()
+        return
+    try:
+        # the same scan the check commands run, without the Textual table
+        rows = list(gather_rows(check_mode))
+    except Exception as e:
+        log.error(f"gui_checker error: {e}")
+        log.traceback_(traceback.format_exc())
+        try:
+            app_signals.log_message.emit("ERROR", f"Check mode error: {e}")
+        except Exception:
+            pass
+        app_signals.scraping_finished.emit()
+        return
+
+    if check_mode == "msg_check":
+        before = len(rows)
+        rows = filter_message_rows(rows, _msg_check_filter)
+        log.info(f"gui_checker: message filter {_msg_check_filter}: {len(rows)} of {before} rows")
+        # renumber so the table's Number column has no gaps
+        rows = [dict(r, index=i + 1, number=i + 1) for i, r in enumerate(rows)]
+    gui_rows = _normalize_rows_for_gui(rows)
+    log.info(f"gui_checker: emitting {len(gui_rows)} rows via data_replace")
+    try:
+        app_signals.data_replace.emit(gui_rows)
+    except Exception as e:
+        log.error(f"gui_checker: failed to emit rows: {e}")
+    app_signals.scraping_finished.emit()

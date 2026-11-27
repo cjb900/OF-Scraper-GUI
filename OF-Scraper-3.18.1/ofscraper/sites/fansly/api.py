@@ -118,6 +118,87 @@ async def following_ids(c, my_account_id, limit=None):
     return out
 
 
+async def subscribed_ids(c):
+    """Account ids of the creators the signed-in account is subscribed to
+    (the web app's Subscriptions page reads ``subscriptions``).
+
+    Subscribing doesn't follow a creator, so these aren't always among
+    ``following_ids``. Returns [] when the reply can't be read: the list of
+    followed accounts is still used then.
+    """
+    try:
+        data = await get_json(c, "subscriptions")
+    except Exception as e:
+        log.debug(f"Fansly subscriptions not read: {e}")
+        return []
+    items = data.get("subscriptions") if isinstance(data, dict) else data
+    out = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        account_id = item.get("accountId")
+        if account_id and str(account_id) not in out:
+            out.append(str(account_id))
+    return out
+
+
+# ------------------------------------------------------------------ lists
+
+LIST_ITEMS_LIMIT = 50
+
+
+async def my_lists(c):
+    """The signed-in account's own lists: [{id, label, itemCount, ...}].
+
+    Fansly's built-in lists (VIP, Blocked, Muted, DM Allow) aren't in this
+    reply; only lists the user made.
+    """
+    return list(await get_json(c, "lists/account?itemId=") or [])
+
+
+async def list_account_ids(c, list_id, item_count=None, limit=None):
+    """Account ids on one list (lists/itemsnew; each item's id is an account id).
+
+    Pages past the first by the last item's sortId (``before=``). Paging stops
+    when a page is short, brings no new ids, or item_count ids are found, so a
+    server that ignores the cursor can't loop.
+    """
+    limit = limit or LIST_ITEMS_LIMIT
+    out = []
+    seen = set()
+    cursor = None
+    for _ in range(MAX_PAGES):
+        path = f"lists/itemsnew?listId={list_id}&limit={limit}&sortMode=3"
+        if cursor:
+            path += f"&before={cursor}"
+        page = await get_json(c, path) or []
+        new = [str(x["id"]) for x in page if x.get("id") and str(x["id"]) not in seen]
+        seen.update(new)
+        out.extend(new)
+        if not new or len(page) < limit:
+            break
+        if item_count is not None and len(out) >= int(item_count):
+            break
+        cursor = page[-1].get("sortId") or page[-1].get("id")
+    if item_count is not None and len(out) < int(item_count):
+        log.warning(
+            f"Fansly list {list_id}: got {len(out)} of {item_count} accounts"
+        )
+    return out
+
+
+async def accounts_on_lists(c, names):
+    """Account ids on the user's lists whose label matches one of names
+    (case-insensitive), and the labels that weren't found."""
+    wanted = {str(n).strip().lower() for n in names if str(n).strip()}
+    lists = [x for x in await my_lists(c) if str(x.get("label") or "").lower() in wanted]
+    found = {str(x.get("label") or "").lower() for x in lists}
+    ids = []
+    for lst in lists:
+        for i in await list_account_ids(c, lst["id"], lst.get("itemCount")):
+            if i not in ids:
+                ids.append(i)
+    return ids, sorted(wanted - found)
 def next_address(c):
     """Send the next API calls to the API host's next address."""
     address.try_next_address(c, constants.api_url(""))
