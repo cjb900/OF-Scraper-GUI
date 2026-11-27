@@ -139,7 +139,9 @@ def test_signed_avatar_uploaded_with_the_message(posts, uploads, monkeypatch):
     assert "Avatar" not in payload["content"] and "Signature" not in payload["content"]
     assert "creator_one" in payload["content"] and "Subscription" in payload["content"]
     assert files == [("avatar0.jpeg", b"\xff\xd8jpeg", "image/jpeg")]
-    assert payload["embeds"] == [{"image": {"url": "attachment://avatar0.jpeg"}}]
+    # a plain attachment: an image embed of it showed as an empty box in the
+    # Discord desktop/web client (tested in Zen); the attachment shows everywhere
+    assert "embeds" not in payload
     assert payload["attachments"] == [{"id": 0, "filename": "avatar0.jpeg"}]
     assert payload["username"] == "OF-Scraper · OnlyFans"
 

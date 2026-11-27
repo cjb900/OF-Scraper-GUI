@@ -357,12 +357,14 @@ class DiscordHandler(logging.Handler):
             self._post({"content": mention})
 
     def _post_files(self, payload, files):
-        """``payload`` with the pictures uploaded and shown as image embeds."""
+        """``payload`` with the pictures uploaded as attachments, which every
+        Discord client shows inline. An image embed pointing at the
+        attachment (attachment://) showed as an empty box in the desktop and
+        web clients (Firefox-based browsers), only the phone app drew it."""
         if not self._url:
             return
         payload = dict(payload)
         payload.setdefault("username", webhook_name())
-        payload["embeds"] = [{"image": {"url": f"attachment://{name}"}} for name, _, _ in files]
         payload["attachments"] = [{"id": i, "filename": name} for i, (name, _, _) in enumerate(files)]
         status = post_with_files(self._url, payload, files)
         if status is not None and status not in {200, 204}:
