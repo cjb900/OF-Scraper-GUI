@@ -56,8 +56,8 @@ def test_saving_unchanged_keeps_spaces_zeros_and_lists(page):
     page._save_config()
     out = page.saved[-1]
     assert out["file_options"]["space_replacer"] == " "
-    assert out["content_filter_options"]["file_size_max"] in (0, "0")
-    assert out["content_filter_options"]["file_size_min"] in (0, "0")
+    assert out["content_filter_options"]["file_size_max"] == 0
+    assert out["content_filter_options"]["file_size_min"] == 0
     assert out["advanced_options"]["default_black_list"] == []
 
 

@@ -139,6 +139,42 @@ def direct_url(media):
     return None
 
 
+# the longest side of a picture shown rather than saved (Discord, the model list)
+PREVIEW_MAX_SIDE = 1024
+
+
+def preview_url(media, max_side=PREVIEW_MAX_SIDE):
+    """A picture's link for showing it: its own file when that is small
+    enough, else its largest variant (Fansly's smaller copies) that is, else
+    its own file. An avatar's original can be a full-size photo: Discord's
+    desktop and web clients showed an empty box for it, its phone app the
+    picture. Downloads keep the original (profile_items)."""
+    if not isinstance(media, dict):
+        return None
+    own = direct_url(media)
+    try:
+        if own and max(int(media.get("width") or 0), int(media.get("height") or 0)) in range(1, max_side + 1):
+            return own
+    except (TypeError, ValueError):
+        pass
+    best = None
+    for variant in media.get("variants") or []:
+        if not isinstance(variant, dict):
+            continue
+        if variant.get("mimetype") and media_type(variant.get("mimetype")) != "photo":
+            continue
+        try:
+            w, h = int(variant.get("width") or 0), int(variant.get("height") or 0)
+        except (TypeError, ValueError):
+            continue
+        url = direct_url(variant)
+        if not url or not w or not h or max(w, h) > max_side:
+            continue
+        if best is None or w * h > best[0]:
+            best = (w * h, url)
+    return best[1] if best else own
+
+
 def file_url(media):
     """The item's URL: for a video, its largest MP4 (its own or a variant's),
     else its best HLS or DASH stream; for anything else, its own file.
@@ -571,7 +607,8 @@ def model(account):
         "id": int(account["id"]),
         "username": account.get("username"),
         "name": account.get("displayName") or account.get("username"),
-        "avatar": direct_url(avatar) if avatar else None,
+        # shown, not saved: a display-size copy (preview_url)
+        "avatar": preview_url(avatar) if avatar else None,
         "header": direct_url(header) if header else None,
         "currentSubscribePrice": (price or 0) / 1000,
         "subscribePrice": (price or 0) / 1000,

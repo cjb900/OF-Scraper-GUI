@@ -1585,7 +1585,12 @@ class ConfigPage(QWidget):
                 w = self._widgets.get(k)
                 if w:
                     # an empty box is no limit: 0, as the setting stores it
-                    set_nested(config, "content_filter_options", k, w.text().strip() or 0)
+                    text = w.text().strip()
+                    # a plain number stays a number (bytes), "500MB" stays text
+                    set_nested(
+                        config, "content_filter_options", k,
+                        int(text) if text.isdigit() else (text or 0),
+                    )
             for k in ["length_max", "length_min"]:
                 w = self._widgets.get(k)
                 if w:
