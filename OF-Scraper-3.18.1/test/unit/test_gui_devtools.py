@@ -338,3 +338,99 @@ def test_the_payload_matches_the_source(patch_mod):
     assert sorted(zf.namelist()) == sorted(patch_mod.DEV_FILES)
     for name in zf.namelist():
         assert zf.read(name) == (src / name).read_bytes(), name
+
+
+# --- secrets never leave the GUI (v508) -------------------------------------------------------
+
+COOKIE = "sess-cookie-value-0123456789abcdef"
+WEBHOOK = "https://discord.com/api/webhooks/1243/abcdefTOKEN"
+
+
+class AuthPage(QtWidgets.QWidget):
+    """Named like the real Authentication page (auth_dialog.AuthPage)."""
+
+    def __init__(self):
+        super().__init__()
+        lay = QtWidgets.QFormLayout(self)
+        self.sess = QtWidgets.QLineEdit(COOKIE)
+        self.agent = QtWidgets.QLineEdit("Mozilla/5.0")
+        lay.addRow("sess", self.sess)
+        lay.addRow("user agent", self.agent)
+
+
+@pytest.fixture
+def with_secrets(running):
+    window, control = running
+    auth = AuthPage()
+    window._pages["auth"] = auth
+    window.stack.addWidget(auth)
+    config = window._pages["config"]
+    form = QtWidgets.QFormLayout(config)
+    window.webhook = QtWidgets.QLineEdit(WEBHOOK)
+    window.webhook.setPlaceholderText("https://discord.com/api/webhooks/...")
+    window.password = QtWidgets.QLineEdit("hunter2")
+    form.addRow("Discord Webhook URL", window.webhook)
+    form.addRow("Password", window.password)
+    window.plain = QtWidgets.QLineEdit("ordinary value")
+    form.addRow("Download limit", window.plain)
+    return window, control
+
+
+def _controls_text(control):
+    return _text(_tool(control, "list_controls", limit=500))
+
+
+def test_login_fields_are_masked(with_secrets):
+    window, control = with_secrets
+    _tool(control, "navigate", page="auth")
+    listed = _controls_text(control)
+    assert COOKIE not in listed and "Mozilla" not in listed
+    assert f"set ({len(COOKIE)} characters)" in listed
+    assert '"secret": true' in listed
+
+
+def test_webhook_and_password_fields_are_masked_elsewhere(with_secrets):
+    window, control = with_secrets
+    _tool(control, "navigate", page="config")
+    listed = _controls_text(control)
+    assert WEBHOOK not in listed and "hunter2" not in listed
+    assert "ordinary value" in listed  # other fields still read
+    handle = next(
+        c["handle"] for c in json.loads(listed)["controls"] if c.get("text") == f"set ({len(WEBHOOK)} characters)"
+    )
+    assert WEBHOOK not in _text(_tool(control, "read", control=handle))
+
+
+def test_wait_for_cant_probe_a_secret(with_secrets):
+    window, control = with_secrets
+    _tool(control, "navigate", page="config")
+    found = json.loads(_text(_tool(control, "wait_for", text="abcdefTOKEN", timeout=0.5)))
+    assert found["done"] is False
+
+
+def test_no_screenshot_of_secrets(with_secrets):
+    window, control = with_secrets
+    control.values["screenshots"] = True
+    _tool(control, "navigate", page="auth")
+    refused = _tool(control, "screenshot")
+    assert refused["isError"] and "Authentication page" in _text(refused)
+    _tool(control, "navigate", page="config")
+    refused = _tool(control, "screenshot")
+    assert refused["isError"] and "plain text" in _text(refused)
+    window.webhook.setEchoMode(QtWidgets.QLineEdit.EchoMode.Password)
+    window.password.setEchoMode(QtWidgets.QLineEdit.EchoMode.Password)
+    assert _tool(control, "screenshot")["content"][0]["type"] == "image"
+
+
+def test_the_developer_panels_token_is_masked(running):
+    from ofscraper.gui.devtools.dialog import DeveloperDialog
+
+    window, control = running
+    dialog = DeveloperDialog(control, window)
+    dialog.token.setEchoMode(QtWidgets.QLineEdit.EchoMode.Normal)  # "Show"
+    dialog.show()
+    try:
+        listed = _controls_text(control)
+        assert control.values["token"] not in listed
+    finally:
+        dialog.close()

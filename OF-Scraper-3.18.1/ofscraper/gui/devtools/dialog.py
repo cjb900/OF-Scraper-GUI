@@ -62,6 +62,7 @@ class DeveloperDialog(QDialog):
         form.addRow(self.account)
 
         self.token = QLineEdit(values["token"])
+        self.token.setObjectName("devtools_token")  # masked for test control
         self.token.setReadOnly(True)
         self.token.setEchoMode(QLineEdit.EchoMode.Password)
         show = QPushButton("Show")
@@ -83,6 +84,7 @@ class DeveloperDialog(QDialog):
 
         layout.addWidget(QLabel("Add it to Claude Code (run once in a terminal):"))
         self.command = QLineEdit()
+        self.command.setObjectName("devtools_token_command")  # holds the token
         self.command.setReadOnly(True)
         copy = QPushButton("Copy")
         copy.clicked.connect(lambda: QApplication.clipboard().setText(self.command.text()))

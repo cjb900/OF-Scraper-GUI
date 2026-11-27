@@ -68,6 +68,62 @@ def _short(text, limit=MAX_TEXT) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+# login territory: the Authentication pages and the login / cookie windows
+_SECRET_AREA = re.compile(r"Auth|Login|Cookie")
+# a field named or labelled as holding a secret
+_SECRET_NAME = re.compile(
+    r"token|cookie|\bsess\b|session|password|passwd|secret|webhook|bearer|"
+    r"x-bc|api.?key|private.?key|client.?id|auth",
+    re.IGNORECASE,
+)
+_TEXT_FIELDS = (QLineEdit, QPlainTextEdit, QTextEdit)
+
+
+def _form_label(w) -> str:
+    """The text of the label a form layout shows beside this field."""
+    from PyQt6.QtWidgets import QFormLayout
+
+    parent = w.parentWidget()
+    while parent is not None:
+        layout = parent.layout()
+        if isinstance(layout, QFormLayout):
+            label = layout.labelForField(w)
+            if label is not None and hasattr(label, "text"):
+                return label.text()
+        parent = parent.parentWidget()
+    return ""
+
+
+def is_secret(w) -> bool:
+    """A text field whose contents must not leave the GUI: anything on the
+    Authentication pages or in a login or cookie window, and any field named,
+    labelled or described as a token, cookie, password, webhook or key."""
+    if not isinstance(w, _TEXT_FIELDS):
+        return False
+    if isinstance(w, QLineEdit) and w.echoMode() != QLineEdit.EchoMode.Normal:
+        return True
+    node = w
+    while node is not None:
+        if _SECRET_AREA.search(type(node).__name__):
+            return True
+        node = node.parentWidget()
+    hints = " ".join(
+        str(x or "")
+        for x in (
+            w.objectName(),
+            w.toolTip(),
+            w.accessibleName(),
+            getattr(w, "placeholderText", lambda: "")(),
+            _form_label(w),
+        )
+    )
+    return bool(_SECRET_NAME.search(hints))
+
+
+def _masked(text) -> str:
+    return f"set ({len(text)} characters)" if text else "empty"
+
+
 def _kind(w) -> str | None:
     for name, classes in _KINDS.items():
         if isinstance(w, classes):
@@ -76,11 +132,14 @@ def _kind(w) -> str | None:
 
 
 def _label(w) -> str:
-    """What a person would read on the control."""
+    """What a person would read on the control (a secret only as "set (N
+    characters)": see is_secret)."""
+    if is_secret(w):
+        return _masked(w.text() if isinstance(w, QLineEdit) else w.toPlainText())
     if isinstance(w, QAbstractButton):
         return w.text().replace("&", "")
     if isinstance(w, QLineEdit):
-        return w.text() if w.echoMode() == QLineEdit.EchoMode.Normal else "••••"
+        return w.text()
     if isinstance(w, QComboBox):
         return w.currentText()
     if isinstance(w, QAbstractSpinBox):
@@ -204,6 +263,8 @@ class GuiTools:
         }
         if w.objectName():
             item["name"] = w.objectName()
+        if is_secret(w):
+            item["secret"] = True
         if not w.isEnabled():
             item["enabled"] = False
         if isinstance(w, QAbstractButton) and w.isCheckable():
@@ -290,6 +351,8 @@ class GuiTools:
             visible = sum(1 for r in range(model.rowCount()) if not w.isRowHidden(r))
             return {"total_rows": model.rowCount(), "visible_rows": visible, "offset": offset, "rows": rows}
         if isinstance(w, (QPlainTextEdit, QTextEdit)):
+            if is_secret(w):
+                return {"secret": True, "text": _label(w)}
             lines = w.toPlainText().splitlines()
             return {"lines": len(lines), "text": "\n".join(lines[-max(1, int(max_rows)):])}
         if isinstance(w, QListWidget):
@@ -341,6 +404,9 @@ class GuiTools:
                 raise ToolError(f"no open window is called {window!r}")
         else:
             target = self._windows()[0]
+        reason = self._secret_on_screen(target)
+        if reason:
+            raise ToolError(f"No screenshot: {reason}. Use list_controls or read instead.")
         pixmap = target.grab()
         if pixmap.width() > max_width:
             pixmap = pixmap.scaledToWidth(int(max_width), Qt.TransformationMode.SmoothTransformation)
@@ -354,6 +420,24 @@ class GuiTools:
             "title": _window_title(target),
             "size": f"{pixmap.width()}x{pixmap.height()}",
         }
+
+    def _secret_on_screen(self, top):
+        """Why a screenshot of this window would show a secret, or ""."""
+        pages = getattr(self.window, "_pages", {}) or {}
+        if top is self.window and hasattr(self.window, "stack"):
+            if self.window.stack.currentWidget() is pages.get("auth"):
+                return "the Authentication page is open"
+        if _SECRET_AREA.search(type(top).__name__):
+            return "this is a login window"
+        for w in top.findChildren(QWidget):
+            if not (_alive(w) and w.isVisible() and isinstance(w, _TEXT_FIELDS) and is_secret(w)):
+                continue
+            if isinstance(w, QLineEdit) and w.echoMode() != QLineEdit.EchoMode.Normal:
+                continue  # shown as dots
+            text = w.text() if isinstance(w, QLineEdit) else w.toPlainText()
+            if text:
+                return "a token, cookie, password or webhook is shown in plain text"
+        return ""
 
     # --- acting (queued; see the module docstring) -------------------------------
 
