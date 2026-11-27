@@ -1232,7 +1232,15 @@ class ConfigPage(QWidget):
                     if (key == "custom_values" or key.startswith("ow_")) and isinstance(val, (dict, list)):
                         widget.setText(json.dumps(val) if val else "")
                     else:
-                        text = str(val).strip() if val else ""
+                        # 0 and a lone space are values: a space replacer of " "
+                        # or a size limit of 0 showed as empty, and saving then
+                        # wrote "" over them
+                        if val is None or val == [] or val == {}:
+                            text = ""
+                        elif key == "space_replacer":
+                            text = str(val)
+                        else:
+                            text = str(val).strip()
                         if key in _FS_PATH_WIDGET_KEYS and text:
                             text = _display_fs_path(text)
                         widget.setText(text)
@@ -1576,7 +1584,8 @@ class ConfigPage(QWidget):
             for k in ["file_size_max", "file_size_min"]:
                 w = self._widgets.get(k)
                 if w:
-                    set_nested(config, "content_filter_options", k, w.text())
+                    # an empty box is no limit: 0, as the setting stores it
+                    set_nested(config, "content_filter_options", k, w.text().strip() or 0)
             for k in ["length_max", "length_min"]:
                 w = self._widgets.get(k)
                 if w:
@@ -1672,6 +1681,11 @@ class ConfigPage(QWidget):
                         except Exception:
                             pass
                         val = _display_fs_path(val)
+                    elif k in ("default_user_list", "default_black_list") and not val.strip():
+                        # an empty box keeps an empty list as a list
+                        orig = (self._config or {}).get("advanced_options", {}).get(k)
+                        if isinstance(orig, list):
+                            val = []
                     set_nested(config, "advanced_options", k, val)
 
             # Manual dynamic rules JSON (Dynamic Mode = manual)
@@ -1786,6 +1800,15 @@ class ConfigPage(QWidget):
                 invalidate_auth_cache()
             except Exception:
                 pass
+            # the run's settings hold the dynamic mode (and the rest of
+            # config.json) as they were when a scrape last started: Test
+            # Credentials signed with the old mode until then
+            try:
+                import ofscraper.utils.settings as run_settings
+
+                run_settings.update_settings()
+            except Exception as e:
+                log.debug(f"[GUI] settings not refreshed after save: {e}")
             try:
                 from ofscraper.utils.of_env.of_env import (
                     clear_api_endpoint_overrides_cache,
