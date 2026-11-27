@@ -13,12 +13,47 @@ def check_database():
     that can't be used stops the run here with one sentence."""
     import ofscraper.db.postgres as postgres
 
+    if _gui_tab_window():
+        return  # the tab window never opens the database; each site's window checks
     if postgres.enabled():
-        version = postgres.POSTGRES.check()
+        try:
+            version = postgres.POSTGRES.check()
+        except postgres.PostgresUnavailable as e:
+            if not _gui_run():
+                raise
+            # the GUI is where the address is fixed (Manage DBs > PostgreSQL)
+            # or PostgreSQL turned off: it opens, and a scrape reports the
+            # same reason until the server can be used
+            logging.getLogger("shared").warning(
+                f"{e} The GUI opens anyway: start the server, or change or turn off "
+                "PostgreSQL under Manage DBs > PostgreSQL."
+            )
+            return
         logging.getLogger("shared").info(
             f"Using the PostgreSQL database at {postgres.describe()} "
             f"(server version {version})"
         )
+
+
+def _gui_run() -> bool:
+    try:
+        import ofscraper.utils.settings as settings
+
+        return bool(getattr(settings.get_args(), "gui", False))
+    except Exception:
+        return False
+
+
+def _gui_tab_window() -> bool:
+    """The GUI's tab window: it only starts each site's GUI process."""
+    if not _gui_run():
+        return False
+    try:
+        from ofscraper.gui import site_context
+
+        return not site_context.is_child() and site_context.tabs_enabled()
+    except Exception:
+        return False
 
 
 def check_dry_run():

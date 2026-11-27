@@ -134,6 +134,8 @@ def patch_python() -> list[str]:
 HELPER = r'''
 import os, subprocess, sys, time
 pid = int(sys.argv[1]); cmd = sys.argv[2:]
+# the patch script; options such as --testing may follow it
+script = next((c for c in reversed(cmd) if c.lower().endswith(".py")), cmd[-1])
 
 def alive(p):
     if os.name == "nt":
@@ -163,9 +165,9 @@ while alive(pid):
         sys.exit(1)
     time.sleep(0.5)
 time.sleep(1)
-print("Running " + cmd[-1], flush=True)
+print("Running " + " ".join(cmd[cmd.index(script):]), flush=True)
 print()
-code = subprocess.call(cmd, cwd=os.path.dirname(cmd[-1]) or None)
+code = subprocess.call(cmd, cwd=os.path.dirname(script) or None)
 print()
 if code == 0:
     print("The patch script finished. If you started the GUI, it keeps running when this window closes.")
@@ -216,7 +218,11 @@ def launch_after_exit(script: pathlib.Path, wait_pid: int | None = None) -> None
     # a file, not -c: terminal programs can mangle a long multi-line argument
     helper = pathlib.Path(script).parent / "run_gui_update.py"
     helper.write_text(HELPER, encoding="utf-8")
-    inner = [*python, str(helper), str(wait_pid or gui_pid()), *python, str(script)]
+    from ofscraper.gui.utils import devtools_loader
+
+    # a testing install stays one (the developer tools are kept)
+    inner = [*python, str(helper), str(wait_pid or gui_pid()), *python, str(script),
+             *devtools_loader.patch_args()]
     # Update now can run inside a tab: the patch, and the GUI it starts, must
     # not inherit the tab's variables, or the GUI opens as a frameless tab
     from ofscraper.gui import site_context
@@ -243,8 +249,11 @@ def launch_after_exit(script: pathlib.Path, wait_pid: int | None = None) -> None
 
 
 def manual_command(script: pathlib.Path) -> str:
+    from ofscraper.gui.utils import devtools_loader
+
     python = patch_python() or ["python"]
-    return " ".join(f'"{p}"' if " " in p else p for p in [*python, str(script)])
+    parts = [*python, str(script), *devtools_loader.patch_args()]
+    return " ".join(f'"{p}"' if " " in p else p for p in parts)
 
 
 # --- the GUI side --------------------------------------------------------------------

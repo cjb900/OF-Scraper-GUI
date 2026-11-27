@@ -250,7 +250,7 @@ def test_main_force_reinstalls_ofscraper_then_all_gui_deps_then_patches(main_env
     assert log == [
         ("install", method, {"force": True, "keep_gui_deps": False}),
         ("deps", method, {"force": True}),
-        ("apply", {"target": None, "backup_dir": None, "dry_run": False}),
+        ("apply", {"target": None, "backup_dir": None, "dry_run": False, "testing": False}),
     ]
 
 

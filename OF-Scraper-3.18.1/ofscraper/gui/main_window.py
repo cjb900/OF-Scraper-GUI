@@ -608,6 +608,11 @@ class MainWindow(QMainWindow):
         self._privacy_btn.clicked.connect(self._toggle_privacy_mode)
         nav_layout.addWidget(self._privacy_btn)
 
+        # Developer tools: a testing install only (patch --testing)
+        from ofscraper.gui.utils import devtools_loader
+
+        devtools_loader.install(self, nav_layout, _style_sidebar_util_btn)
+
         # Version button (click → About). Same spacing as the toggles above —
         # no extra spacer so the stack stays uniform.
         try:

@@ -91,6 +91,30 @@ new_patch, _n = re.subn(
 if not _n:
     raise RuntimeError("ZIP_B64 replacement had no effect — pattern not found")
 
+# the developer tools, written only with --testing
+_dm = re.search(r'^DEV_FILES\s*=\s*(\[.*?\])', new_patch, re.MULTILINE | re.DOTALL)
+if _dm:
+    dev_files = ast.literal_eval(_dm.group(1))
+    dev_buf = io.BytesIO()
+    with zipfile.ZipFile(dev_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for rel_path in dev_files:
+            abs_path = os.path.join(SRC_DIR, rel_path.replace("/", os.sep))
+            if not os.path.isfile(abs_path):
+                raise FileNotFoundError(f"Missing developer file: {abs_path}")
+            with open(abs_path, "rb") as fh:
+                zf.writestr(rel_path, fh.read())
+    dev_b64 = base64.b64encode(dev_buf.getvalue()).decode("ascii")
+    new_patch, _n = re.subn(
+        r'^DEV_ZIP_B64\s*=\s*["\'][^"\']*["\']',
+        lambda _m: f'DEV_ZIP_B64 = "{dev_b64}"',
+        new_patch,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if not _n:
+        raise RuntimeError("DEV_ZIP_B64 replacement had no effect — pattern not found")
+    print(f"Developer tools: {len(dev_files)} files, {len(dev_buf.getvalue()):,} bytes")
+
 with open(PATCH_FILE, "w", encoding="utf-8") as f:
     f.write(new_patch)
 

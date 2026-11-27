@@ -54,3 +54,44 @@ def test_closing_the_gui_exits_0_after_a_partial_scrape(monkeypatch):
     assert exit_info.value.code == 0
 
 
+
+
+@pytest.mark.parametrize("gui", [True, False])
+def test_an_unreachable_database_stops_the_cli_but_not_the_gui(monkeypatch, caplog, gui):
+    # 3.18.1 checks PostgreSQL before any work; the GUI is where the address
+    # is fixed or PostgreSQL turned off, so it has to open
+    from types import SimpleNamespace
+
+    import ofscraper.db.postgres as postgres
+    import ofscraper.utils.settings as settings
+
+    def unreachable():
+        raise postgres.PostgresUnavailable("Can't use the PostgreSQL database at x: the server can't be reached.")
+
+    monkeypatch.setattr(postgres, "enabled", lambda: True)
+    monkeypatch.setattr(postgres, "POSTGRES", SimpleNamespace(check=unreachable))
+    monkeypatch.setattr(settings, "get_args", lambda *a, **k: SimpleNamespace(gui=gui))
+    from ofscraper.gui import site_context
+
+    monkeypatch.setattr(site_context, "is_child", lambda: True)  # a site's window
+    if gui:
+        with caplog.at_level(logging.WARNING, logger="shared"):
+            run.check_database()
+        assert "The GUI opens anyway" in caplog.text
+    else:
+        with pytest.raises(postgres.PostgresUnavailable):
+            run.check_database()
+
+
+def test_the_tab_window_doesnt_check_the_database(monkeypatch):
+    from types import SimpleNamespace
+
+    import ofscraper.db.postgres as postgres
+    import ofscraper.utils.settings as settings
+    from ofscraper.gui import site_context
+
+    monkeypatch.setattr(settings, "get_args", lambda *a, **k: SimpleNamespace(gui=True))
+    monkeypatch.setattr(site_context, "is_child", lambda: False)
+    monkeypatch.setattr(site_context, "tabs_enabled", lambda: True)
+    monkeypatch.setattr(postgres, "enabled", lambda: pytest.fail("checked the database"))
+    run.check_database()

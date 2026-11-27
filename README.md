@@ -145,6 +145,7 @@ One container can scrape both sites at once: set `ONLYFANS_GUI_ARGS` and `FANSLY
 | [GUI guide](docs/gui-guide.md) | Every page and feature, in the order you use them |
 | [Docker](docs/docker.md) | Running the GUI or the CLI daemon in a container |
 | [PostgreSQL](docs/postgresql.md) | Setting up a PostgreSQL server (Docker Compose example) for 3.18.0's optional database |
+| [Testing tools](docs/testing-tools.md) | `--testing` installs: test control, an MCP server for driving the GUI in tests |
 | [Plugins](docs/plugins.md) | The plugin system, where to get the plugins, and each plugin's setup |
 | [Versions](docs/versions.md) | Which features each patch version has |
 | [Troubleshooting](docs/troubleshooting.md) | Login, DRM keys, FFmpeg, lost files, crashes |

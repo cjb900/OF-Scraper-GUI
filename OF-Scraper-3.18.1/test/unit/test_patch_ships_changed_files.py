@@ -43,10 +43,27 @@ def _patch_files():
     return ast.literal_eval(re.search(r"^FILES = (\[.*\])$", text, re.M).group(1))
 
 
+def _dev_files():
+    text = (ROOT / "patch_ofscraper_3.18.1_gui.py").read_text(encoding="utf-8")
+    return ast.literal_eval(re.search(r"^DEV_FILES = (\[.*\])$", text, re.M).group(1))
+
+
 def test_every_changed_scraper_file_is_on_the_patch_list():
-    files = set(_patch_files())
+    # the developer tools (--testing) are listed apart, in DEV_FILES
+    files = set(_patch_files()) | set(_dev_files())
     missing = [f for f in _changed_files() if f not in files]
     assert missing == []
+
+
+def test_the_developer_tools_are_listed_apart():
+    dev = _dev_files()
+    assert dev and all(f.startswith("gui/devtools/") for f in dev)
+    assert not set(dev) & set(_patch_files())
+    on_disk = sorted(
+        str(p.relative_to(ROOT / "ofscraper")).replace("\\", "/")
+        for p in (ROOT / "ofscraper" / "gui" / "devtools").glob("*.py")
+    )
+    assert sorted(dev) == on_disk
 
 
 def test_file_count_matches_the_list():

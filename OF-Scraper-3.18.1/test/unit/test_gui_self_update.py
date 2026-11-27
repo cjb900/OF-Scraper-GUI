@@ -154,6 +154,10 @@ def test_launch_opens_a_console_that_waits(monkeypatch, tmp_path, system):
     script = tmp_path / "patch_ofscraper_3.17.1_gui.py"
     script.write_text(GOOD)
     calls = []
+    # a normal install (this source tree has the --testing developer tools)
+    from ofscraper.gui.utils import devtools_loader
+
+    monkeypatch.setattr(devtools_loader, "available", lambda: False)
     monkeypatch.setattr(su, "patch_python", lambda: ["/py"])
     monkeypatch.setattr(su.platform, "system", lambda: system)
     monkeypatch.setattr(su.shutil, "which", lambda name: "/usr/bin/xterm" if name == "xterm" else None)
