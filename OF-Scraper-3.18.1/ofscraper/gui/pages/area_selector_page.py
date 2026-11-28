@@ -1133,8 +1133,23 @@ class AreaSelectorPage(QWidget):
         self._pending_model_load = False
         if not self._current_actions:
             return
-        if self._models_loaded or self._models_loading:
+        if self._models_loading:
             return
+        if self._models_loaded:
+            # Back to the first page and Next again: _on_action_selected
+            # showed "Waiting to load models" and turned Next off, and a
+            # loaded page stayed like that (h12). The same list keeps the
+            # models; another list (or none) loads its creators
+            if sorted(self._get_active_userlist()) == getattr(self, "_models_loaded_for", None):
+                try:
+                    self.model_loading_label.setText(
+                        f"Models loaded: {self._loaded_model_count}"
+                    )
+                    self.next_btn.setEnabled(True)
+                except RuntimeError:
+                    pass
+                return
+            self._models_loaded = False
         self._start_model_load()
 
     def _on_rescrape_toggled(self, checked):
@@ -1260,6 +1275,7 @@ class AreaSelectorPage(QWidget):
             pass
 
         userlist = self._get_active_userlist()
+        self._models_loaded_for = sorted(userlist)
         load_gen = self._models_load_gen
 
         def _job():
