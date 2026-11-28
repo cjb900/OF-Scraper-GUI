@@ -67,3 +67,25 @@ def test_a_load_already_running_is_left_alone():
     page._models_loading = True
     page.start_pending_model_load()
     assert page.loads == 0
+
+
+def test_select_models_shows_the_creators_loaded_since():
+    # the Select Models list kept the first creators it showed
+    from types import SimpleNamespace
+
+    from ofscraper.gui.pages.model_selector_page import ModelSelectorPage
+
+    class _Selector:
+        _manager_names = ModelSelectorPage._manager_names
+
+        def __init__(self, shown, loaded):
+            self._all_models = {n: object() for n in shown}
+            models = [SimpleNamespace(name=n) for n in loaded]
+            self.manager = SimpleNamespace(model_manager=SimpleNamespace(all_subs_obj=models))
+
+    page = _Selector(["a", "b", "c"], ["a", "b", "c", "d"])
+    assert page._manager_names() != set(page._all_models)
+    page = _Selector(["a", "b"], ["b", "a"])
+    assert page._manager_names() == set(page._all_models)
+    src = __import__("inspect").getsource(ModelSelectorPage.showEvent)
+    assert "self._manager_names() != set(self._all_models)" in src

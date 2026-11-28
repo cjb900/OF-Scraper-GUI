@@ -439,9 +439,18 @@ class ModelSelectorPage(QWidget):
 
     def showEvent(self, event):
         super().showEvent(event)
-        # Populate from manager if not already populated
-        if not self._all_models:
+        # Populate from the manager when empty, or when the Areas page has
+        # loaded other creators since (another My lists filter): the list
+        # kept the first creators it showed (h12)
+        if not self._all_models or self._manager_names() != set(self._all_models):
             self.populate_from_manager()
+
+    def _manager_names(self):
+        try:
+            models = getattr(self.manager.model_manager, "all_subs_obj", None) or []
+            return {m.name for m in models}
+        except Exception:
+            return set(self._all_models)
 
     def populate_from_manager(self):
         """Populate list from already-fetched manager state (no API calls)."""
