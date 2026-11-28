@@ -6,8 +6,9 @@ services:
       args:
         # Which GUI patch version to use at build time.
         # Must match one of the patch_ofscraper_X.X.X_gui.py files in the repo root.
-        # Available: 3.12.9, 3.14.3, 3.14.5, 3.14.7, 3.17.1 (3.17.1 has the Fansly tab)
-        GUI_PATCH_VERSION: "3.17.1"
+        # Available: 3.12.9, 3.14.3, 3.14.5, 3.14.7, 3.17.1, 3.18.0, 3.18.1
+        # (3.17.1 and later have the Fansly tab; 3.18.0 and later can use PostgreSQL)
+        GUI_PATCH_VERSION: "3.18.1"
     container_name: ofscraper-gui
     environment:
       # Optional: set your timezone (examples: America/New_York, Europe/London, UTC)
@@ -29,7 +30,7 @@ services:
       # Leave blank (or remove) to open the GUI without auto-starting a scrape.
       # Example: --site onlyfans --daemon 120 --username ALL -ts --posts all --discord low
       - GUI_ARGS=
-      # Start BOTH sites at once (3.17.1): each variable that is set starts that
+      # Start BOTH sites at once (3.17.1 and later): each variable that is set starts that
       # site's tab with its own scrape and its own daemon timer. When either is
       # set, GUI_ARGS is not used. Blank = that site waits for a click in noVNC.
       # Fansly: -ts / --sub-status active keeps only paid subscriptions; creators
@@ -45,6 +46,11 @@ services:
       #   docker stop shuts the daemon down cleanly;
       #   "docker kill --signal=USR1 ofscraper-gui" starts the next run now.
       - MODE=gui
+      # Optional PostgreSQL database (3.18.0 and later; the image has the driver).
+      # Blank or removed = the usual user_data.db files. A connection saved in
+      # the GUI (Manage DBs -> PostgreSQL) replaces this one. See docs/postgresql.md.
+      # Example: postgresql://user:password@host:5432/database
+      # - OFSC_DATABASE_URL=
       # CLI args for MODE=cli.
       # Example: --daemon 120 --username ALL --posts all --action download
       - CLI_ARGS=

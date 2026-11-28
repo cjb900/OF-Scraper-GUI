@@ -14,7 +14,7 @@ Run the **patched GUI** on a machine without a desktop. You open the GUI from an
 
 ## What you get
 
-- OF-Scraper installed and patched with the GUI (default **3.17.1**, with OnlyFans and Fansly tabs)
+- OF-Scraper installed and patched with the GUI (default **3.18.1**, with OnlyFans and Fansly tabs)
 - A virtual display with a built-in VNC server (TigerVNC) and a small window manager
 - **The desktop resizes to fit your browser window**, and the GUI stays maximized in it
 - **noVNC** on port **6699** (browser) and raw **VNC** on port **5900**, with an optional password (`VNC_PASSWORD`)
@@ -34,10 +34,10 @@ OF-Scraper-GUI/                          ← run all docker compose commands her
 ├── docker/
 │   ├── Dockerfile
 │   └── entrypoint.sh
-└── patch_ofscraper_3.17.1_gui.py        ← the patch for the version you build (at the repo root)
+└── patch_ofscraper_3.18.1_gui.py        ← the patch for the version you build (at the repo root)
 ```
 
-The Dockerfile copies `patch_ofscraper_*_gui.py` from the **repo root**, not from `OF-Scraper-3.17.1/`. Only the patch for the version you build has to be there; keeping all of them is fine.
+The Dockerfile copies `patch_ofscraper_*_gui.py` from the **repo root**, not from `OF-Scraper-3.18.1/`. Only the patch for the version you build has to be there; keeping all of them is fine.
 
 `docker/comfyui-joycaption/` is a separate, optional stack for the JoyCaption plugin; see [Plugins](plugins.md#joycaption-tagger-joycaption_tagger).
 
@@ -188,7 +188,7 @@ Leave `GUI_ARGS` empty to just open the GUI and use it through noVNC.
 
 ## Scraping both sites at start-up (`ONLYFANS_GUI_ARGS`, `FANSLY_GUI_ARGS`)
 
-With the 3.17.1 patch, one container can scrape OnlyFans and Fansly at the same time. Each variable takes the same flags as `GUI_ARGS`, for that site only:
+With the 3.17.1 patch or later, one container can scrape OnlyFans and Fansly at the same time. Each variable takes the same flags as `GUI_ARGS`, for that site only:
 
 ```yaml
 environment:
@@ -203,7 +203,7 @@ environment:
 - **Fansly and `-ts` / `--sub-status active`:** on Fansly this keeps only creators with a paid subscription that hasn't ended. Creators you follow for free have no subscription, so they're dropped. Leave the flag out to scrape everyone you follow.
 - Discord messages say which site they come from ("OF-Scraper · OnlyFans" / "OF-Scraper · Fansly").
 
-## PostgreSQL (optional, 3.18.0)
+## PostgreSQL (optional, 3.18.0 and later)
 
 The image includes the PostgreSQL driver. To run the server itself, including next to this container in the same `docker-compose.yml`, see [PostgreSQL](postgresql.md#b-next-to-the-gui-container). Then either:
 
@@ -257,7 +257,7 @@ docker compose build --build-arg GUI_PATCH_VERSION=3.14.7 ofscraper-gui
 docker compose up -d --force-recreate ofscraper-gui
 ```
 
-Supported values: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.7`, `3.17.1` (default and recommended: OnlyFans and Fansly tabs). The build prints `Applied GUI patch: <id>` so you can confirm which patch went in.
+Supported values: `3.12.9`, `3.14.3`, `3.14.5`, `3.14.7`, `3.17.1`, `3.18.0`, `3.18.1` (default and recommended: OnlyFans and Fansly tabs, optional PostgreSQL). 3.17.1 and later have the Fansly tab; 3.18.0 and later can use PostgreSQL. The build prints `Applied GUI patch: <id>` so you can confirm which patch went in.
 
 ## Updating
 
@@ -305,7 +305,7 @@ The container runs as `root`, so the files it creates in your mounted folders (d
 | Symptom | What to try |
 |---|---|
 | `docker compose`: no configuration file | Run commands from the repo root (where `docker-compose.yml` is) |
-| Build fails at `COPY patch_ofscraper_…_gui.py` | The patch for `GUI_PATCH_VERSION` must be at the **repo root** (e.g. `patch_ofscraper_3.17.1_gui.py` next to `docker-compose.yml`) |
+| Build fails at `COPY patch_ofscraper_…_gui.py` | The patch for `GUI_PATCH_VERSION` must be at the **repo root** (e.g. `patch_ofscraper_3.18.1_gui.py` next to `docker-compose.yml`) |
 | Docker Desktop: can't open noVNC | Remove `network_mode: host` and restore the `ports:` block (see [Networking](#2-networking-docker-desktop-users-must-change-this)) |
 | Linux: can't open noVNC | Check that nothing else uses port 6699 and your firewall allows it; try `http://127.0.0.1:6699/` |
 | Container keeps restarting with `exec /entrypoint.sh: no such file or directory` | `docker/entrypoint.sh` has Windows line endings (copied or edited on Windows). Current images strip them during the build, and the repo's `.gitattributes` keeps git checkouts LF. With an older Dockerfile, run `sed -i 's/\r$//' docker/entrypoint.sh`, then `docker compose build ofscraper-gui` and `docker compose up -d --force-recreate ofscraper-gui` |
@@ -318,7 +318,7 @@ The container runs as `root`, so the files it creates in your mounted folders (d
 | Emoji show as empty boxes (sidebar, Live Monitor, buttons) | The image predates the emoji font: copy the new `docker/Dockerfile` and rebuild (`docker compose build ofscraper-gui`, then `docker compose up -d --force-recreate ofscraper-gui`) |
 | Black or empty noVNC screen | Wait a few seconds for the display and GUI to start; check `logging/gui-docker.log` |
 | GUI keeps restarting | It crashed; see `logging/gui-docker.log` and `gui_crash_logs/` in the config folder |
-| Patch older than v410: **Login in App Browser** says "Not Supported in Docker" | Update the patch (`GUI_PATCH_VERSION` / the root `patch_ofscraper_3.17.1_gui.py`) and rebuild the image |
+| Patch older than v410: **Login in App Browser** says "Not Supported in Docker" | Update the patch (`GUI_PATCH_VERSION` / the root `patch_ofscraper_3.18.1_gui.py`) and rebuild the image |
 | Auth works on the desktop but not in Docker | Copy the desktop `auth.json` into the config folder; Dynamic Mode / SSL Verify must match |
 | Videos stuck as `.part` | Use the image's FFmpeg (remove any host ffmpeg mount); check the CDM key paths are valid **inside** the container |
 | DRM videos skipped with "CDM files can't be used" | The key paths in Configuration → CDM don't exist inside the container; see [CDM keys](#cdm-keys-and-ffmpeg) |

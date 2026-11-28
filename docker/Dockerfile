@@ -2,7 +2,7 @@ FROM ubuntu:24.04
 
 # Build arg: which version of ofscraper + GUI patch to use.
 # Must match one of the patch_ofscraper_X.X.X_gui.py files in the repo root.
-ARG GUI_PATCH_VERSION=3.17.1
+ARG GUI_PATCH_VERSION=3.18.1
 
 ENV DEBIAN_FRONTEND=noninteractive \
     DISPLAY=:1 \
@@ -83,7 +83,7 @@ RUN pip install --no-cache-dir "playwright>=1.40.0" \
 
 # ── Copy the selected GUI patch and apply it ──────────────────────────────────
 WORKDIR /opt/ofscraper-gui
-# The patches live at the repo root (3.14.7 and 3.17.1 also have a copy
+# The patches live at the repo root (3.14.7, 3.17.1 and 3.18.1 also have a copy
 # in their OF-Scraper-X.X.X folder). Only the one being built is copied, so a
 # change to another patch doesn't invalidate this layer.
 COPY patch_ofscraper_${GUI_PATCH_VERSION}_gui.py ./
